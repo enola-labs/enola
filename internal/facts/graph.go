@@ -85,6 +85,9 @@ type graphBuilder struct {
 	// families holds, per declared node, the language families of the code that
 	// declares it (see codeFamily), for the length of the build.
 	families []uint16
+
+	// targets is targetsIn's result buffer.
+	targets []uint32
 }
 
 // idFor returns the node ID for name, assigning the next one if it is new.
@@ -420,18 +423,24 @@ func (b *graphBuilder) addEdgeID(src uint32, relKind string, tgt uint32) {
 // targetsIn resolves an edge target named from repo. A name declared in several
 // repositories is that repository's own node when repo declares it. Named from a
 // repository that does not, it could be any of them, so the edge reaches each.
+//
+// The result is the builder's scratch buffer, valid until the next call: it is read
+// once per edge, and a fresh slice per edge was an allocation per relation.
 func (b *graphBuilder) targetsIn(target, repo string) []uint32 {
 	nodes := b.g.split[target]
 	if len(nodes) == 0 {
-		return []uint32{b.idFor(target)}
+		b.targets = append(b.targets[:0], b.idFor(target))
+		return b.targets
 	}
 	if repo != "" {
 		if id, ok := b.g.ids[ScopedName(repo, target)]; ok {
-			return []uint32{id}
+			b.targets = append(b.targets[:0], id)
+			return b.targets
 		}
 	}
 	if id, ok := b.g.ids[target]; ok {
-		return append([]uint32{id}, nodes...)
+		b.targets = append(append(b.targets[:0], id), nodes...)
+		return b.targets
 	}
 	return nodes
 }
@@ -2628,6 +2637,9 @@ func SplitScoped(key string) (repo, name string) {
 // dependents. Go names its symbols by import path, so a Go name only lands here when
 // two repositories hold the same module.
 func namesInSeveralRepos(ff []Fact) map[string]bool {
+	if !severalRepos(ff) {
+		return nil
+	}
 	first := map[string]string{}
 	out := map[string]bool{}
 	for i := range ff {
@@ -2643,6 +2655,23 @@ func namesInSeveralRepos(ff []Fact) map[string]bool {
 		}
 	}
 	return out
+}
+
+// severalRepos reports whether facts of more than one repository are in ff. A
+// single repository's graph has no name to split, and needs no map of every name
+// to find that out.
+func severalRepos(ff []Fact) bool {
+	repo := ""
+	for i := range ff {
+		switch r := ff[i].Repo; {
+		case r == "" || r == repo:
+		case repo == "":
+			repo = r
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // KeyOf is the name that looks a fact's node up: its scoped name when its name is

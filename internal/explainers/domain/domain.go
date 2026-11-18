@@ -141,15 +141,12 @@ func examinedPopulations(store *facts.Store) []facts.Insight {
 // the finding is framed as a change-risk concentration rather than as something
 // to fix, the way the cycles explainer learned to frame an autoloaded cluster.
 func modelHubs(store *facts.Store) []facts.Insight {
-	return eachRepo(store, modelHubsIn)
+	return eachRepo(store, []string{facts.KindAssociation}, modelHubsIn)
 }
 
-func modelHubsIn(store *facts.Store, repo string) []facts.Insight {
+func modelHubsIn(of repoKinds) []facts.Insight {
 	inbound := map[string][]string{}
-	for _, fact := range store.ByKind(facts.KindAssociation) {
-		if fact.Repo != repo {
-			continue
-		}
+	for _, fact := range of[facts.KindAssociation] {
 		if macro, _ := fact.PropAny("macro").(string); macro == "inherits" {
 			continue
 		}
@@ -218,15 +215,12 @@ func modelHubsIn(store *facts.Store, repo string) []facts.Insight {
 // endpoint or a renamed class nobody finished renaming — both actionable, and
 // neither visible until routes carried handlers.
 func unresolvedHandlers(store *facts.Store) []facts.Insight {
-	return eachRepo(store, unresolvedHandlersIn)
+	return eachRepo(store, []string{facts.KindSymbol, facts.KindRoute}, unresolvedHandlersIn)
 }
 
-func unresolvedHandlersIn(store *facts.Store, repo string) []facts.Insight {
+func unresolvedHandlersIn(of repoKinds) []facts.Insight {
 	controllers := map[string]bool{}
-	for _, fact := range store.ByKind(facts.KindSymbol) {
-		if fact.Repo != repo {
-			continue
-		}
+	for _, fact := range of[facts.KindSymbol] {
 		if kind, _ := fact.PropAny("symbol_kind").(string); kind != facts.SymbolClass {
 			continue
 		}
@@ -237,10 +231,7 @@ func unresolvedHandlersIn(store *facts.Store, repo string) []facts.Insight {
 	}
 
 	missing := map[string][]string{}
-	for _, fact := range store.ByKind(facts.KindRoute) {
-		if fact.Repo != repo {
-			continue
-		}
+	for _, fact := range of[facts.KindRoute] {
 		handler, _ := fact.PropAny("handler").(string)
 		if handler == "" {
 			continue
@@ -319,15 +310,12 @@ func unresolvedHandlersIn(store *facts.Store, repo string) []facts.Insight {
 // an API resource and an admin resource over one table — but it is also how two
 // teams end up owning the same rows without either knowing.
 func tablesSharedAcrossNamespaces(store *facts.Store) []facts.Insight {
-	return eachRepo(store, tablesSharedIn)
+	return eachRepo(store, []string{facts.KindStorage}, tablesSharedIn)
 }
 
-func tablesSharedIn(store *facts.Store, repo string) []facts.Insight {
+func tablesSharedIn(of repoKinds) []facts.Insight {
 	byTable := map[string][]string{}
-	for _, fact := range store.ByKind(facts.KindStorage) {
-		if fact.Repo != repo {
-			continue
-		}
+	for _, fact := range of[facts.KindStorage] {
 		if kind, _ := fact.PropAny("storage_kind").(string); kind != "model" {
 			continue
 		}
@@ -644,7 +632,10 @@ func sortedSet(set map[string]bool) []string {
 // both have a User, a users table and an AccountsController, and taken together one
 // app's associations were counted toward the other's hubs, one's controllers hid the
 // other's missing ones, and one table in two apps read as shared across namespaces.
-func eachRepo(store *facts.Store, find func(*facts.Store, string) []facts.Insight) []facts.Insight {
+//
+// The kinds find reads are split by repository in one pass each: a pass over the whole
+// store per repository made the explainer grow with repositories times facts.
+func eachRepo(store *facts.Store, kinds []string, find func(repoKinds) []facts.Insight) []facts.Insight {
 	set := map[string]bool{"": true} // facts no repository label was put on
 	for _, l := range store.RepoLabels() {
 		set[l] = true
@@ -654,9 +645,23 @@ func eachRepo(store *facts.Store, find func(*facts.Store, string) []facts.Insigh
 		repos = append(repos, r)
 	}
 	sort.Strings(repos)
+	split := map[string]repoKinds{}
+	for _, r := range repos {
+		split[r] = repoKinds{}
+	}
+	for _, kind := range kinds {
+		for f := range store.OfKind(kind) {
+			if rk, ok := split[f.Repo]; ok {
+				rk[kind] = append(rk[kind], f)
+			}
+		}
+	}
 	var out []facts.Insight
 	for _, r := range repos {
-		out = append(out, find(store, r)...)
+		out = append(out, find(split[r])...)
 	}
 	return out
 }
+
+// repoKinds is one repository's facts by kind, in store order.
+type repoKinds map[string][]facts.Fact

@@ -314,11 +314,12 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		return nil
 	}
 	repos := sortedKeys(repoSet)
+	split := splitByRepo(store, repoSet)
 	results := map[string]*repoRoots{}
 	perMechanism := map[string]int{}
 	var rootCount, unresolvedRoutes, reachedCount, unreached int
 	for _, repo := range repos {
-		r := bindRepo(store, repo)
+		r := bindRepo(split[repo])
 		if r == nil {
 			continue
 		}
@@ -386,11 +387,41 @@ type repoRoots struct {
 	unresolvedRoutes, unreached int
 }
 
-func bindRepo(store *facts.Store, repo string) *repoRoots {
+// repoFacts is one repository's symbols, dependencies and routes, in store order.
+type repoFacts struct {
+	symbols, deps, routes []facts.Fact
+}
+
+// splitByRepo reads the store once for every repository in repos: a pass over the
+// whole store per repository grew with repositories times facts.
+func splitByRepo(store *facts.Store, repos map[string]bool) map[string]*repoFacts {
+	out := make(map[string]*repoFacts, len(repos))
+	for r := range repos {
+		out[r] = &repoFacts{}
+	}
+	for f := range store.OfKind(facts.KindSymbol) {
+		if rf := out[f.Repo]; rf != nil {
+			rf.symbols = append(rf.symbols, f)
+		}
+	}
+	for f := range store.OfKind(facts.KindDependency) {
+		if rf := out[f.Repo]; rf != nil {
+			rf.deps = append(rf.deps, f)
+		}
+	}
+	for f := range store.OfKind(facts.KindRoute) {
+		if rf := out[f.Repo]; rf != nil {
+			rf.routes = append(rf.routes, f)
+		}
+	}
+	return out
+}
+
+func bindRepo(in *repoFacts) *repoRoots {
 	symbols := map[string]facts.Fact{}
 	classes := map[string]*class{}
-	for _, f := range store.ByKind(facts.KindSymbol) {
-		if f.Repo != repo || f.PropString("language") != "ruby" {
+	for _, f := range in.symbols {
+		if f.PropString("language") != "ruby" {
 			continue
 		}
 		symbols[f.Name] = f
@@ -422,8 +453,8 @@ func bindRepo(store *facts.Store, repo string) *repoRoots {
 		return nil
 	}
 	resolveSuperclasses(classes)
-	for _, dep := range store.ByKind(facts.KindDependency) {
-		if dep.Repo != repo || dep.PropString("mixin_kind") == "" {
+	for _, dep := range in.deps {
+		if dep.PropString("mixin_kind") == "" {
 			continue
 		}
 		includer, module, ok := strings.Cut(dep.Name, " -> ")
@@ -438,8 +469,8 @@ func bindRepo(store *facts.Store, repo string) *repoRoots {
 	roots := map[string]string{}
 	routeTargets := map[string]string{}
 	unresolvedRoutes := 0
-	for _, route := range store.ByKind(facts.KindRoute) {
-		if route.Repo != repo || route.PropString("framework") != "rails" {
+	for _, route := range in.routes {
+		if route.PropString("framework") != "rails" {
 			continue
 		}
 		// The route's handled_by target is the action as the Rails extractor resolved
@@ -485,7 +516,7 @@ func bindRepo(store *facts.Store, repo string) *repoRoots {
 	rootFrameworkLoaded(symbols, classes, roots)
 	rootRegistryContracts(symbols, classes, roots)
 
-	adjacency := edges(store, repo, symbols, classes)
+	adjacency := edges(in, symbols, classes)
 	reached := map[string]map[string]bool{}
 	for _, mechanism := range mechanisms {
 		frontier := []string{}
@@ -786,7 +817,7 @@ func splitMember(name string) (owner, method string, singleton bool) {
 // caller's own class, the modules it includes and its superclasses, and
 // nowhere else. Building an instance runs its initialize, and building a view
 // component runs the lifecycle its render calls.
-func edges(store *facts.Store, repo string, symbols map[string]facts.Fact, classes map[string]*class) map[string][]string {
+func edges(in *repoFacts, symbols map[string]facts.Fact, classes map[string]*class) map[string][]string {
 	out := map[string][]string{}
 	add := func(source, target string) {
 		if resolved := resolve(source, target, symbols, classes); resolved != "" && resolved != source {
@@ -825,10 +856,7 @@ func edges(store *facts.Store, repo string, symbols map[string]facts.Fact, class
 			}
 		}
 	}
-	for _, f := range store.ByKind(facts.KindSymbol) {
-		if f.Repo != repo {
-			continue
-		}
+	for _, f := range in.symbols {
 		if _, ok := symbols[f.Name]; !ok {
 			continue
 		}
@@ -836,10 +864,7 @@ func edges(store *facts.Store, repo string, symbols map[string]facts.Fact, class
 			walk(f.Name, r)
 		}
 	}
-	for _, f := range store.ByKind(facts.KindDependency) {
-		if f.Repo != repo {
-			continue
-		}
+	for _, f := range in.deps {
 		source, _, ok := strings.Cut(f.Name, " -> ")
 		if !ok {
 			continue

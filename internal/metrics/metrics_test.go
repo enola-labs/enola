@@ -3,7 +3,6 @@ package metrics
 import (
 	"math"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 
@@ -1019,20 +1018,12 @@ func TestMostDependedUpon_TieIsDeterministic(t *testing.T) {
 // collectAll is collect over every repository in store, concatenated, for tests that
 // look at the packages and edges themselves.
 func collectAll(store *facts.Store) ([]pkgInput, []importEdge, []string) {
-	repoSet := map[string]bool{}
-	for f := range store.OfKind(facts.KindModule) {
-		repoSet[f.Repo] = true
-	}
-	repos := make([]string, 0, len(repoSet))
-	for r := range repoSet {
-		repos = append(repos, r)
-	}
-	sort.Strings(repos)
+	in := partition(store)
 	var pkgs []pkgInput
 	var edges []importEdge
 	var excluded []string
-	for _, r := range repos {
-		p, e, x := collect(store, r)
+	for _, r := range in.repos {
+		p, e, x := collect(in.byRepo[r], in.modulePaths)
 		pkgs, edges, excluded = append(pkgs, p...), append(edges, e...), append(excluded, x...)
 	}
 	return pkgs, edges, excluded

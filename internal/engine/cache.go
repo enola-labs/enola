@@ -3699,7 +3699,13 @@ import (
 // v645: Avro is a new FileOwner (.avdl, .avsc).
 // v646: Rego is a new FileOwner (.rego).
 // v647: Kubernetes: Istio VirtualService and DestinationRule reference Services and Gateways.
-const cacheVersion = "v647"
+// v648: Go: only a call that sets a subscription up (Register, New, Add, Create,
+// Subscribe) takes its topic as a plain string; verifying or cancelling one does not.
+// v649: a C/C++ preprocessor line (#include, #if) ends a file's leading comment
+// block, so a comment below the includes is not read as a codegen banner.
+// v650: Kotlin: an Android manifest under an examples, samples or demo directory does
+// not make the repository an Android one.
+const cacheVersion = "v650"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

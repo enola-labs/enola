@@ -234,7 +234,28 @@ func detectAndroidProject(repoPath string) bool {
 	// (`app-features/cart/impl/`). Any module's manifest says the repository is
 	// an Android one.
 	for _, g := range []string{"*/src/main/AndroidManifest.xml", "*/*/src/main/AndroidManifest.xml", "*/*/*/src/main/AndroidManifest.xml"} {
-		if m, _ := filepath.Glob(filepath.Join(repoPath, g)); len(m) > 0 {
+		m, _ := filepath.Glob(filepath.Join(repoPath, g))
+		for _, p := range m {
+			rel, err := filepath.Rel(repoPath, p)
+			if err == nil && !underSampleDir(factpath.Slash(rel)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// sampleDirs are the directories a repository keeps example apps in. An Android
+// sample beside a web product (examples/<name>/app/) makes no module of the
+// repository an Android one.
+var sampleDirs = map[string]bool{
+	"example": true, "examples": true, "sample": true, "samples": true, "demo": true, "demos": true,
+}
+
+// underSampleDir reports whether a repository-relative path lies in a sample directory.
+func underSampleDir(rel string) bool {
+	for _, seg := range strings.Split(rel, "/") {
+		if sampleDirs[strings.ToLower(seg)] {
 			return true
 		}
 	}

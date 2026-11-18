@@ -168,7 +168,7 @@ func extractKafkaOperationFacts(fset *token.FileSet, f *ast.File, relFile, pkgDi
 			if topic == "" {
 				topic, marked = carriedTopic(call, carriers, bindings, true)
 			}
-			if topic == "" && strings.Contains(name, "Subscription") {
+			if topic == "" && registersSubscription(name) {
 				// A subscription registered with its topic written out: the call's
 				// name marks it as one. An in-process bus subscribes and publishes;
 				// it does not register subscriptions.
@@ -668,6 +668,24 @@ func kafkaTopicComposite(lit *ast.CompositeLit, params map[string]int) (kafkaTop
 	}
 	// Neither side shows here: the value carries the topic to a call that does.
 	return kafkaTopicCtor{param: param}, true
+}
+
+// subscriptionVerbs are the words a call that sets a subscription up starts with.
+// A store's billing client verifies, cancels and acknowledges subscriptions with an
+// app's dotted package name, which is not a topic.
+var subscriptionVerbs = []string{"Register", "New", "Add", "Create", "Subscribe"}
+
+// registersSubscription reports whether a call's name says it sets up a subscription.
+func registersSubscription(name string) bool {
+	if !strings.Contains(name, "Subscription") {
+		return false
+	}
+	for _, v := range subscriptionVerbs {
+		if strings.HasPrefix(name, v) {
+			return true
+		}
+	}
+	return false
 }
 
 // subscriptionLiteral is the one namespaced topic a subscription call is given as a

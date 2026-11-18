@@ -138,3 +138,21 @@ func main() {
 		t.Fatalf("a service main must still publish, got %+v", got)
 	}
 }
+
+func TestKafka_BillingSubscriptionCallIsNotATopic(t *testing.T) {
+	got := kafkaTopics(t, `package controller
+
+const PlayStorePackageName = "io.example.photos"
+
+func (c *Controller) Cancel(id, token string) error {
+	return c.PlayStoreClient.CancelSubscription(ctx, PlayStorePackageName, id, token)
+}
+
+func (c *Controller) Verify(id, token string) error {
+	return c.PlayStoreClient.VerifySubscription(ctx, "io.example.photos", id, token)
+}
+`)
+	if len(got) != 0 {
+		t.Fatalf("verifying or cancelling a store subscription names no topic: %+v", got)
+	}
+}
