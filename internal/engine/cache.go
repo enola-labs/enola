@@ -3716,7 +3716,9 @@ import (
 // v655: Python: a notebook table quoted segment by segment
 // (`project.dataset`.`table`) is read whole, not as its dataset.
 // v656: dbt: an exposure's line is its own entry's, not the file's first.
-const cacheVersion = "v656"
+// v657: the warehouse-lineage binder links dbt sources, change-feed records and
+// topics to what loads them, a Go service's queried tables included.
+const cacheVersion = "v657"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
