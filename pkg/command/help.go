@@ -153,6 +153,13 @@ var helpPages = map[string]helpPage{
 		},
 		seeAlso: []string{"constraints", "plan"},
 	},
+	"constraints lint": {
+		examples: []cli.Example{
+			{Comment: "Validate the declaration and resolve every component", Command: "enola constraints lint"},
+			{Comment: "Check a draft before adopting it, without writing it", Command: "enola constraints lint --declaration draft.yaml ."},
+		},
+		seeAlso: []string{"constraints", "constraints mine"},
+	},
 	"constraints ledger": {
 		examples: []cli.Example{
 			{Comment: "Every rule beside the excuses that signed its breaches away", Command: "enola constraints ledger"},

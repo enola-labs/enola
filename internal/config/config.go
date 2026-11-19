@@ -666,6 +666,9 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parsing config %s: %w", path, err)
 	}
+	if err := refuseDeclaration(path, data); err != nil {
+		return nil, err
+	}
 
 	// Whether the key was PRESENT cannot be recovered from cfg afterwards: an
 	// absent `extractors:` leaves Default()'s list in place, and a list identical
@@ -700,6 +703,32 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("in config %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// refuseDeclaration rejects a config whose top level carries a key of the repository
+// declaration (layers:, components:, rules: and the rest). None of them is a config key,
+// so the loader used to drop them without a word: an enola-intent.yaml passed where a
+// config path goes loaded as an empty config, and `constraints lint` on it reported
+// "every declaration is valid" about rules it never read.
+func refuseDeclaration(path string, data []byte) error {
+	var top map[string]yaml.Node
+	if yaml.Unmarshal(data, &top) != nil {
+		return nil
+	}
+	var found []string
+	for _, k := range intent.DeclarationKeys() {
+		if _, ok := top[k]; ok {
+			found = append(found, k+":")
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s has %s at its top level, which belongs to a repository's "+
+		"architecture declaration (%s), not to a config. Pass the repository directory that "+
+		"holds the declaration, put it under intent: <repo label> in a cluster config, or "+
+		"lint a draft with `enola constraints lint --declaration %s <repo>`",
+		path, strings.Join(found, ", "), intent.RepoFileName, path)
 }
 
 // defaultOutputDir is where artifacts go unless output.dir says otherwise. It is

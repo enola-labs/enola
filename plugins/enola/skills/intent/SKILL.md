@@ -96,20 +96,16 @@ Intent lives in three places, and the first two use one schema:
 
 ## Checking a draft without adopting it
 
-Until the user accepts it, a draft stays out of the repository. To lint it, and see what
-each selector matches, put it in an export of the repository named like the repository:
+Until the user accepts it, a draft stays out of the repository. Lint it in place of the
+repository's declaration, with its selectors resolved against the snapshot:
 
 ```sh
-d="/tmp/enola-intent/$(basename "$PWD")"
-rm -rf "$d" && mkdir -p "$d" && git archive HEAD | tar -x -C "$d"
-cp draft.yaml "$d/enola-intent.yaml"
-enola constraints lint "$d"                  # validation; fix until it passes
-enola --generate "$d" && enola constraints lint "$d"   # then member counts
+enola constraints lint --declaration /tmp/draft.yaml .
 ```
 
-Pass the directory, not the file: given a YAML file, `enola constraints lint` reads it as
-a cluster configuration and ignores a declaration in it. An invalid declaration also makes
-`--generate` fail, which is why validation comes first.
+Fix it until it passes and every component and layer has members. Nothing is written;
+files under `enola/constraints/` are still read beside the draft. Make sure a snapshot
+exists first (`generate_snapshot`), or lint can only validate, not resolve.
 
 ## Before editing code that rules govern
 

@@ -43,7 +43,7 @@ func lintCapturing(t *testing.T, repoPath string) (string, int) {
 	os.Stdout = w
 	defer func() { os.Stdout = prev }()
 
-	count := testRunner().lintRepoDeclaration(nil, repoPath, facts.NewStore())
+	count := testRunner().lintRepoDeclaration(nil, repoPath, "", facts.NewStore())
 
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
