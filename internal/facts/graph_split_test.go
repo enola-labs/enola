@@ -158,3 +158,65 @@ func TestLanguageFamily_NameDoesNotCrossToAnotherFamily(t *testing.T) {
 		t.Fatalf("Kotlin naming a Java class lost its edge: %v", got)
 	}
 }
+
+func TestCallDoesNotLandOnABareClientPath(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		// A client path relative to its base URL is a route named by a bare word.
+		Fact{Kind: KindRoute, Name: "orders", File: "app/api/ShopApi.kt", Repo: "mobile",
+			Props: map[string]any{"role": "client", "language": "kotlin"}},
+		Fact{Kind: KindRoute, Name: "carts", File: "app/api/ShopApi.kt", Repo: "mobile",
+			Props: map[string]any{"role": "client", "language": "kotlin"}},
+		Fact{Kind: KindStorage, Name: "carts", File: "db/schema.sql", Repo: "mobile"},
+		Fact{Kind: KindRoute, Name: "/v1/orders", File: "server/routes.rb", Repo: "mobile"},
+		Fact{Kind: KindSymbol, Name: "ui.OrderList.render", File: "app/ui/OrderList.kt", Repo: "mobile",
+			Props: map[string]any{"symbol_kind": SymbolMethod, "language": "kotlin"},
+			Relations: []Relation{
+				{Kind: RelCalls, Target: "orders"},
+				{Kind: RelCalls, Target: "carts"},
+				{Kind: RelCalls, Target: "/v1/orders"},
+			}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+	if got := g.ReverseEdges("orders"); len(got) != 0 {
+		t.Errorf("a property read reached the client path `orders`: %v", got)
+	}
+	if got := g.ReverseEdges("carts"); len(got) != 1 {
+		t.Errorf("a name also declared as a table lost its edge: %v", got)
+	}
+	if got := g.ReverseEdges("/v1/orders"); len(got) != 1 {
+		t.Errorf("a path-shaped target lost its edge: %v", got)
+	}
+}
+
+func TestCallDoesNotLandOnAnotherRepositorysTable(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindStorage, Name: "parcels", File: "db/schema.sql", Repo: "depot"},
+		Fact{Kind: KindStorage, Name: "parcels", File: "db/structure.sql", Repo: "hub"},
+		Fact{Kind: KindStorage, Name: "labels", File: "db/schema.sql", Repo: "depot"},
+		Fact{Kind: KindSymbol, Name: "store.Parcels.list", File: "store/parcels.go", Repo: "depot",
+			Props:     map[string]any{"symbol_kind": SymbolMethod},
+			Relations: []Relation{{Kind: RelCalls, Target: "parcels"}, {Kind: RelCalls, Target: "labels"}}},
+		Fact{Kind: KindSymbol, Name: "ui.Tracking.render", File: "app/ui/Tracking.kt", Repo: "phone",
+			Props:     map[string]any{"symbol_kind": SymbolMethod, "language": "kotlin"},
+			Relations: []Relation{{Kind: RelCalls, Target: "parcels"}, {Kind: RelCalls, Target: "labels"}}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+	var from []string
+	for _, name := range []string{"parcels", "labels"} {
+		for _, e := range g.ReverseEdges(name) {
+			from = append(from, e.Target)
+		}
+	}
+	for _, f := range from {
+		if f == "ui.Tracking.render" {
+			t.Errorf("code in a repository declaring no such table reached another's: %v", from)
+		}
+	}
+	if !slices.Contains(from, "store.Parcels.list") {
+		t.Errorf("a query in the repository declaring the table lost its edge: %v", from)
+	}
+}

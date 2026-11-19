@@ -158,3 +158,38 @@ func TestScreens_AnActivityHostingComposeScreensIsNotOne(t *testing.T) {
 		t.Errorf("screens = %v, want ui.PlansActivity", got)
 	}
 }
+
+// A test calling the view model is no screen, even one named for the screen it
+// checks, and the walk does not climb through it; a method named for the screen it
+// opens is not one either.
+func TestScreens_TestsAndMethodsNamedForAScreenAreNotScreens(t *testing.T) {
+	server := facts.Fact{Kind: facts.KindRoute, Name: "/api/plans", Repo: "api", File: "api/routes.go",
+		Props: map[string]any{"method": "GET"}}
+	client := facts.Fact{Kind: facts.KindRoute, Name: "/api/plans", Repo: "app", File: "app/src/main/java/vm/PlansViewModel.kt",
+		Props: map[string]any{"role": "client", "method": "GET", facts.PropCaller: "vm.PlansViewModel.load",
+			facts.PropMatchedRoutes: []any{map[string]any{"repo": "api", "method": "GET", "name": "/api/plans"}}}}
+	sym := func(name, file, kind string, rels ...facts.Relation) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, File: file, Repo: "app",
+			Props: map[string]any{"language": "kotlin", "symbol_kind": kind}, Relations: rels}
+	}
+	calls := func(t string) facts.Relation { return facts.Relation{Kind: facts.RelCalls, Target: t} }
+	st := facts.NewStore()
+	st.Add(server, client,
+		sym("vm.PlansViewModel", "app/src/main/java/vm/PlansViewModel.kt", facts.SymbolClass),
+		sym("vm.PlansViewModel.load", "app/src/main/java/vm/PlansViewModel.kt", facts.SymbolMethod),
+		sym("vm.PlansViewModel.openPlanScreen", "app/src/main/java/vm/PlansViewModel.kt", facts.SymbolMethod, calls("vm.PlansViewModel.load")),
+		sym("vm.PlansViewModelTest", "app/src/test/java/vm/PlansViewModelTest.kt", facts.SymbolClass),
+		sym("vm.PlansViewModelTest.load_showsPlansScreen", "app/src/test/java/vm/PlansViewModelTest.kt", facts.SymbolMethod, calls("vm.PlansViewModel.load")),
+		sym("vm.PlansViewModelTest.helper", "app/src/test/java/vm/PlansViewModelTest.kt", facts.SymbolMethod, calls("vm.PlansViewModel.load")),
+		sym("ui.TestHostScreen", "app/src/test/java/ui/TestHostScreen.kt", facts.SymbolFunc, calls("vm.PlansViewModelTest.helper")),
+		sym("ui.PlansScreen", "app/src/main/java/ui/PlansScreen.kt", facts.SymbolFunc, calls("vm.PlansViewModel.openPlanScreen")),
+	)
+	st.BuildGraph()
+	var got []string
+	for _, s := range screensFrom(st, []facts.Fact{client}, []facts.Fact{server}) {
+		got = append(got, s.Symbol)
+	}
+	if !slices.Equal(got, []string{"ui.PlansScreen"}) {
+		t.Errorf("screens = %v, want ui.PlansScreen alone", got)
+	}
+}

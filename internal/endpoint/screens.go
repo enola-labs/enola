@@ -116,6 +116,11 @@ func screensAbove(s *facts.Store, g *facts.Graph, members map[string][]string, s
 				out = append(out, f)
 				return
 			}
+			// A test calls the view model it tests, and is nothing a user navigates
+			// through: the walk goes on only through code the application runs.
+			if testOnly(s, n) {
+				return
+			}
 			next = append(next, n)
 		}
 		for _, n := range frontier {
@@ -184,9 +189,18 @@ func screenFact(s *facts.Store, name string) (facts.Fact, bool) {
 // the walk stops at the nearest screen, so a screen's own components never stand in
 // for it unless they are named as screens.
 func isScreen(f facts.Fact) bool {
+	if facts.IsTestPath(f.File) {
+		return false
+	}
 	last := f.Name[strings.LastIndexAny(f.Name, ".#")+1:]
 	switch f.PropString("language") {
 	case "kotlin", "java":
+		// A method is never the screen, whatever it is called: navigateToProfileScreen
+		// opens one, and a test named for the screen it checks is not one either. A
+		// method reached by the walk counts through its owner (see screenFact).
+		if f.PropString("symbol_kind") == facts.SymbolMethod {
+			return false
+		}
 		return strings.HasSuffix(last, "Screen") || strings.HasSuffix(last, "Activity") || strings.HasSuffix(last, "Fragment")
 	case "swift":
 		switch f.PropString("symbol_kind") {
@@ -203,6 +217,20 @@ func isScreen(f facts.Fact) bool {
 		return strings.HasSuffix(last, "View") && strings.Contains("/"+path.Dir(f.File)+"/", "/Screens/")
 	}
 	return false
+}
+
+// testOnly reports whether every declaration of name is test code.
+func testOnly(s *facts.Store, name string) bool {
+	ff := s.LookupByExactName(name)
+	if len(ff) == 0 {
+		return false
+	}
+	for _, f := range ff {
+		if !facts.IsTestPath(f.File) {
+			return false
+		}
+	}
+	return true
 }
 
 // typeMembers maps each class or struct to the methods declared under its name.

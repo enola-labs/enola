@@ -88,6 +88,14 @@ type graphBuilder struct {
 
 	// targets is targetsIn's result buffer.
 	targets []uint32
+
+	// routeOnly marks, per declared node, a name only route facts declare.
+	routeOnly []bool
+	// nonCode marks, per declared node, a name only route and storage facts declare,
+	// and nonCodeRepos lists the repositories declaring it. Routes and tables are not
+	// split per repository, so one node can stand for several.
+	nonCode      []bool
+	nonCodeRepos [][]string
 }
 
 // idFor returns the node ID for name, assigning the next one if it is new.
@@ -355,6 +363,8 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	g.declaredNodes = uint32(len(g.names))
 	moduleDirs := NewModuleDirs(ff)
 	b.families = nodeFamilies(ff, nameID, g.declaredNodes)
+	b.routeOnly = routeOnlyNodes(ff, nameID, g.declaredNodes)
+	b.nonCode, b.nonCodeRepos = nonCodeNodes(ff, nameID, g.declaredNodes)
 
 	// Index which facts declare each node, as CSR. Every fact declaring the name is
 	// recorded, not just the first: which one a node means depends on the edge that
@@ -397,7 +407,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 				}
 			}
 			for _, tid := range b.targetsIn(target, repo) {
-				if b.otherFamily(fam, tid) {
+				if b.otherFamily(fam, tid) || b.callToClientPath(&f, rel, tid) || b.callIntoOtherRepo(&f, rel, tid) {
 					continue
 				}
 				b.addEdgeID(src, rel.Kind, tid)
@@ -2947,6 +2957,102 @@ func nodeFamilies(ff []Fact, nameID []uint32, declared uint32) []uint16 {
 		}
 	}
 	return fam
+}
+
+// routeOnlyNodes marks, per declared node, the names declared by route facts and
+// nothing else.
+func routeOnlyNodes(ff []Fact, nameID []uint32, declared uint32) []bool {
+	only := make([]bool, declared)
+	other := make([]bool, declared)
+	for i := range ff {
+		id := nameID[i]
+		if id == noNode || id >= declared {
+			continue
+		}
+		if ff[i].Kind == KindRoute {
+			only[id] = true
+		} else {
+			other[id] = true
+		}
+	}
+	for id, o := range other {
+		if o {
+			only[id] = false
+		}
+	}
+	return only
+}
+
+// nonCodeNodes marks, per declared node, the names only route and storage facts
+// declare, with the repositories declaring them.
+func nonCodeNodes(ff []Fact, nameID []uint32, declared uint32) ([]bool, [][]string) {
+	only := make([]bool, declared)
+	code := make([]bool, declared)
+	repos := make([][]string, declared)
+	for i := range ff {
+		id := nameID[i]
+		if id == noNode || id >= declared {
+			continue
+		}
+		if k := ff[i].Kind; k != KindRoute && k != KindStorage {
+			code[id] = true
+			continue
+		}
+		only[id] = true
+		if r := ff[i].Repo; !slices.Contains(repos[id], r) {
+			repos[id] = append(repos[id], r)
+		}
+	}
+	for id, c := range code {
+		if c {
+			only[id], repos[id] = false, nil
+		}
+	}
+	return only, repos
+}
+
+// callIntoOtherRepo reports whether a call, construction or injection written in one
+// repository would land on a route or table only another repository declares. Code
+// does not call another repository's route or table by name: what reaches them is
+// linked by the cross-repository linkers through their props. Such an edge is a bare
+// word that happens to match (`.items`, `.countries`), and it would join every
+// repository using the word to every repository declaring it.
+func (b *graphBuilder) callIntoOtherRepo(f *Fact, rel Relation, tid uint32) bool {
+	if f.Repo == "" || int(tid) >= len(b.nonCode) || !b.nonCode[tid] {
+		return false
+	}
+	if f.Kind != KindSymbol && f.Kind != KindModule {
+		return false
+	}
+	switch rel.Kind {
+	case RelCalls, RelInstantiates, RelInjects:
+	default:
+		return false
+	}
+	repos := b.nonCodeRepos[tid]
+	return !slices.Contains(repos, f.Repo) && !slices.Contains(repos, "")
+}
+
+// callToClientPath reports whether a call, construction or injection written in code
+// would land on a route only because the route's name is a bare word. A client's path
+// relative to its base URL (`@GET("items")`) is declared as a route named `items`, and
+// every `.items` property read or call with no resolved receiver, in any repository,
+// would otherwise reach it. Code never calls a route by name: a client route is tied to
+// its code by its caller prop, and a server route to its handler by handled_by. A name
+// with a slash is left alone, since that shape is a path and not something code calls.
+func (b *graphBuilder) callToClientPath(f *Fact, rel Relation, tid uint32) bool {
+	if int(tid) >= len(b.routeOnly) || !b.routeOnly[tid] {
+		return false
+	}
+	if f.Kind != KindSymbol && f.Kind != KindModule {
+		return false
+	}
+	switch rel.Kind {
+	case RelCalls, RelInstantiates, RelInjects:
+	default:
+		return false
+	}
+	return !strings.ContainsRune(rel.Target, '/')
 }
 
 // otherFamily reports whether an edge from code of family fam to node tid joins two
