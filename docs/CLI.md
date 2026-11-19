@@ -68,7 +68,7 @@ It is worth reading. A config decides which extractors run and which paths are i
 
 Note that a list-valued setting **replaces** its default rather than extending it. That is why the bundled `mcp-arch.yaml` declares no `extractors:`, `explainers:` or `renderers:` - a copied list silently falls behind as new ones ship. Set `extractors:` only to deliberately narrow a run; enola warns when an extractor you excluded would have detected the repository.
 
-Two sets of paths are ignored whatever your `ignore:` list says: the output directory, and the files `enola install` owns inside a repository (`.claude/rules/enola.md`, `.pi/extensions/enola.js` and the rest). Neither is your architecture, and indexing them would change it.
+Two sets of paths are ignored whatever your `ignore:` list says: the output directory, and the files `enola install` owns inside a repository (`.claude/rules/enola.md`, `.pi/extensions/enola.js`, its skill directories and the rest). Neither is your architecture, and indexing them would change it.
 
 The install script installs **only the binary**, by design - it does not place a config file. Grab the bundled one from the repo whenever you want to customize (tune the `ignore` globs, pick a subset of extractors, change the output dir, …):
 
@@ -561,7 +561,7 @@ Every path argument follows the same rule: **a directory is a repository, a file
 | Command | What it does |
 |------|--------------|
 | `help [command [subcommand]]` | **The help for one command.** `enola help flows`, `enola --help flows` and `enola flows --help` print the same page: what the command does, its flags, its exit codes, examples, and the commands next to it. Subcommands have pages too (`enola help baseline pin`). With no command it prints `enola --help`. `--help` never runs the command it describes, wherever it appears in the arguments. |
-| `install [--hooks] [--global]` | **Tell your coding agents enola is here.** Writes its instructions into the files they actually read - `.claude/rules/enola.md`, `.cursor/rules/enola.mdc`, and a marked block in `AGENTS.md` if you have one. Previews every change and asks before writing. See [Wiring it into your agents](#wiring-it-into-your-agents---enola-install). |
+| `install [--hooks] [--global]` | **Tell your coding agents enola is here.** Writes its instructions into the files they actually read - `.claude/rules/enola.md`, `.cursor/rules/enola.mdc`, and a marked block in `AGENTS.md` if you have one - and its skills into `.claude/skills/` and `.agents/skills/`. Previews every change and asks before writing. See [Wiring it into your agents](#wiring-it-into-your-agents---enola-install). |
 | `coverage [--repo=<svc>] [--unresolved] [--json]` | **Which cross-repo edges enola resolved, and which it did not** — per service, so you can tell a genuinely isolated service from one whose outbound edges enola could not follow. The unresolved list is always shown: it is what makes the resolved count worth believing, and each entry is either a repository you have not loaded, a third-party endpoint, or a blind spot in enola. `--unresolved` narrows the report to the services that have unresolved call sites and lists each one, grouped by the path it calls, with its file and line. Needs two or more repositories in one graph. A report, not a gate — it always exits `0`. In-house clients declared under `clients:` get their own table in the text output: receivers, call sites, routes, and calls skipped by cause. |
 | `doctor [repo]` | **Are the session hooks actually firing?** `install --hooks` writes a hook configuration and reports success — but whether your agent honours that configuration is a contract owned by the agent, not by enola, and a config it ignores looks identical to one it runs. So the hooks record every time they fire, *including* the runs where they deliberately say nothing, and this reports when each last ran, what it concluded, and whether the pinned baseline can still be graded against at all. `NEVER FIRED` after a real session means the wiring is not working. A report, not a gate — it always exits `0`. |
 | `dashboard [--open] [repo\|config]` | **Explore the latest snapshot visually without starting MCP.** Starts the read-only localhost dashboard attached to the terminal until Ctrl-C; `--open` also launches the browser. |
@@ -631,7 +631,7 @@ export ENOLA_NO_UPDATE_CHECK=1
 
 ### Wiring it into your agents - `enola install`
 
-An MCP server your agent forgets to use is a tool you don't have. `enola install` writes a short instruction into the files your agents already read, so they know the graph is there and what it's for:
+An MCP server your agent forgets to use is a tool you don't have. `enola install` writes a short instruction into the files your agents already read, so they know the graph is there and what it's for, and the skills that walk them through a task with it:
 
 ```bash
 enola install                 # this repository (shared with the team via source control)
@@ -653,8 +653,12 @@ enola uninstall               # remove it all again
 | opencode | `.opencode/enola.md` *(owned)* + its entry in `opencode.json`, or covered by `AGENTS.md` | `~/.config/opencode/enola.md` *(owned)* + its entry in `~/.config/opencode/opencode.json` |
 | opencode | `mcp.enola` in the same config *(the one target that registers the server itself)* | same |
 | opencode | `.opencode/plugin/enola.js` *(owned, `--hooks` only)* | `~/.config/opencode/plugin/enola.js` *(owned, `--hooks` only)* |
+| Claude Code (skills) | `.claude/skills/enola*/` *(owned)* | `~/.claude/skills/enola*/` *(owned)* |
+| Codex · Cursor · Copilot · Pi · opencode (skills) | `.agents/skills/enola*/` *(owned)* | `~/.agents/skills/enola*/` *(owned, only if one of them is installed)* |
 
 **Codex, Copilot, Pi and opencode all read the repository's `AGENTS.md`**, so locally one block serves all four - enola won't write a second repo-local instruction file for them, which would only put the same instruction into the same context window twice. Their `--global` entries add what `AGENTS.md` can't: guidance in projects where nobody has run `enola install`. Those are written only when the tool's config directory already exists, so enola never creates `~/.codex` for someone who doesn't use Codex.
+
+**Skills go to two directories.** Claude Code reads only `.claude/skills/`; Codex, Cursor, Copilot, Pi and opencode all read the shared `.agents/skills/`, so one copy serves the five of them. Each skill is a directory named `enola` or `enola-<name>`, the same files the Claude Code plugin serves as `/enola:<name>`, and its `SKILL.md` ends with a marker comment. The marker is what makes a directory enola's: a directory with an enola name and a skill enola did not write is left alone and reported as skipped, and a skill a later release dropped is removed on the next install. If enola's Claude Code plugin is installed for you or for the repository, the plugin already serves them as `/enola:<name>`, so the Claude Code copy is skipped (and an earlier one removed) rather than listing every skill twice.
 
 **Pi also gets an extension on every install**, not only with `--hooks`: it is not a second copy of the instructions but the MCP client Pi lacks, without which the instructions would name tools Pi cannot call. See [Pi](#connect-it-to-your-agent) above for what it does and the project trust step a local install needs.
 

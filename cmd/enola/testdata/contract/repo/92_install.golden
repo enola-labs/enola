@@ -3,9 +3,14 @@ exit: 0
 --- stdout
 Install
 Target:     .   (from the path you gave)
-Hooks:      no — instructions only. Re-run with --hooks to automate the loop.
+Hooks:      no — instructions and skills only. Re-run with --hooks to automate the loop.
 
   created   .claude/rules/enola.md
+  created   .claude/skills/enola/SKILL.md
+  created   .claude/skills/enola-intent/SKILL.md
+  created   .claude/skills/enola-memory/SKILL.md
+  created   .claude/skills/enola-review/SKILL.md
+  created   .claude/skills/enola-test-plan/SKILL.md
 
-Written — 1 file as previewed.
+Written — 6 files as previewed.
 --- stderr

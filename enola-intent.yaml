@@ -137,3 +137,6 @@ layers:
       # and layout every plain-language summary is written in, so `--explain --summary`
       # and `check --summary` read the same.
       - "pkg/plain/**"
+      # plugins/enola/skills is core, and depends on nothing of enola's: the skill
+      # files the Claude Code plugin loads, embedded for `enola install` to write.
+      - "plugins/enola/skills/**"

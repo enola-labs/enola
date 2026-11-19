@@ -813,14 +813,23 @@ var InstalledFiles = []string{
 	".pi/extensions/enola.js",
 }
 
+// InstalledSkillDirs are the skills directories `enola install` writes enola's skills
+// into, relative to a repository's root. Each skill is a directory named enola or
+// enola-<name>, so these ignore those directories and leave the user's own skills
+// beside them indexed.
+var InstalledSkillDirs = []string{".claude/skills", ".agents/skills"}
+
 // installedFileGlobs is InstalledFiles as ignore globs. `**/<dir>/**/<file>` rather
 // than `**/<dir>/<file>`: pathglob matches the second at most one directory deep, and
 // a monorepo service can carry its own install.
 func installedFileGlobs() []string {
-	out := make([]string, 0, len(InstalledFiles))
+	out := make([]string, 0, len(InstalledFiles)+2*len(InstalledSkillDirs))
 	for _, f := range InstalledFiles {
 		dir, file := path.Split(f)
 		out = append(out, "**/"+dir+"**/"+file)
+	}
+	for _, d := range InstalledSkillDirs {
+		out = append(out, "**/"+d+"/enola/**/*", "**/"+d+"/enola-*/**/*")
 	}
 	return out
 }

@@ -1,8 +1,8 @@
 $ enola log --all --graph .
 exit: 0
 --- stdout
-* 32833c4  <TIME>  initial: 21 facts, 6 findings
-* a85ead8  <TIME>  1 new finding · +4 facts · +4 edges
+* 7bb1b66  <TIME>  initial: 21 facts, 6 findings
+* df0e5bf  <TIME>  1 new finding · +4 facts · +4 edges
 --- stderr
 note: no commit ancestry is available, so the revisions below are strung together
 in the order they were taken. This is a timeline, not a history: it says what

@@ -203,6 +203,11 @@ ignore:
   - "**/.opencode/**/enola.md"
   - "**/.opencode/plugin/**/enola.js"
   - "**/.pi/extensions/**/enola.js"
+  # The skills it writes (config.InstalledSkillDirs): enola's directories only.
+  - "**/.claude/skills/enola/**/*"
+  - "**/.claude/skills/enola-*/**/*"
+  - "**/.agents/skills/enola/**/*"
+  - "**/.agents/skills/enola-*/**/*"
   # Documentation
   - "**/*.md"
   - "**/*.mdx"

@@ -63,7 +63,7 @@ func TestInstall_OwnedFilesAreNeverIndexed(t *testing.T) {
 	}
 	// Only enola's own files: the user's extension beside it, and a file of the same
 	// name anywhere else, are the repository's and stay in the graph.
-	for _, rel := range []string{".pi/extensions/mine.js", "src/enola.js", "docs/enola.md", ".claude/rules/team.md"} {
+	for _, rel := range []string{".pi/extensions/mine.js", "src/enola.js", "docs/enola.md", ".claude/rules/team.md", ".claude/skills/team/SKILL.md", ".agents/skills/enolax/SKILL.md"} {
 		if pathglob.MatchAny(rel, defaults.Ignore) {
 			t.Errorf("%s is ignored, but enola did not write it", rel)
 		}
