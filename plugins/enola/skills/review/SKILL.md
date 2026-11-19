@@ -20,23 +20,29 @@ Pick the first that applies.
 - **Your own session's edits, with a baseline pinned at the start** (by you with
   `set_baseline`, or by enola's session hook): use `diff_snapshot` after a
   `generate_snapshot`, or `enola check --detail`.
-- **A branch or pull request:** snapshot its merge-base in a temporary worktree and pass
-  that snapshot as the baseline.
+- **A branch or pull request:** export its merge-base into a directory with the same name
+  as the repository, snapshot it, and pass that snapshot as the baseline. The repository
+  itself is not touched.
 
   ```sh
   base=$(git merge-base HEAD origin/main)        # the PR's target branch
-  git worktree add --detach /tmp/enola-review-base "$base"
-  enola --generate /tmp/enola-review-base        # writes /tmp/enola-review-base/.enola
-  enola check --baseline /tmp/enola-review-base/.enola --detail
+  before="/tmp/enola-review/$(basename "$PWD")"  # the same name as the repository
+  rm -rf "$before" && mkdir -p "$before"
+  git archive "$base" | tar -x -C "$before"
+  enola --generate "$before"                     # writes $before/.enola
+  enola check --baseline "$before/.enola" --detail
   ```
 
-  Run these from the repository root, so both snapshots use its configuration. Remove the
-  worktree when done (`git worktree remove --force /tmp/enola-review-base`).
+  Run these from the repository root, so both snapshots use its configuration. The name
+  matters: an export has no git remote, and without remotes on both sides enola decides
+  whether two snapshots are of the same repository by directory name.
 - **Both sides already recorded** in enola's history (`enola log` lists revisions):
-  `enola diff <base>..<head>` compares them without a worktree.
+  `enola diff <base>..<head>` compares them without an export.
 
-If `enola check` exits 3, the two snapshots are not comparable (different configuration or
-extractor version). Say so; do not present the change as clean.
+If `enola check` declines to grade (exit 3), say so and do not present the change as
+clean. `different_repo` means the two directory names differ; re-export under the
+repository's name. Any other reason (configuration, extractor version) is enola's setup,
+not the change.
 
 ## 2. Read the verdict
 
@@ -49,22 +55,28 @@ From the `enola check` output, report:
 - **New coupling.** Imports and calls the change added between packages. An added edge
   is normal work; one that crosses into an area the change has no business in is not.
 - **Removed symbols.** Listed under "Removed". For each one that was exported, ask the
-  base snapshot what depended on it: `enola impact <name> /tmp/enola-review-base`. A
+  base snapshot what depended on it: `enola impact <name> "$before"`. A
   dependent the change did not also update is the thing to look at.
+
+A new finding about code the diff did not touch is usually a ranked list moving, not a
+regression: when a change takes one function off a top-N list such as hotspots, the next
+one in line appears as "new". Check the finding's file and line against the diff, and if
+the change did not touch it, say it is a ranking shift in one line and move on.
 
 If the repository declares a policy (CI runs `enola check --fail-on=...`), run with the
 same flags so the verdict matches what CI will say. Do not invent a policy.
 
 ## 3. Find where to look
 
-1. **Map the diff to symbols.**
+1. **Map the diff to symbols.** On a diff of a few functions, reading it is enough; on a
+   larger one:
 
    ```sh
    git diff "$base"...HEAD > /tmp/change.diff
    enola locate --diff /tmp/change.diff
    ```
 
-   This lists every changed function and type with its line span. Lines "outside every
+   It lists every changed function and type with its line span. Lines "outside every
    symbol" are imports, package-level declarations and the like.
 2. **Rank changed symbols by blast radius.** Run `impact_analysis` on each changed symbol
    (the MCP tool keeps the graph loaded; the CLI `enola impact` reloads it per call). The
