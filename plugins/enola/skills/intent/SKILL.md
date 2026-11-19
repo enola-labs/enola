@@ -30,7 +30,10 @@ Intent lives in three places, and the first two use one schema:
 4. **A selector that matches nothing is the failure to watch for.** It is valid, lints
    clean and can never be violated. Do not stop until every component and layer resolves
    to members.
-5. **Leave generated pages alone.** If a wiki's `enola_intent` blocks are produced by the
+5. **A proposal is a complete, valid declaration.** When you present rules for the user
+   to accept, every component a rule names is declared, every rule uses a real rule form,
+   and it lints clean (see "Checking a draft" below). Accepting it should take one step.
+6. **Leave generated pages alone.** If a wiki's `enola_intent` blocks are produced by the
    user's own tooling, change the tooling or ask, not the generated output.
 
 ## Starting from nothing
@@ -58,7 +61,8 @@ Intent lives in three places, and the first two use one schema:
      - {name: storage,  paths: ["app/storage/**"]}
    ```
 
-   A `paths` entry is an exact module path or a `prefix/**` subtree, nothing else.
+   A `paths` entry is an exact module path or a `prefix/**` subtree, nothing else. An
+   order between packages belongs here, not in one `forbid` rule per pair of packages.
    Group by role, not by directory tree, and keep a comment beside each boundary saying
    why it is there.
 5. Then components and rules for what layers cannot say:
@@ -89,6 +93,23 @@ Intent lives in three places, and the first two use one schema:
    new ones fail. Declaring a rule does not break the build that declares it.
 8. Offer enforcement and stop. Show the command the user would put in CI, for example
    `enola check --fail-on=layers,constraints`, and leave the decision to them.
+
+## Checking a draft without adopting it
+
+Until the user accepts it, a draft stays out of the repository. To lint it, and see what
+each selector matches, put it in an export of the repository named like the repository:
+
+```sh
+d="/tmp/enola-intent/$(basename "$PWD")"
+rm -rf "$d" && mkdir -p "$d" && git archive HEAD | tar -x -C "$d"
+cp draft.yaml "$d/enola-intent.yaml"
+enola constraints lint "$d"                  # validation; fix until it passes
+enola --generate "$d" && enola constraints lint "$d"   # then member counts
+```
+
+Pass the directory, not the file: given a YAML file, `enola constraints lint` reads it as
+a cluster configuration and ignores a declaration in it. An invalid declaration also makes
+`--generate` fail, which is why validation comes first.
 
 ## Before editing code that rules govern
 
