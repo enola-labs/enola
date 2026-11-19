@@ -21,6 +21,8 @@ Exit codes:
 Flags:
   -author string
     	with --reviewers, whose change this is (default: git config user.name)
+  -base string
+    	compare against the repository where the current branch left this git ref (their merge-base), snapshotted for this run and written nowhere; replaces --baseline
   -baseline string
     	what to compare against: pinned, previous, or a path to a directory holding facts.jsonl (default "pinned")
   -detail

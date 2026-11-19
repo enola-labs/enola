@@ -658,7 +658,7 @@ enola uninstall               # remove it all again
 
 **Codex, Copilot, Pi and opencode all read the repository's `AGENTS.md`**, so locally one block serves all four - enola won't write a second repo-local instruction file for them, which would only put the same instruction into the same context window twice. Their `--global` entries add what `AGENTS.md` can't: guidance in projects where nobody has run `enola install`. Those are written only when the tool's config directory already exists, so enola never creates `~/.codex` for someone who doesn't use Codex.
 
-**Skills go to two directories.** Claude Code reads only `.claude/skills/`; Codex, Cursor, Copilot, Pi and opencode all read the shared `.agents/skills/`, so one copy serves the five of them. Claude Code does not get the `enola` skill itself, which routes questions to tools: the rule file says the same and is always loaded. Each skill is a directory named `enola` or `enola-<name>`, the same files the Claude Code plugin serves as `/enola:<name>`, and its `SKILL.md` ends with a marker comment. The marker is what makes a directory enola's: a directory with an enola name and a skill enola did not write is left alone and reported as skipped, and a skill a later release dropped is removed on the next install. If enola's Claude Code plugin is installed for you or for the repository, the plugin already serves them as `/enola:<name>`, so the Claude Code copy is skipped (and an earlier one removed) rather than listing every skill twice.
+**Skills go to two directories.** [SKILLS.md](SKILLS.md) covers what each skill does and how to use it; this is where they are written. Claude Code reads only `.claude/skills/`; Codex, Cursor, Copilot, Pi and opencode all read the shared `.agents/skills/`, so one copy serves the five of them. Claude Code does not get the `enola` skill itself, which routes questions to tools: the rule file says the same and is always loaded. Each skill is a directory named `enola` or `enola-<name>`, the same files the Claude Code plugin serves as `/enola:<name>`, and its `SKILL.md` ends with a marker comment. The marker is what makes a directory enola's: a directory with an enola name and a skill enola did not write is left alone and reported as skipped, and a skill a later release dropped is removed on the next install. If enola's Claude Code plugin is installed for you or for the repository, the plugin already serves them as `/enola:<name>`, so the Claude Code copy is skipped (and an earlier one removed) rather than listing every skill twice.
 
 **Pi also gets an extension on every install**, not only with `--hooks`: it is not a second copy of the instructions but the MCP client Pi lacks, without which the instructions would name tools Pi cannot call. See [Pi](#connect-it-to-your-agent) above for what it does and the project trust step a local install needs.
 
@@ -777,6 +777,15 @@ $ enola check --baseline=previous    # against the last snapshot written
 ```
 
 Pin when you start a piece of work and the answer stays "what has this branch done since I began", however many times you re-snapshot in between - which is why it is the default and why a multi-day refactor only warns rather than declining. Reach for `previous` when the question is narrower: what did the run that just finished change?
+
+**A branch against where it started.** `--base <ref>` grades the working tree against the repository as it was where the current branch left `<ref>` - their merge-base, the comparison a pull request makes - with no baseline pinned beforehand:
+
+```
+$ enola check --base main --fail-on=layers
+enola check: comparing against 14e1c614d, where this branch left main
+```
+
+The merge-base is exported to a temporary directory, snapshotted with this run's configuration, and removed again; nothing is written to the repository or to `~/.enola`. Commits that landed on `<ref>` after the branch point are not graded as the branch's change. It takes one repository, and replaces `--baseline`.
 
 | Exit | Meaning |
 |------|---------|

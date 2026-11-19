@@ -98,6 +98,7 @@ var helpPages = map[string]helpPage{
 			{Comment: "Opt into the cycle check as well, but only warn this time", Command: "enola check --fail-on=layers,cycles --warn-only"},
 			{Comment: "Fail if the change reached outside what you meant to touch", Command: "enola check --target=internal/auth --max-spillover=0"},
 			{Comment: "Compare against the preceding snapshot instead of the pin", Command: "enola check --baseline=previous"},
+			{Comment: "Grade this branch against where it left main, with no pin", Command: "enola check --base main"},
 			{Comment: "Write the verdict as SARIF for code scanning", Command: "enola check --format sarif > enola.sarif"},
 		},
 		seeAlso: []string{"baseline", "plan", "impact"},
@@ -152,6 +153,13 @@ var helpPages = map[string]helpPage{
 			{Comment: "The same as JSON, without the re-evaluation", Command: "enola constraints explain --json --no-radius internal/auth/session.go"},
 		},
 		seeAlso: []string{"constraints", "plan"},
+	},
+	"constraints lint": {
+		examples: []cli.Example{
+			{Comment: "Validate the declaration and resolve every component", Command: "enola constraints lint"},
+			{Comment: "Check a draft before adopting it, without writing it", Command: "enola constraints lint --declaration draft.yaml ."},
+		},
+		seeAlso: []string{"constraints", "constraints mine"},
 	},
 	"constraints ledger": {
 		examples: []cli.Example{

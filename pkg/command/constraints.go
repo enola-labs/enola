@@ -52,6 +52,10 @@ func (r *Runner) Constraints(args []string) {
 		r.ConstraintsLedger(args[1:])
 		return
 	}
+	if len(args) > 0 && args[0] == "lint" {
+		r.ConstraintsLint(args[1:])
+		return
+	}
 	fs := flag.NewFlagSet("constraints", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
@@ -82,15 +86,48 @@ func (r *Runner) Constraints(args []string) {
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())
 	}
-	rest := fs.Args()
-	if len(rest) == 0 || rest[0] != "lint" || HelpRequested(rest) {
-		fs.Usage()
+	// Only reached for a missing or unknown subcommand: lint, mine, init, explain and
+	// ledger dispatch above.
+	fs.Usage()
+	os.Exit(check.StatusUsageError.ExitCode())
+}
+
+// ConstraintsLint is `constraints lint`: validate the declaration and resolve each
+// component against the current snapshot.
+//
+// --declaration lints a file in place of the repository's enola-intent.yaml, so a draft
+// can be checked, and its selectors resolved, before anyone adopts it. The draft is read
+// and nothing is written; files under enola/constraints/ are still read beside it.
+func (r *Runner) ConstraintsLint(args []string) {
+	fs := flag.NewFlagSet("constraints lint", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	draft := fs.String("declaration", "", "lint this file in place of the repository's "+intent.RepoFileName+", without writing it")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" constraints lint [--declaration FILE] [repo_path|config_path]\n\n"+
+			"Validate the declared constraint vocabulary (inline in "+intent.RepoFileName+" and\n"+
+			"per-domain files under "+intent.ConstraintsDirName+"/) and resolve each component and\n"+
+			"layer against the current snapshot, if one exists (else validation only).\n\n"+
+			"Exit codes:\n"+
+			"  0  every declaration is valid\n"+
+			"  1  validation problems were reported\n"+
+			"  2  the command could not run\n\n"+
+			"Flags:\n")
+		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "constraints lint")
+	}
+	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())
 	}
-
 	var arg string
-	if len(rest) > 1 {
-		arg = rest[1]
+	if fs.NArg() > 0 {
+		arg = fs.Arg(0)
+	}
+	if *draft != "" {
+		abs, err := filepath.Abs(*draft)
+		if err != nil || !fileExists(abs) {
+			r.constraintsFatal("--declaration %s: no such file", *draft)
+		}
+		*draft = abs
 	}
 	tgt := r.resolveTarget(arg)
 	fmt.Fprintf(os.Stderr, r.name()+" constraints lint: %s\n", tgt.configNote)
@@ -100,8 +137,11 @@ func (r *Runner) Constraints(args []string) {
 
 	problems := 0
 	declared := facts.NewStore()
+	if *draft != "" && len(tgt.repoPaths) != 1 {
+		r.constraintsFatal("--declaration stands in for one repository's %s; this target has %d repositories", intent.RepoFileName, len(tgt.repoPaths))
+	}
 	for _, repoPath := range tgt.repoPaths {
-		problems += r.lintRepoDeclaration(tgt.engine.Config().Intent[filepath.Base(repoPath)], repoPath, declared)
+		problems += r.lintRepoDeclaration(tgt.engine.Config().Intent[filepath.Base(repoPath)], repoPath, *draft, declared)
 	}
 
 	problems += r.lintResolveComponents(tgt.engine, tgt.repoPaths, declared)
@@ -120,10 +160,13 @@ func (r *Runner) Constraints(args []string) {
 // into declared for the component pass, and returns the problem count.
 // Constraints-file problems come out of the merged declaration already citing
 // their file, so each is printed under the file that declared it.
-func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath string, declared *facts.Store) int {
+func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath, draft string, declared *facts.Store) int {
 	label := filepath.Base(repoPath)
 
-	filePath := filepath.Join(repoPath, intent.RepoFileName)
+	filePath, source := filepath.Join(repoPath, intent.RepoFileName), intent.RepoFileName
+	if draft != "" {
+		filePath, source = draft, draft
+	}
 	var fileDecl *intent.Declaration
 	fileProblems := []string{}
 	switch data, err := os.ReadFile(filePath); {
@@ -136,7 +179,7 @@ func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath s
 			fileProblems = append(fileProblems, fmt.Sprintf("not parseable as YAML: %v", yamlErr))
 		} else {
 			d.Normalize()
-			d.Source = intent.RepoFileName
+			d.Source = source
 			fileDecl = &d
 		}
 	}

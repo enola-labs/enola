@@ -56,6 +56,7 @@ It also changes answers. Asked the same questions across a backend and its web a
 | Check whether a change broke the architecture | [Grade a change](#grade-a-change) |
 | Run that check on every pull request | [Use it in CI](#use-it-in-ci) |
 | Give my coding agent the graph | [Connect your agent](#connect-your-agent) |
+| Have my agent review a branch, plan tests, set up rules or keep notes on code | [Skills](docs/SKILLS.md) |
 | Link a backend and the apps that call it | [Across repositories](#across-repositories) |
 | Load the graph into my own tool | [Build on the graph](#build-on-the-graph) |
 | Know which languages it understands | [What it reads](#what-it-reads) |
@@ -213,7 +214,7 @@ Then give the agent the graph over **MCP** (Model Context Protocol: the standard
 
 What changes for the agent: before an edit, it asks the graph what depends on the code it is about to touch, instead of piecing that together from text searches. After the edit, a **hook** (a command the agent runs automatically at the end of its turn) runs the same `enola check` as above. The agent sees what it actually changed and fixes a regression before telling you it is done.
 
-`enola install` also writes skills: task recipes an agent loads when a task calls for one. **review** says what a change did to the structure and where a reviewer should look; **test-plan** lists the tests and entry points that reach a change, and the changed code no test reaches; **intent** writes and maintains the architecture rules enola checks; **memory** anchors memories about code to the symbols they describe and checks them before use. Claude Code reads them from `.claude/skills/`, Codex, Cursor, Copilot, Pi and opencode from `.agents/skills/`, and the Claude Code plugin serves the same skills as `/enola:review` and so on.
+`enola install` also gives the agent skills for whole tasks: reviewing a branch, planning what to test, setting up architecture rules, and keeping notes tied to the code they describe. Ask for the task ("review this branch against main") and the agent loads the skill, or call one by name. [docs/SKILLS.md](docs/SKILLS.md) covers each skill, the Claude Code plugin, and how to call them in every agent.
 
 `enola install` previews every file it changes and asks first; `enola uninstall` reverses all of it. `enola doctor` tells you whether the hooks are really firing. Per-client details, including Copilot's different config key: [docs/CLI.md](docs/CLI.md#connect-it-to-your-agent).
 

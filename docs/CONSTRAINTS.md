@@ -1852,6 +1852,20 @@ verdicts anything. No snapshot degrades to a named validation-only
 mode; nothing is generated or written. Exit `1` on validation
 problems, `0` otherwise.
 
+`--declaration FILE` lints a draft in place of the repository's
+`enola-intent.yaml`, resolved against the same snapshot, so a proposal
+can be checked before anyone adopts it:
+
+```
+$ enola constraints lint --declaration /tmp/draft.yaml .
+```
+
+The draft is only read. It is how the [intent skill](SKILLS.md#intent)
+checks a proposal before showing it to you. A declaration passed where a config path goes
+(`enola constraints lint draft.yaml`) is refused rather than read as an
+empty config, which used to report every declaration valid without
+reading one.
+
 ## `constraints mine`
 
 Discovering the law instead of writing it. `enola constraints mine`
