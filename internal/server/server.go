@@ -64,6 +64,11 @@ type Server struct {
 	// published behind an atomic pointer and replaced wholesale — never mutated
 	// in place, which would race a reader mid-iteration.
 	corpusByRepo atomic.Pointer[map[string]int]
+	// lastPin is where this session last pinned a baseline, so a diff that finds none
+	// can say where the one it pinned is: baselines are stored per repository, and an
+	// agent that pins on one directory and snapshots another otherwise hears only
+	// "no pinned baseline found".
+	lastPin atomic.Pointer[pinRecord]
 
 	// Freshness-banner cache. freshnessBanner() shells out to git per repo, so the
 	// result is memoized for freshTTL to keep that cost off the hot path of

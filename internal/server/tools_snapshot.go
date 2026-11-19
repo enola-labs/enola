@@ -287,10 +287,12 @@ func (s *Server) registerSetBaselineTool() {
 		if len(members) == 0 {
 			return errorResult("No snapshot available. Run generate_snapshot first, then set_baseline."), nil, nil
 		}
-		replaced := s.otherSessionMark(s.resolveBaselineDir(members, "pinned"), engine.PinMarkFile)
+		pinDir := s.resolveBaselineDir(members, "pinned")
+		replaced := s.otherSessionMark(pinDir, engine.PinMarkFile)
 		if err := s.eng.SetBaseline(members...); err != nil {
 			return errorResult(fmt.Sprintf("could not set baseline: %v", err)), nil, nil
 		}
+		s.lastPin.Store(&pinRecord{dir: pinDir, repo: s.currentRepoPath()})
 		msg := "Baseline pinned from the current snapshot.\n\n" +
 			"Now make your changes, re-run generate_snapshot, then call diff_snapshot to see what changed " +
 			"(new findings, new coupling, added/removed symbols). The baseline persists across re-snapshots until you pin a new one."
@@ -341,7 +343,8 @@ func (s *Server) registerDiffSnapshotTool() {
 		if err != nil {
 			switch strings.ToLower(sel) {
 			case "", "pinned":
-				return errorResult("No pinned baseline found. Call set_baseline after your first generate_snapshot, " +
+				return errorResult("No pinned baseline found. " + s.missingPinNote(s.resolveBaselineDir(members, sel), repoPath) +
+					"Call set_baseline after your first generate_snapshot, " +
 					"then make changes, re-run generate_snapshot, and diff_snapshot again. " +
 					"(Or pass baseline='previous' to compare against the immediately-preceding snapshot.)"), nil, nil
 			case "previous":
@@ -699,6 +702,26 @@ func (s *Server) currentRepoPath() string {
 		return abs
 	}
 	return ""
+}
+
+// pinRecord is one set_baseline: the directory the baseline went to and the
+// repository it was taken of.
+type pinRecord struct{ dir, repo string }
+
+// missingPinNote explains a pinned baseline that is not where diff_snapshot looked,
+// when this session pinned one. Empty when it did not, so the advice that follows
+// stands alone. Ends in a space when not empty.
+func (s *Server) missingPinNote(looked, repo string) string {
+	pin := s.lastPin.Load()
+	if pin == nil {
+		return ""
+	}
+	if filepath.Clean(pin.dir) == filepath.Clean(looked) {
+		return fmt.Sprintf("This session pinned one at %s, and it is gone: a baseline lives in the "+
+			"repository's output directory, so removing or replacing that directory removes it. ", pin.dir)
+	}
+	return fmt.Sprintf("Baselines are kept per repository: this session pinned one for %s, and the loaded "+
+		"snapshot is of %s. To compare against it, pass baseline=%q. ", pin.repo, repo, pin.dir)
 }
 
 // setBaselineArgs has no parameters: set_baseline always pins the current snapshot.
