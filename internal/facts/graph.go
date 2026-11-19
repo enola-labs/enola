@@ -89,13 +89,12 @@ type graphBuilder struct {
 	// targets is targetsIn's result buffer.
 	targets []uint32
 
-	// routeOnly marks, per declared node, a name only route facts declare.
-	routeOnly []bool
-	// nonCode marks, per declared node, a name only route and storage facts declare,
-	// and nonCodeRepos lists the repositories declaring it. Routes and tables are not
-	// split per repository, so one node can stand for several.
-	nonCode      []bool
-	nonCodeRepos [][]string
+	// declKinds holds, per declared node, the declRoute/declStorage/declCode bits of
+	// the facts declaring it, and nonCodeRepos, for a node only route and storage
+	// facts declare, the repositories declaring it. Routes and tables are not split
+	// per repository, so one node can stand for several.
+	declKinds    []uint8
+	nonCodeRepos map[uint32][]string
 }
 
 // idFor returns the node ID for name, assigning the next one if it is new.
@@ -363,8 +362,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	g.declaredNodes = uint32(len(g.names))
 	moduleDirs := NewModuleDirs(ff)
 	b.families = nodeFamilies(ff, nameID, g.declaredNodes)
-	b.routeOnly = routeOnlyNodes(ff, nameID, g.declaredNodes)
-	b.nonCode, b.nonCodeRepos = nonCodeNodes(ff, nameID, g.declaredNodes)
+	b.declKinds, b.nonCodeRepos = declaredKinds(ff, nameID, g.declaredNodes)
 
 	// Index which facts declare each node, as CSR. Every fact declaring the name is
 	// recorded, not just the first: which one a node means depends on the edge that
@@ -2959,56 +2957,57 @@ func nodeFamilies(ff []Fact, nameID []uint32, declared uint32) []uint16 {
 	return fam
 }
 
-// routeOnlyNodes marks, per declared node, the names declared by route facts and
-// nothing else.
-func routeOnlyNodes(ff []Fact, nameID []uint32, declared uint32) []bool {
-	only := make([]bool, declared)
-	other := make([]bool, declared)
+// The kinds of fact declaring a node, as declKinds bits.
+const (
+	declRoute uint8 = 1 << iota
+	declStorage
+	declCode
+)
+
+// declaredKinds records, per declared node, which kinds of fact declare it, and for
+// the nodes only route and storage facts declare, the repositories declaring them.
+// One byte per node and a map over the few non-code nodes: a slice per node would
+// cost a slice header for every symbol, held for the whole graph build.
+func declaredKinds(ff []Fact, nameID []uint32, declared uint32) ([]uint8, map[uint32][]string) {
+	kinds := make([]uint8, declared)
 	for i := range ff {
 		id := nameID[i]
 		if id == noNode || id >= declared {
 			continue
 		}
-		if ff[i].Kind == KindRoute {
-			only[id] = true
-		} else {
-			other[id] = true
+		switch ff[i].Kind {
+		case KindRoute:
+			kinds[id] |= declRoute
+		case KindStorage:
+			kinds[id] |= declStorage
+		default:
+			kinds[id] |= declCode
 		}
 	}
-	for id, o := range other {
-		if o {
-			only[id] = false
-		}
-	}
-	return only
-}
-
-// nonCodeNodes marks, per declared node, the names only route and storage facts
-// declare, with the repositories declaring them.
-func nonCodeNodes(ff []Fact, nameID []uint32, declared uint32) ([]bool, [][]string) {
-	only := make([]bool, declared)
-	code := make([]bool, declared)
-	repos := make([][]string, declared)
+	repos := map[uint32][]string{}
 	for i := range ff {
 		id := nameID[i]
-		if id == noNode || id >= declared {
+		if id == noNode || id >= declared || kinds[id]&declCode != 0 {
 			continue
 		}
 		if k := ff[i].Kind; k != KindRoute && k != KindStorage {
-			code[id] = true
 			continue
 		}
-		only[id] = true
 		if r := ff[i].Repo; !slices.Contains(repos[id], r) {
 			repos[id] = append(repos[id], r)
 		}
 	}
-	for id, c := range code {
-		if c {
-			only[id], repos[id] = false, nil
-		}
-	}
-	return only, repos
+	return kinds, repos
+}
+
+// routeOnly reports whether node tid is declared by route facts and nothing else.
+func (b *graphBuilder) routeOnly(tid uint32) bool {
+	return int(tid) < len(b.declKinds) && b.declKinds[tid] == declRoute
+}
+
+// nonCode reports whether node tid is declared only by route and storage facts.
+func (b *graphBuilder) nonCode(tid uint32) bool {
+	return int(tid) < len(b.declKinds) && b.declKinds[tid] != 0 && b.declKinds[tid]&declCode == 0
 }
 
 // callIntoOtherRepo reports whether a call, construction or injection written in one
@@ -3018,7 +3017,7 @@ func nonCodeNodes(ff []Fact, nameID []uint32, declared uint32) ([]bool, [][]stri
 // word that happens to match (`.items`, `.countries`), and it would join every
 // repository using the word to every repository declaring it.
 func (b *graphBuilder) callIntoOtherRepo(f *Fact, rel Relation, tid uint32) bool {
-	if f.Repo == "" || int(tid) >= len(b.nonCode) || !b.nonCode[tid] {
+	if f.Repo == "" || !b.nonCode(tid) {
 		return false
 	}
 	if f.Kind != KindSymbol && f.Kind != KindModule {
@@ -3041,7 +3040,7 @@ func (b *graphBuilder) callIntoOtherRepo(f *Fact, rel Relation, tid uint32) bool
 // its code by its caller prop, and a server route to its handler by handled_by. A name
 // with a slash is left alone, since that shape is a path and not something code calls.
 func (b *graphBuilder) callToClientPath(f *Fact, rel Relation, tid uint32) bool {
-	if int(tid) >= len(b.routeOnly) || !b.routeOnly[tid] {
+	if !b.routeOnly(tid) {
 		return false
 	}
 	if f.Kind != KindSymbol && f.Kind != KindModule {
