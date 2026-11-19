@@ -40,6 +40,11 @@ the change is in the working tree).
   affected route, or each route the diff changes, `endpoint_impact` names the
   controller, the models and tables behind it, the client call sites that send it, and
   the app screens that depend on it. Screens and client calls are the end-to-end checks.
+- **When nothing reaches it.** A library's code is entered by its users, and code
+  injected into a browser or another runtime is entered by that runtime, so no flow or
+  endpoint in the graph leads to it. Its entry points are then its public API and the
+  examples, playgrounds or end-to-end specs that exercise it: search the test and example
+  directories for the feature's names and fixtures.
 - **Across services.** In a multi-repository snapshot, `endpoint_impact` includes
   callers in other repositories. `coverage_report` says which services have calls enola
   could not resolve; a change behind such a service may have callers the plan cannot
@@ -57,7 +62,7 @@ enola can see**. That is the most useful line in the plan. Call it out with the 
 file and line, and propose what a test for it would call.
 
 Tests reach code by name. A test that drives the code through an interface, a router, a
-subprocess or reflection is invisible here, so "no test_ref" means "no test names a path
+subprocess, a browser or reflection is invisible here, so "no test_ref" means "no test names a path
 to it", not "certainly untested". Check such a symbol's package for integration tests
 before reporting it as uncovered.
 
