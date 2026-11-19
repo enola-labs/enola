@@ -79,7 +79,9 @@ same flags so the verdict matches what CI will say. Do not invent a policy.
    It lists every changed function and type with its line span. Lines "outside every
    symbol" are imports, package-level declarations and the like.
 2. **Rank changed symbols by blast radius.** Run `impact_analysis` on each changed symbol
-   (the MCP tool keeps the graph loaded; the CLI `enola impact` reloads it per call). The
+   (the MCP tool keeps the graph loaded; the CLI `enola impact` reloads it per call).
+   `enola check` writes no snapshot, so if the MCP tools answer that no facts are
+   loaded, call `generate_snapshot` once first. The
    dependent count, the endpoints reached and the modules holding most dependents are
    what make a one-line change in a widely used function the riskiest line of the diff.
 3. **Check the rules governing the touched files.** `plan_check` or `constraints_for`
