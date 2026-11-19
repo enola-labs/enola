@@ -20,6 +20,8 @@ var skillNonTools = map[string]bool{
 	"test_ref": true, "member_of": true, "enola_intent": true,
 	// Rule vocabulary in enola-intent.yaml.
 	"depends_on": true, "forbid_cycles": true,
+	// Reasons enola check gives for declining to grade.
+	"different_repo": true,
 }
 
 var (
