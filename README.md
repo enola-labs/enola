@@ -213,6 +213,8 @@ Then give the agent the graph over **MCP** (Model Context Protocol: the standard
 
 What changes for the agent: before an edit, it asks the graph what depends on the code it is about to touch, instead of piecing that together from text searches. After the edit, a **hook** (a command the agent runs automatically at the end of its turn) runs the same `enola check` as above. The agent sees what it actually changed and fixes a regression before telling you it is done.
 
+`enola install` also writes skills: task recipes an agent loads when a task calls for one. **review** says what a change did to the structure and where a reviewer should look; **test-plan** lists the tests and entry points that reach a change, and the changed code no test reaches; **intent** writes and maintains the architecture rules enola checks; **memory** anchors memories about code to the symbols they describe and checks them before use. Claude Code reads them from `.claude/skills/`, Codex, Cursor, Copilot, Pi and opencode from `.agents/skills/`, and the Claude Code plugin serves the same skills as `/enola:review` and so on.
+
 `enola install` previews every file it changes and asks first; `enola uninstall` reverses all of it. `enola doctor` tells you whether the hooks are really firing. Per-client details, including Copilot's different config key: [docs/CLI.md](docs/CLI.md#connect-it-to-your-agent).
 
 ## Across repositories
