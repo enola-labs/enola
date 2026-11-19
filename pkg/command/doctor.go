@@ -399,7 +399,8 @@ func (r *Runner) printSkills(repoDir string) {
 		} else {
 			found = true
 		}
-		for _, st := range []install.SkillState{install.SkillCurrent, install.SkillOutdated, install.SkillMissing, install.SkillRetired, install.SkillTheirs} {
+		// A skill of the user's under enola's name gets the sentence below, not a row.
+		for _, st := range []install.SkillState{install.SkillCurrent, install.SkillOutdated, install.SkillMissing, install.SkillRetired} {
 			names := byState[st]
 			if len(names) == 0 || (st == install.SkillMissing && !l.Installed()) {
 				continue
