@@ -405,6 +405,7 @@ func ComputeChanged(baseline, current *facts.Snapshot, changedFiles []string) *S
 	// because a NEW caller changed a symbol's fan-in is still counted as real).
 	touched := d.touchedNames()
 	silenced := newSilencing(baseline, current)
+	ranked := &rankJudge{base: baseline, cur: current}
 	pairings := make(map[string]groupPairing, len(curFind))
 	for k, curGroup := range curFind {
 		pairings[k] = pairInsightGroup(baseFind[k], curGroup)
@@ -422,6 +423,8 @@ func ComputeChanged(baseline, current *facts.Snapshot, changedFiles []string) *S
 					} else {
 						d.FindingsDeclared = append(d.FindingsDeclared, bucketed(in, "declared", "the rule is newly declared and the witness was not touched by the change"))
 					}
+				case ranked.onlyReRanked(in):
+					d.FindingsNewIncidental = append(d.FindingsNewIncidental, in)
 				case findingHasStructuralCause(in, touched):
 					d.FindingsNew = append(d.FindingsNew, in)
 				default:
@@ -451,6 +454,8 @@ func ComputeChanged(baseline, current *facts.Snapshot, changedFiles []string) *S
 				d.FindingsSilenced = append(d.FindingsSilenced, in)
 			case silenced.byUnattributable(in):
 				d.FindingsUnattributed = append(d.FindingsUnattributed, in)
+			case ranked.onlyReRanked(in):
+				d.FindingsResolvedIncidental = append(d.FindingsResolvedIncidental, in)
 			case findingHasStructuralCause(in, touched):
 				d.FindingsResolved = append(d.FindingsResolved, in)
 			default:
