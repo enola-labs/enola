@@ -5,12 +5,11 @@ Uninstall
 Target:     .   (from the path you gave)
 
   removed   .claude/rules/enola.md
-  removed   .claude/skills/enola/SKILL.md
   removed   .claude/skills/enola-intent/SKILL.md
   removed   .claude/skills/enola-memory/SKILL.md
   removed   .claude/skills/enola-review/SKILL.md
   removed   .claude/skills/enola-test-plan/SKILL.md
   removed   .claude/settings.json
 
-Removed — 7 files as previewed.
+Removed — 6 files as previewed.
 --- stderr

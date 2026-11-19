@@ -1,6 +1,6 @@
 ---
 name: enola
-description: Use Enola when investigating architecture, dependencies, blast radius, cross-repository relationships, structural regressions, or what a code change did to the system.
+description: Answer questions about how a codebase is structured from enola's graph instead of text search. What calls or depends on a function, type or package, what would break or need updating if it changed, how one part reaches another, what nothing uses, which rules govern a file, what depends on an endpoint, and what a change did to the architecture. Use before grepping for any of these.
 ---
 
 # Enola: architecture before and after a change
