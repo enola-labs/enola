@@ -4,25 +4,14 @@ exit: 0
 
 ## Scope
 
-**Reached beyond the declared scope.** 1 of 3 package(s) touched were predicted or declared, match ratio 0.33.
-
-Spillover — touched but neither predicted nor declared:
-  - example.com/gosample/pkg/c
-  - pkg/b
-
-A package here was changed by something the declaration did not describe.
-That is worth reading even when every finding is clean.
+Stayed within the declared scope. 2 of 2 package(s) touched were predicted or declared, match ratio 1.
 
 Predicted but not touched (usually fine — the change was narrower than its blast radius):
   - example.com/gosample
   - example.com/gosample/pkg/a
-  - pkg/c
 PASS — no structural regression.
 could not see: 2 files and 0 directories excluded by ignore globs
 law: 1 rule · 1 breach · none excused
-
-Measurements over threshold:
-  - [fail] 2 package(s) reached outside the declared scope
 
 New findings (reported — no failure policy set):
   - [dead-code] 0.80 — Dead code candidate: function example.com/gosample/pkg/b.UsesGamma

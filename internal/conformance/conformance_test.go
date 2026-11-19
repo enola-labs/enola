@@ -156,3 +156,61 @@ func TestDerivedTargetsIgnoreAdditions(t *testing.T) {
 		t.Errorf("derivedTargets = %v, want only the removed symbol", got)
 	}
 }
+
+// goStore is the shape a Go repository has: packages named by import path and filed
+// under their directory, and facts that declare no package (a dependency, a test
+// reference, a constant) filed under that directory too.
+func goStore() *facts.Store {
+	gomod := func(name, dir string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindModule, Name: name, File: dir}
+		f.SetProp("language", "go")
+		return f
+	}
+	s := facts.NewStore()
+	s.Add(
+		gomod("example.com/app/core", "core"),
+		gomod("example.com/app/api", "api"),
+		gomod("example.com/app/unrelated", "unrelated"),
+		facts.Fact{
+			Kind: facts.KindDependency, Name: "example.com/app/api -> example.com/app/core", File: "api/a.go",
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "example.com/app/core"}},
+		},
+	)
+	s.BuildGraph()
+	return s
+}
+
+// A Go package is one package, however a fact names it. Facts that declare no package
+// fell back to their directory, so a change to core counted "core" and
+// "example.com/app/core" as two packages touched, and the directory one was always
+// spillover: the target's own package reported as outside the target.
+func TestGoPackagesAreNamedOnceByImportPath(t *testing.T) {
+	base := goStore()
+	d := &diff.SnapshotDiff{
+		FactsAdded: []facts.Fact{
+			{Kind: facts.KindDependency, Name: "example.com/app/core -> fmt", File: "core/c.go"},
+			{Kind: facts.KindTestRef, Name: "core/c_test.go", File: "core/c_test.go"},
+		},
+		FactsChanged: []diff.FactChange{{
+			Before: facts.Fact{Kind: facts.KindSymbol, Name: "example.com/app/core.Run", File: "core/c.go",
+				Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: "example.com/app/core"}}},
+			After: facts.Fact{Kind: facts.KindSymbol, Name: "example.com/app/core.Run", File: "core/c.go",
+				Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: "example.com/app/core"}}},
+		}},
+	}
+
+	for _, target := range []string{"example.com/app/core", "core"} {
+		got := Compute(base, base, d, Options{Target: target})
+		if len(got.ActualPackages) != 1 || got.ActualPackages[0] != "example.com/app/core" {
+			t.Errorf("target %q: ActualPackages = %v, want [example.com/app/core]", target, got.ActualPackages)
+		}
+		if len(got.Spillover) != 0 {
+			t.Errorf("target %q: Spillover = %v, want none: the change stayed in its target", target, got.Spillover)
+		}
+	}
+
+	got := Compute(base, base, d, Options{ExpectedPackages: []string{"core"}})
+	if len(got.Spillover) != 0 {
+		t.Errorf("--expected core: Spillover = %v, want none", got.Spillover)
+	}
+}
