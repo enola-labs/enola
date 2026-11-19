@@ -5,6 +5,7 @@ Start with the page closest to what you need:
 - **New to Enola?** Read the main [README](../README.md).
 - **Installing, configuring or scripting it?** Use [CLI.md](CLI.md).
 - **Want to see the loop once, end to end?** Follow [FIRST-CHANGE.md](FIRST-CHANGE.md).
+- **Using enola from a coding agent?** Read [SKILLS.md](SKILLS.md).
 - **More than one repository?** Follow [CLUSTERS.md](CLUSTERS.md).
 - **Want to know what the graph is?** Read [GRAPH.md](GRAPH.md).
 - **Building a tool on Enola's graph?** Read [INTEGRATING.md](INTEGRATING.md).
@@ -17,6 +18,7 @@ Start with the page closest to what you need:
 | Page | Covers |
 |---|---|
 | [CLI.md](CLI.md) | Installation, agent integration, commands, flags, exit codes, scope controls, reviewer routing and the dashboard. |
+| [SKILLS.md](SKILLS.md) | The agent skills `enola install` and the Claude Code plugin provide: review, test-plan, intent, memory and routing; how to get them, ask for them and call them by name in each agent. |
 | [LANGUAGES.md](LANGUAGES.md) | Every supported language and format, what marks it in a repository, and the frameworks each extractor understands. |
 | [FIRST-CHANGE.md](FIRST-CHANGE.md) | The loop end to end on a module small enough to read: declare a layer order, pin, change, grade, and hold the change to its declared scope. The same rule is shown in Go and TypeScript. |
 | [CLUSTERS.md](CLUSTERS.md) | Two services in one graph: how client calls are matched to server routes across repositories, and how unresolved calls are reported. |

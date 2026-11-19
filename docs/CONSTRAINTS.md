@@ -1860,7 +1860,8 @@ can be checked before anyone adopts it:
 $ enola constraints lint --declaration /tmp/draft.yaml .
 ```
 
-The draft is only read. A declaration passed where a config path goes
+The draft is only read. It is how the [intent skill](SKILLS.md#intent)
+checks a proposal before showing it to you. A declaration passed where a config path goes
 (`enola constraints lint draft.yaml`) is refused rather than read as an
 empty config, which used to report every declaration valid without
 reading one.
