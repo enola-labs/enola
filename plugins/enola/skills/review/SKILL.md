@@ -20,29 +20,22 @@ Pick the first that applies.
 - **Your own session's edits, with a baseline pinned at the start** (by you with
   `set_baseline`, or by enola's session hook): use `diff_snapshot` after a
   `generate_snapshot`, or `enola check --detail`.
-- **A branch or pull request:** export its merge-base into a directory with the same name
-  as the repository, snapshot it, and pass that snapshot as the baseline. The repository
-  itself is not touched.
+- **A branch or pull request:** grade it against where it left the target branch (their
+  merge-base), with no baseline pinned:
 
   ```sh
-  base=$(git merge-base HEAD origin/main)        # the PR's target branch
-  before="/tmp/enola-review/$(basename "$PWD")"  # the same name as the repository
-  rm -rf "$before" && mkdir -p "$before"
-  git archive "$base" | tar -x -C "$before"
-  enola --generate "$before"                     # writes $before/.enola
-  enola check --baseline "$before/.enola" --detail
+  enola check --base origin/main --detail          # the PR's target branch
   ```
 
-  Run these from the repository root, so both snapshots use its configuration. The name
-  matters: an export has no git remote, and without remotes on both sides enola decides
-  whether two snapshots are of the same repository by directory name.
+  enola exports the merge-base, snapshots it with the repository's configuration and
+  removes it again; nothing is written to the repository. Use `main` (or the branch's
+  local name) where there is no `origin` remote.
 - **Both sides already recorded** in enola's history (`enola log` lists revisions):
   `enola diff <base>..<head>` compares them without an export.
 
 If `enola check` declines to grade (exit 3), say so and do not present the change as
-clean. `different_repo` means the two directory names differ; re-export under the
-repository's name. Any other reason (configuration, extractor version) is enola's setup,
-not the change.
+clean: the reason it gives (configuration, extractor version) is enola's setup, not the
+change.
 
 ## 2. Read the verdict
 
@@ -54,14 +47,14 @@ From the `enola check` output, report:
 - **Resolved findings.** Credit what the change fixed.
 - **New coupling.** Imports and calls the change added between packages. An added edge
   is normal work; one that crosses into an area the change has no business in is not.
-- **Removed symbols.** Listed under "Removed". For each one that was exported, ask the
-  base snapshot what depended on it: `enola impact <name> "$before"`. A
-  dependent the change did not also update is the thing to look at.
+- **Removed symbols.** Listed under "Removed", and their callers under "Removed
+  coupling". For each one that was exported, search the current tree for its name: a
+  caller the change did not update is the thing to look at.
 
-A new finding about code the diff did not touch is usually a ranked list moving, not a
-regression: when a change takes one function off a top-N list such as hotspots, the next
-one in line appears as "new". Check the finding's file and line against the diff, and if
-the change did not touch it, say it is a ranking shift in one line and move on.
+enola files a hotspot that only moved in or out of its top-20 list under "Incidental
+shifts", not as new or resolved. Another ranked or statistical finding about code the
+diff did not touch is usually the same thing: check its file and line against the diff,
+and if the change did not touch it, say so in one line and move on.
 
 If the repository declares a policy (CI runs `enola check --fail-on=...`), run with the
 same flags so the verdict matches what CI will say. Do not invent a policy.
@@ -72,7 +65,7 @@ same flags so the verdict matches what CI will say. Do not invent a policy.
    larger one:
 
    ```sh
-   git diff "$base"...HEAD > /tmp/change.diff
+   git diff "$(git merge-base HEAD origin/main)"...HEAD > /tmp/change.diff
    enola locate --diff /tmp/change.diff
    ```
 
@@ -91,11 +84,11 @@ same flags so the verdict matches what CI will say. Do not invent a policy.
    `enola touched --subject '(?i)^fix\b' --since <date> --top 0`) ranks the functions
    fixes changed most. A changed symbol near the top of that list has broken before.
 5. **Check scope.** If the change says what it is about (a PR title, a ticket, the
-   user's request), pass that as the target: `enola check --baseline <dir>
+   user's request), pass that as the target: `enola check --base origin/main
    --target=<package> --max-spillover=0`. Spillover lists packages the change touched
    that neither the target nor its dependents explain. It is a question for the author,
    not a defect.
-6. **Suggest reviewers.** `enola check --baseline <dir> --reviewers` names the main
+6. **Suggest reviewers.** `enola check --base origin/main --reviewers` names the main
    authors of each touched module.
 
 ## 4. Write the review

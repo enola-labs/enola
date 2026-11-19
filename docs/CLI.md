@@ -778,6 +778,15 @@ $ enola check --baseline=previous    # against the last snapshot written
 
 Pin when you start a piece of work and the answer stays "what has this branch done since I began", however many times you re-snapshot in between - which is why it is the default and why a multi-day refactor only warns rather than declining. Reach for `previous` when the question is narrower: what did the run that just finished change?
 
+**A branch against where it started.** `--base <ref>` grades the working tree against the repository as it was where the current branch left `<ref>` - their merge-base, the comparison a pull request makes - with no baseline pinned beforehand:
+
+```
+$ enola check --base main --fail-on=layers
+enola check: comparing against 14e1c614d, where this branch left main
+```
+
+The merge-base is exported to a temporary directory, snapshotted with this run's configuration, and removed again; nothing is written to the repository or to `~/.enola`. Commits that landed on `<ref>` after the branch point are not graded as the branch's change. It takes one repository, and replaces `--baseline`.
+
 | Exit | Meaning |
 |------|---------|
 | `0` | **clean** - nothing the policy enforces (which, with no `--fail-on`, is everything) |

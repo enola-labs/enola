@@ -98,6 +98,7 @@ var helpPages = map[string]helpPage{
 			{Comment: "Opt into the cycle check as well, but only warn this time", Command: "enola check --fail-on=layers,cycles --warn-only"},
 			{Comment: "Fail if the change reached outside what you meant to touch", Command: "enola check --target=internal/auth --max-spillover=0"},
 			{Comment: "Compare against the preceding snapshot instead of the pin", Command: "enola check --baseline=previous"},
+			{Comment: "Grade this branch against where it left main, with no pin", Command: "enola check --base main"},
 			{Comment: "Write the verdict as SARIF for code scanning", Command: "enola check --format sarif > enola.sarif"},
 		},
 		seeAlso: []string{"baseline", "plan", "impact"},

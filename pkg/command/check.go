@@ -143,6 +143,7 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	fs.SetOutput(os.Stderr)
 	var (
 		baseline      = fs.String("baseline", "pinned", "what to compare against: pinned, previous, or a path to a directory holding facts.jsonl")
+		baseRef       = fs.String("base", "", "compare against the repository where the current branch left this git ref (their merge-base), snapshotted for this run and written nowhere; replaces --baseline")
 		failOn        = fs.String("fail-on", "", "comma-separated explainer names whose new findings fail (default: none — the run reports and exits 0)")
 		minConfidence = fs.Float64("min-confidence", 0, "confidence floor within --fail-on explainers (default: 1.00)")
 		warnOnly      = fs.Bool("warn-only", false, "downgrade a --fail-on / --max-spillover policy to warnings (blocking/usage errors still apply)")
@@ -210,6 +211,14 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 		r.checkFatal("-format annotations needs -host buildkite or -host github: the host is named, never detected")
 	}
 
+	if *baseRef != "" {
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "baseline" {
+				r.checkFatal("--base and --baseline both name what to compare against; pass one")
+			}
+		})
+	}
+
 	var arg string
 	if rest := fs.Args(); len(rest) > 0 {
 		arg = rest[0]
@@ -257,6 +266,21 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	if !*write {
 		eng.SetPersistCache(false)
 	}
+	// --base builds its baseline first: one generated after the current snapshot is
+	// refused as newer than what it is compared against.
+	var base *facts.Snapshot
+	if *baseRef != "" {
+		if len(repoPaths) != 1 {
+			r.checkFatal("--base compares one repository against a commit of its own; this target has %d repositories", len(repoPaths))
+		}
+		var mb string
+		var err error
+		base, mb, err = r.baseAtRef(ctx, tgt.cfgPath, repoPaths[0], *baseRef)
+		if err != nil {
+			r.checkFatal("%v", err)
+		}
+		fmt.Fprintf(os.Stderr, "%s check: comparing against %s, where this branch left %s\n", r.name(), short(mb), *baseRef)
+	}
 	for i, repoPath := range repoPaths {
 		if _, err := eng.GenerateSnapshot(ctx, repoPath, i > 0); err != nil {
 			r.checkFatal("snapshot generation failed for %s: %v", repoPath, err)
@@ -284,9 +308,14 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	graphDir := eng.GraphDir(repoPaths)
 	current := &facts.Snapshot{Meta: eng.GraphMeta(repoPaths), Facts: eng.Store().FactsRef(), Insights: snap.Insights}
 	baseDir := engine.ResolveBaselineDir(graphDir, *baseline)
-	base, err := bootstrap.LoadSnapshotDir(baseDir)
-	if err != nil {
-		r.checkFatal("%s", r.baselineHelp(*baseline, baseDir, anchor, err))
+	if base != nil {
+		baseDir = ""
+	} else {
+		var err error
+		base, err = bootstrap.LoadSnapshotDir(baseDir)
+		if err != nil {
+			r.checkFatal("%s", r.baselineHelp(*baseline, baseDir, anchor, err))
+		}
 	}
 
 	// The committed suppression ledger joins the policy before grading. A ledger
@@ -302,8 +331,11 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	if *focus != "" {
 		d = d.Focused(*focus)
 	}
-	if note := otherSessionBefore(baseDir, *baseline, status.AgentPID()); note != "" {
-		d.AddWarningKind(diff.WarnOtherSession, note)
+	// A baseline built for this run belongs to no session.
+	if baseDir != "" {
+		if note := otherSessionBefore(baseDir, *baseline, status.AgentPID()); note != "" {
+			d.AddWarningKind(diff.WarnOtherSession, note)
+		}
 	}
 
 	// Conformance: did the change stay inside what the caller declared? Computed only
