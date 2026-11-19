@@ -166,8 +166,9 @@ COMMANDS
                       repository, not merely configured. `install --hooks` can write a
                       configuration your agent silently ignores — it reports success
                       either way — so this asks the only question that settles it: when
-                      did each hook last run, and what did it conclude? A report, not a
-                      gate: always exits 0.
+                      did each hook last run, and what did it conclude? It also lists
+                      the skills installed for each agent and any that differ from this
+                      binary's. A report, not a gate: always exits 0.
   serve               Serve the MCP tools over Streamable HTTP, for a service that calls
                       enola as a tool rather than an agent that started it. Every request
                       needs a bearer token from --token-file, and every path a call names

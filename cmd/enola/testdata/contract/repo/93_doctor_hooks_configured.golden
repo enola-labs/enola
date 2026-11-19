@@ -17,6 +17,12 @@ Updates
 Baseline
   comparable — the gate can grade against it
 
+Skills
+  .claude/skills     for Claude Code
+                     current   enola-intent, enola-memory, enola-review, enola-test-plan
+  .agents/skills     for Codex, Cursor, Copilot, Pi, opencode
+                     none installed
+
 Session hooks
   configured in .claude/settings.json
   installed        <TIME> (less than a minute ago)
