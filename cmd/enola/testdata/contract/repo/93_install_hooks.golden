@@ -21,6 +21,7 @@ Hooks:      yes
             Never blocks, and never interrupts on failure.
 
   updated   .claude/rules/enola.md
+  unchanged .claude/skills/enola/SKILL.md
   created   .claude/settings.json
 
 Written — 2 files as previewed.

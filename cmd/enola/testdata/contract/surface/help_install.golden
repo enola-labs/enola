@@ -4,12 +4,15 @@ exit: 2
 --- stderr
 Usage: enola install [flags] [repo_path]
 
-Write enola's instructions into the files your coding agents read.
+Write enola's instructions into the files your coding agents read, and its
+skills into .claude/skills (Claude Code) and .agents/skills (Codex, Cursor,
+Copilot, Pi, opencode).
 
-By default this writes INSTRUCTIONS ONLY — inert context telling the agent the
-tools exist. Pass --hooks to also run the loop automatically: a baseline pinned
-at session start, and the architectural delta reported at the end if the change
-introduced a regression. Hooks run commands, so they are opt-in.
+By default this writes INSTRUCTIONS AND SKILLS ONLY — inert context telling the
+agent the tools exist and how to use them. Pass --hooks to also run the loop
+automatically: a baseline pinned at session start, and the architectural delta
+reported at the end if the change introduced a regression. Hooks run commands,
+so they are opt-in.
 
 Flags:
   -dry-run
@@ -24,7 +27,7 @@ Flags:
     	skip the confirmation prompt
 
 Examples:
-  # Tell your agents enola is here (instructions only)
+  # Tell your agents enola is here (instructions and skills)
   enola install
 
   # ...and close the loop automatically with session hooks

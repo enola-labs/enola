@@ -43,9 +43,10 @@ COMMANDS
                       repositories. "init" lists every immediate subfolder that is a
                       repository in cluster.yaml, refusing to overwrite; pass that file
                       to --generate to index them as one linked graph.
-  install             Write enola's instructions into the files your coding
-                      agents read (Claude Code, Cursor, Copilot, Codex, Pi, opencode,
-                      AGENTS.md). Previews every change and asks before writing.
+  install             Write enola's instructions and skills into the files
+                      your coding agents read (Claude Code, Cursor, Copilot, Codex, Pi,
+                      opencode, AGENTS.md). Skills go to .claude/skills and the shared
+                      .agents/skills. Previews every change and asks before writing.
                         --hooks   also run the loop automatically, instead of leaving
                                   the agent to remember. In Claude Code, Codex and Pi:
                                   pin a baseline at session start and report the
@@ -261,7 +262,7 @@ EXAMPLES
   # Report what the pinned baseline describes
   enola baseline show /path/to/repo
 
-  # Tell your agents enola is here (instructions only)
+  # Tell your agents enola is here (instructions and skills)
   enola install
 
   # …and close the loop automatically at the end of a session

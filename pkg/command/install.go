@@ -35,11 +35,14 @@ func (r *Runner) Install(args []string, remove bool) {
 			fmt.Fprintf(os.Stderr, "Remove everything `%s install` wrote, leaving the rest of each file untouched.\n\n", r.name())
 		} else {
 			fmt.Fprint(os.Stderr,
-				"Write enola's instructions into the files your coding agents read.\n\n"+
-					"By default this writes INSTRUCTIONS ONLY — inert context telling the agent the\n"+
-					"tools exist. Pass --hooks to also run the loop automatically: a baseline pinned\n"+
-					"at session start, and the architectural delta reported at the end if the change\n"+
-					"introduced a regression. Hooks run commands, so they are opt-in.\n\n")
+				"Write enola's instructions into the files your coding agents read, and its\n"+
+					"skills into .claude/skills (Claude Code) and .agents/skills (Codex, Cursor,\n"+
+					"Copilot, Pi, opencode).\n\n"+
+					"By default this writes INSTRUCTIONS AND SKILLS ONLY — inert context telling the\n"+
+					"agent the tools exist and how to use them. Pass --hooks to also run the loop\n"+
+					"automatically: a baseline pinned at session start, and the architectural delta\n"+
+					"reported at the end if the change introduced a regression. Hooks run commands,\n"+
+					"so they are opt-in.\n\n")
 		}
 		fmt.Fprint(os.Stderr, "Flags:\n")
 		fs.PrintDefaults()
@@ -148,11 +151,11 @@ func (r *Runner) Install(args []string, remove bool) {
 		} else if install.InstallsOpencodePlugin(opts) && !install.InstallsSessionHooks(opts) {
 			// opencode's --hooks is a plugin, not the grading loop. Offering "the loop"
 			// here would name a mechanism this run cannot install however it is re-run.
-			fmt.Println("Hooks:      no — instructions only, which an agent is free to ignore.")
+			fmt.Println("Hooks:      no — instructions and skills only, which an agent is free to ignore.")
 			fmt.Println("            Re-run with --hooks for opencode's plugin, which points a")
 			fmt.Println("            session's first searches at the index instead.")
 		} else {
-			fmt.Println("Hooks:      no — instructions only. Re-run with --hooks to automate the loop.")
+			fmt.Println("Hooks:      no — instructions and skills only. Re-run with --hooks to automate the loop.")
 		}
 	}
 	fmt.Println()

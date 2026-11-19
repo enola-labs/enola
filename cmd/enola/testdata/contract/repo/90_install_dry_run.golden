@@ -3,9 +3,10 @@ exit: 0
 --- stdout
 Install
 Target:     .   (from the path you gave)
-Hooks:      no — instructions only. Re-run with --hooks to automate the loop.
+Hooks:      no — instructions and skills only. Re-run with --hooks to automate the loop.
 
   created   .claude/rules/enola.md
+  created   .claude/skills/enola/SKILL.md
 
 Dry run — nothing was written.
 --- stderr

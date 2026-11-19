@@ -91,8 +91,17 @@ func run(o Options, remove bool) ([]Result, error) {
 	}
 
 	var out []Result
+	sharedSkills := false
 	for _, name := range o.selectedTargets() {
 		rs, err := runTarget(name, o, remove)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rs...)
+		sharedSkills = sharedSkills || agentSkillsReaders[name]
+	}
+	if sharedSkills {
+		rs, err := agentSkills(o, remove)
 		if err != nil {
 			return nil, err
 		}
@@ -257,7 +266,8 @@ func claudeDir(o Options) string {
 	return filepath.Join(o.RepoDir, ".claude")
 }
 
-// claudeTarget writes a rule file enola owns outright, plus optionally the hooks.
+// claudeTarget writes a rule file enola owns outright, enola's skills into
+// .claude/skills (the only skills directory Claude Code reads), and optionally the hooks.
 //
 // A rule file rather than a section inside CLAUDE.md: rules without `paths` frontmatter
 // load at launch with the same priority as a project CLAUDE.md, and each rule is its own
@@ -272,6 +282,11 @@ func claudeTarget(o Options, remove bool) ([]Result, error) {
 			return nil, err
 		}
 		out = append(out, r)
+		sr, err := claudeSkills(o, true)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sr...)
 		hr, err := writeHooks(o, true)
 		if err != nil {
 			return nil, err
@@ -284,6 +299,11 @@ func claudeTarget(o Options, remove bool) ([]Result, error) {
 		return nil, err
 	}
 	out = append(out, r)
+	sr, err := claudeSkills(o, false)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, sr...)
 
 	if o.Hooks {
 		hr, err := writeHooks(o, false)

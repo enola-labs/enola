@@ -324,7 +324,7 @@ var helpPages = map[string]helpPage{
 	},
 	"install": {
 		examples: []cli.Example{
-			{Comment: "Tell your agents enola is here (instructions only)", Command: "enola install"},
+			{Comment: "Tell your agents enola is here (instructions and skills)", Command: "enola install"},
 			{Comment: "...and close the loop automatically with session hooks", Command: "enola install --hooks"},
 			{Comment: "Preview what that would change, writing nothing", Command: "enola install --hooks --dry-run"},
 			{Comment: "For every project of this user, two agents only", Command: "enola install --global --targets=claude,cursor"},
