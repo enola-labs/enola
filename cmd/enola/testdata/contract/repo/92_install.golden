@@ -7,6 +7,7 @@ Hooks:      no — instructions and skills only. Re-run with --hooks to automate
 
   created   .claude/rules/enola.md
   created   .claude/skills/enola/SKILL.md
+  created   .claude/skills/enola-intent/SKILL.md
 
-Written — 2 files as previewed.
+Written — 3 files as previewed.
 --- stderr

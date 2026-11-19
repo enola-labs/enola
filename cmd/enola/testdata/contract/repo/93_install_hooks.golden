@@ -22,6 +22,7 @@ Hooks:      yes
 
   updated   .claude/rules/enola.md
   unchanged .claude/skills/enola/SKILL.md
+  unchanged .claude/skills/enola-intent/SKILL.md
   created   .claude/settings.json
 
 Written — 2 files as previewed.

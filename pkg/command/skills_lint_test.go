@@ -18,6 +18,8 @@ var skillNonTools = map[string]bool{
 	"body_hash": true, "decl_hash": true, "inner_hash": true, "cited_hash": true, "cited_lines": true,
 	"span_start": true, "symbol_kind": true, "unmatched_by_clients": true, "unreached_by_clients": true,
 	"test_ref": true, "member_of": true, "enola_intent": true,
+	// Rule vocabulary in enola-intent.yaml.
+	"depends_on": true, "forbid_cycles": true,
 }
 
 var (
@@ -124,6 +126,10 @@ func invocations(code string) [][]string {
 
 // checkInvocation checks the command path and every flag of one invocation.
 func checkInvocation(args []string, help func([]string) string) error {
+	// `enola help <command> [<sub>]` is checked as the command it names.
+	if len(args) > 0 && args[0] == "help" {
+		return checkInvocation(args[1:], help)
+	}
 	var path []string
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd := args[0]
