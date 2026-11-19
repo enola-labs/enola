@@ -50,27 +50,98 @@ func (e *GoExtractor) ExtractTestRefs(ctx context.Context, repoPath string, test
 
 	// The go.mod files are production files: the modules come from there.
 	mods := readModules(repoPath, prodFiles)
-	perFile := parallel.MapFiles(ctx, goFiles, func(relFile string) []facts.Fact {
-		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
-		if err != nil {
-			log.Printf("[go-extractor] error reading test file %s: %v", relFile, err)
-			return nil
+
+	// One package at a time, because a test reaches production code through what
+	// the package's own functions return: `testRunner().Doctor(...)`, or
+	// `s := New(cfg); s.Serve()`. Those return types come from the directory's test
+	// files (where helpers like testRunner live) and its production files (where
+	// constructors live), so both are read for each directory that has tests.
+	testsByDir := map[string][]string{}
+	var dirs []string
+	for _, rel := range goFiles {
+		dir := factpath.Dir(rel)
+		if _, ok := testsByDir[dir]; !ok {
+			dirs = append(dirs, dir)
 		}
-		return refsFromGoTest(src, relFile, mods)
+		testsByDir[dir] = append(testsByDir[dir], rel)
+	}
+	prodByDir := map[string][]string{}
+	for _, rel := range prodFiles {
+		if strings.HasSuffix(rel, ".go") && !isGoTestFile(rel) {
+			if dir := factpath.Dir(rel); testsByDir[dir] != nil {
+				prodByDir[dir] = append(prodByDir[dir], rel)
+			}
+		}
+	}
+
+	perDir := parallel.MapFiles(ctx, dirs, func(dir string) []facts.Fact {
+		return refsFromGoTestDir(repoPath, dir, testsByDir[dir], prodByDir[dir], mods)
 	})
 
 	var out []facts.Fact
-	for _, ff := range perFile {
+	for _, ff := range perDir {
 		out = append(out, ff...)
 	}
 	return out, nil
 }
 
-// refsFromGoTest parses one Go test file and returns a single reference-only fact
+// refsFromGoTestDir is refsFromGoTestFile for every test file of one directory, sharing
+// the return types its functions declare.
+func refsFromGoTestDir(repoPath, dir string, tests, prods []string, mods goModules) []facts.Fact {
+	type parsed struct {
+		rel string
+		f   *ast.File
+	}
+	var testAST []parsed
+	var all []*ast.File
+	for _, rel := range tests {
+		if f := parseGoTest(repoPath, rel); f != nil {
+			testAST = append(testAST, parsed{rel, f})
+			all = append(all, f)
+		}
+	}
+	for _, rel := range prods {
+		src, err := os.ReadFile(filepath.Join(repoPath, rel))
+		if err != nil {
+			continue
+		}
+		if f, err := parser.ParseFile(token.NewFileSet(), rel, src, parser.SkipObjectResolution); err == nil {
+			all = append(all, f)
+		}
+	}
+	returns := collectReturnTypes(all, mods.importPathOf(dir), mods, nil, nil)
+
+	var out []facts.Fact
+	for _, p := range testAST {
+		out = append(out, refsFromGoTestFile(p.f, p.rel, mods, returns)...)
+	}
+	return out
+}
+
+// parseGoTest reads and parses one test file, keeping its clean declarations when it
+// parses only in part.
+func parseGoTest(repoPath, relFile string) *ast.File {
+	src, err := os.ReadFile(filepath.Join(repoPath, relFile))
+	if err != nil {
+		log.Printf("[go-extractor] error reading test file %s: %v", relFile, err)
+		return nil
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), relFile, src, parser.SkipObjectResolution)
+	if err != nil {
+		if f = keepCleanDecls(f); f == nil {
+			log.Printf("[go-extractor] error parsing test file %s: %v", relFile, err)
+			return nil
+		}
+		log.Printf("[go-extractor] read test file %s in part: %v", relFile, err)
+	}
+	return f
+}
+
+// refsFromGoTestFile returns, for one parsed Go test file, a single reference-only fact
 // carrying the production symbols it calls, or nil when it references nothing.
 //
-// Call targets are resolved with the PRODUCTION resolvers (flattenSelector,
-// collectLocalTypes, resolveChain), so a reference from a test is spelled exactly
+// Call targets are resolved with the PRODUCTION resolvers (callTarget,
+// collectLocalTypes), so a reference from a test is spelled exactly
 // as the same reference from production code would be, and the dead-code detector
 // needs no special case. That also inherits goBuiltins filtering, so len/make/min
 // never become phantom targets.
@@ -79,20 +150,14 @@ func (e *GoExtractor) ExtractTestRefs(ctx context.Context, repoPath string, test
 // ignores composite literals. A type constructed only as `Foo{}` from a test is
 // therefore still reported dead, but so is one constructed only that way from
 // production code: that blind spot is pre-existing and not specific to tests.
-func refsFromGoTest(src []byte, relFile string, mods goModules) []facts.Fact {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, relFile, src, parser.SkipObjectResolution)
-	if err != nil {
-		if f = keepCleanDecls(f); f == nil {
-			log.Printf("[go-extractor] error parsing test file %s: %v", relFile, err)
-			return nil
-		}
-		log.Printf("[go-extractor] read test file %s in part: %v", relFile, err)
-	}
-
+//
+// returns holds the return types the package's functions declare, so a call through a
+// function's result resolves.
+func refsFromGoTestFile(f *ast.File, relFile string, mods goModules, returns map[string][]string) []facts.Fact {
 	base := resolveCtx{
-		pkgDir: mods.importPathOf(factpath.Dir(relFile)),
-		mods:   mods,
+		returnTypes: returns,
+		pkgDir:      mods.importPathOf(factpath.Dir(relFile)),
+		mods:        mods,
 		// pkgNames is deliberately nil. It exists to recover a declared package name
 		// that differs from its directory base ("go-auth" → package auth), which
 		// needs a view of every parsed package — and this pass sees only test files.
@@ -116,9 +181,11 @@ func refsFromGoTest(src []byte, relFile string, mods goModules) []facts.Fact {
 	collectCalls := func(n ast.Node, ctx resolveCtx) {
 		ast.Inspect(n, func(node ast.Node) bool {
 			if call, ok := node.(*ast.CallExpr); ok {
-				if chain := flattenSelector(call.Fun); chain != nil {
-					add(resolveChain(chain, ctx))
-				}
+				// callTarget, as the production pass resolves calls: a plain chain
+				// resolves as it always did, and one through a call's result
+				// (`testRunner().Doctor(...)`) resolves to a method of the type
+				// the called function returns.
+				add(callTarget(call.Fun, ctx))
 			}
 			return true
 		})

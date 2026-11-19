@@ -220,3 +220,57 @@ func TestExtractTestRefs_ReferenceFreeFileYieldsNoFact(t *testing.T) {
 		t.Fatalf("want no fact for a reference-free test file, got %+v", ff)
 	}
 }
+
+// A test reaches a method through what a function returns: a helper declared in
+// another test file of the package (`testRunner().printSkills(...)`), or a production
+// constructor not named New<Type> (`r := build(); r.Run()`). Both were dropped: the
+// test pass resolved only plain selector chains, with no return types to type a call's
+// result, so a method exercised only this way read as untested.
+func TestExtractTestRefs_CallThroughAFunctionsResult(t *testing.T) {
+	dir := setupGoProject(t, map[string]string{
+		"pkg/cmd/runner.go": `package cmd
+
+type Runner struct{}
+
+func build() *Runner { return &Runner{} }
+
+func (r *Runner) printSkills(dir string) {}
+
+func (r *Runner) Run() {}
+`,
+		"pkg/cmd/helpers_test.go": `package cmd
+
+func testRunner() *Runner { return &Runner{} }
+`,
+		"pkg/cmd/doctor_test.go": `package cmd
+
+import "testing"
+
+func TestDoctor(t *testing.T) {
+	testRunner().printSkills("x")
+	r := build()
+	r.Run()
+}
+`,
+	})
+
+	tests := []string{"pkg/cmd/doctor_test.go", "pkg/cmd/helpers_test.go"}
+	prods := []string{"pkg/cmd/runner.go"}
+	ff, err := New().ExtractTestRefs(context.Background(), dir, tests, prods)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff = dirNamed(t, dir, ff)
+	var doctor []facts.Fact
+	for _, f := range ff {
+		if f.File == "pkg/cmd/doctor_test.go" {
+			doctor = append(doctor, f)
+		}
+	}
+	got := targetsOf(t, doctor, "pkg/cmd/doctor_test.go")
+	for _, want := range []string{"pkg/cmd.Runner.printSkills", "pkg/cmd.Runner.Run", "pkg/cmd.testRunner", "pkg/cmd.build"} {
+		if !got[want] {
+			t.Errorf("missing target %s; got %v", want, got)
+		}
+	}
+}
