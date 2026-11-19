@@ -7,7 +7,8 @@ Target:     .   (from the path you gave)
   removed   .claude/rules/enola.md
   removed   .claude/skills/enola/SKILL.md
   removed   .claude/skills/enola-intent/SKILL.md
+  removed   .claude/skills/enola-review/SKILL.md
   removed   .claude/settings.json
 
-Removed — 4 files as previewed.
+Removed — 5 files as previewed.
 --- stderr

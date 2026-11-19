@@ -8,6 +8,7 @@ Hooks:      no — instructions and skills only. Re-run with --hooks to automate
   unchanged .claude/rules/enola.md
   unchanged .claude/skills/enola/SKILL.md
   unchanged .claude/skills/enola-intent/SKILL.md
+  unchanged .claude/skills/enola-review/SKILL.md
 
 Nothing to do.
 --- stderr
