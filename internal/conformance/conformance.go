@@ -18,7 +18,7 @@ package conformance
 
 import (
 	"fmt"
-	"path/filepath"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -86,17 +86,18 @@ func Compute(base, cur *facts.Store, d *diff.SnapshotDiff, opts Options) Report 
 		return Report{}
 	}
 	declared := strings.TrimSpace(opts.Target) != "" || len(opts.ExpectedPackages) > 0
+	pk := newPackager(base, cur)
 
 	// Packages whose code directly changed.
 	editSites := map[string]bool{}
 	for _, f := range d.FactsAdded {
-		addPkg(editSites, packageOf(f))
+		addPkg(editSites, pk.of(f))
 	}
 	for _, c := range d.FactsChanged {
-		addPkg(editSites, packageOf(c.After))
+		addPkg(editSites, pk.of(c.After))
 	}
 	for _, f := range d.FactsRemoved {
-		addPkg(editSites, packageOf(f))
+		addPkg(editSites, pk.of(f))
 	}
 	// Plus packages that gained an outbound dependency. A package can be reached by a
 	// change without any of its own facts moving — that is the coupling footprint, and
@@ -106,10 +107,10 @@ func Compute(base, cur *facts.Store, d *diff.SnapshotDiff, opts Options) Report 
 		actual[p] = true
 	}
 	for _, e := range d.EdgesAdded {
-		addPkg(actual, pkgOfName(cur, e.Source))
+		addPkg(actual, pk.ofName(cur, e.Source))
 	}
 
-	targets := opts.resolveTargets(base, d)
+	targets := opts.resolveTargets(base, d, pk)
 
 	// Predicted radius: reverse dependents on the PRE-change graph. Built explicitly
 	// because a store assembled from a loaded baseline has no graph index until asked.
@@ -117,17 +118,17 @@ func Compute(base, cur *facts.Store, d *diff.SnapshotDiff, opts Options) Report 
 	dependents := 0
 	g := facts.NewGraph(base.All())
 	for _, t := range targets {
-		addPkg(predicted, pkgOfName(base, t)) // the target's own package is always expected
+		addPkg(predicted, pk.ofName(base, t)) // the target's own package is always expected
 		res := g.ImpactSet(t, opts.maxDepth(), opts.maxNodes(), false)
 		dependents += res.TotalDependents
 		for _, nodes := range res.ByDepth {
 			for _, n := range nodes {
-				addPkg(predicted, pkgOfNode(base, n))
+				addPkg(predicted, pk.ofNode(base, n))
 			}
 		}
 	}
 	for _, p := range opts.ExpectedPackages {
-		addPkg(predicted, strings.TrimSpace(p))
+		addPkg(predicted, pk.dir("", strings.TrimSpace(p)))
 	}
 
 	// In AUTO mode the edit sites ARE the intent — nobody declared anything, so the
@@ -176,11 +177,13 @@ func (o Options) maxNodes() int {
 
 // resolveTargets turns the declaration into concrete nodes present in the baseline graph,
 // or derives them from the delta when nothing was declared.
-func (o Options) resolveTargets(base *facts.Store, d *diff.SnapshotDiff) []string {
+func (o Options) resolveTargets(base *facts.Store, d *diff.SnapshotDiff, pk packager) []string {
 	target := strings.TrimSpace(o.Target)
 	if target == "" {
 		return derivedTargets(d)
 	}
+	// A Go package's directory names that package, which is named by its import path.
+	target = pk.dir("", target)
 	// An exact node wins outright: a caller who named a real symbol meant that symbol,
 	// and expanding it by substring would drag in every namesake.
 	if len(base.LookupByExactName(target)) > 0 {
@@ -232,9 +235,40 @@ func derivedTargets(d *diff.SnapshotDiff) []string {
 	return out
 }
 
-// packageOf returns the package a fact belongs to: its own name for a module fact,
-// otherwise the target of its `declares` relation, falling back to the file's directory.
-func packageOf(f facts.Fact) string {
+// packager names the package a fact belongs to, one name per package. A Go package is
+// named by its import path and filed under its directory, so a fact that declares no
+// package (a dependency, a test reference, a constant) would otherwise name it by
+// directory, and one package would count as two: the directory one never predicted,
+// never declared, and so always reported as spillover.
+type packager struct{ dirs facts.ModuleDirs }
+
+func newPackager(stores ...*facts.Store) packager {
+	var mods []facts.Fact
+	for _, s := range stores {
+		if s == nil {
+			continue
+		}
+		for _, f := range s.All() {
+			if f.Kind == facts.KindModule {
+				mods = append(mods, f)
+			}
+		}
+	}
+	return packager{dirs: facts.NewModuleDirs(mods)}
+}
+
+// dir returns the package living in directory dir, or dir itself when it is its name.
+func (p packager) dir(repo, dir string) string {
+	if n := p.dirs.Name(repo, dir); n != "" {
+		return n
+	}
+	return dir
+}
+
+// of returns the package a fact belongs to: its own name for a module fact, otherwise
+// the target of its `declares` relation, falling back to the package in the file's
+// directory.
+func (p packager) of(f facts.Fact) string {
 	if f.Kind == facts.KindModule {
 		return f.Name
 	}
@@ -244,29 +278,29 @@ func packageOf(f facts.Fact) string {
 		}
 	}
 	if f.File != "" {
-		return filepath.Dir(f.File)
+		return p.dir(f.Repo, path.Dir(f.File))
 	}
 	return ""
 }
 
-func pkgOfName(store *facts.Store, name string) string {
+func (p packager) ofName(store *facts.Store, name string) string {
 	if store == nil {
 		return ""
 	}
 	for _, f := range store.ByName(name) {
-		if p := packageOf(f); p != "" {
-			return p
+		if pkg := p.of(f); pkg != "" {
+			return pkg
 		}
 	}
 	return ""
 }
 
-func pkgOfNode(store *facts.Store, n facts.TraversalNode) string {
-	if p := pkgOfName(store, n.Name); p != "" {
-		return p
+func (p packager) ofNode(store *facts.Store, n facts.TraversalNode) string {
+	if pkg := p.ofName(store, n.Name); pkg != "" {
+		return pkg
 	}
 	if n.File != "" {
-		return filepath.Dir(n.File)
+		return p.dir("", path.Dir(n.File))
 	}
 	return ""
 }

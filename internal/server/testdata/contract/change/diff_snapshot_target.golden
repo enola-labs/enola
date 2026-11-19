@@ -1,10 +1,9 @@
 ## Scope
 
-**Reached beyond the declared scope.** 1 of 3 package(s) touched were predicted or declared, match ratio 0.33.
+**Reached beyond the declared scope.** 1 of 2 package(s) touched were predicted or declared, match ratio 0.5.
 
 Spillover — touched but neither predicted nor declared:
   - pkg/c
-  - pkg/a
 
 A package here was changed by something the declaration did not describe.
 That is worth reading even when every finding is clean.

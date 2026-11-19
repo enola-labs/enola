@@ -1,18 +1,10 @@
 ## Scope
 
-**Reached beyond the declared scope.** 1 of 3 package(s) touched were predicted or declared, match ratio 0.33.
-
-Spillover — touched but neither predicted nor declared:
-  - pkg/c
-  - pkg/a
-
-A package here was changed by something the declaration did not describe.
-That is worth reading even when every finding is clean.
+Stayed within the declared scope. 2 of 2 package(s) touched were predicted or declared, match ratio 1.
 
 Predicted but not touched (usually fine — the change was narrower than its blast radius):
   - example.com/gosample
   - pkg/b
-  - pkg/c
 
 # Architecture diff
 
