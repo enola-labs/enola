@@ -6,7 +6,6 @@ Target:     .   (from the path you gave)
 Hooks:      no — instructions and skills only. Re-run with --hooks to automate the loop.
 
   unchanged .claude/rules/enola.md
-  unchanged .claude/skills/enola/SKILL.md
   unchanged .claude/skills/enola-intent/SKILL.md
   unchanged .claude/skills/enola-memory/SKILL.md
   unchanged .claude/skills/enola-review/SKILL.md

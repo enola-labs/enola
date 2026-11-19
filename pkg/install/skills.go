@@ -28,13 +28,20 @@ var agentSkillsReaders = map[string]bool{
 // agents is installed.
 var agentSkillsHomeDirs = []string{".codex", ".pi", ".cursor", ".copilot", filepath.Join(".config", "opencode")}
 
+// coveredByClaudeRule are skills Claude Code does not get as skills, because the rule
+// file claudeTarget writes beside them says the same and is always loaded. Tested on a
+// real repository, the routing skill never loaded with the rule present; as a skill it
+// only added a second description to every session. The shared .agents/skills keeps
+// it: Codex reads the repository's AGENTS.md only where one exists.
+var coveredByClaudeRule = map[string]bool{"enola": true}
+
 // claudeSkills writes the skills into Claude Code's skills directory, unless enola's
 // Claude Code plugin already serves them there, as /enola:<name>. A second copy would
 // list every skill twice; any copy an earlier install wrote is removed instead.
 func claudeSkills(o Options, remove bool) ([]Result, error) {
 	root := filepath.Join(claudeDir(o), "skills")
 	if !remove && pluginServesSkills(o) {
-		out, err := syncSkills(root, pruneStop(o), o, true)
+		out, err := syncSkills(root, pruneStop(o), o, true, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -44,7 +51,7 @@ func claudeSkills(o Options, remove bool) ([]Result, error) {
 			Reason: "the enola Claude Code plugin is installed and serves these skills as /enola:<name>",
 		}), nil
 	}
-	return syncSkills(root, pruneStop(o), o, remove)
+	return syncSkills(root, pruneStop(o), o, remove, coveredByClaudeRule)
 }
 
 // pluginServesSkills reports whether Claude Code has enola's plugin installed where this
@@ -111,7 +118,7 @@ func agentSkills(o Options, remove bool) ([]Result, error) {
 			Reason: "none of Codex, Cursor, Copilot, Pi or opencode appears to be installed in your home directory",
 		}}, nil
 	}
-	return syncSkills(root, pruneStop(o), o, remove)
+	return syncSkills(root, pruneStop(o), o, remove, nil)
 }
 
 func anyExists(home string, rels []string) bool {
@@ -124,9 +131,10 @@ func anyExists(home string, rels []string) bool {
 }
 
 // syncSkills makes root hold exactly the current installable skills among the ones enola
-// wrote: each written or left unchanged, and every other marked directory removed. With
-// remove, every marked directory goes.
-func syncSkills(root, stop string, o Options, remove bool) ([]Result, error) {
+// wrote, less those named in skip: each written or left unchanged, and every other marked
+// directory removed, so a skill skipped here and written by an earlier install goes too.
+// With remove, every marked directory goes.
+func syncSkills(root, stop string, o Options, remove bool, skip map[string]bool) ([]Result, error) {
 	var out []Result
 	keep := map[string]bool{}
 	if !remove {
@@ -135,6 +143,9 @@ func syncSkills(root, stop string, o Options, remove bool) ([]Result, error) {
 			return nil, err
 		}
 		for _, s := range all {
+			if skip[s.Dir] {
+				continue
+			}
 			name := skills.InstalledName(s.Dir)
 			dir := filepath.Join(root, name)
 			if err := claimable(dir); err != nil {

@@ -21,7 +21,6 @@ Hooks:      yes
             Never blocks, and never interrupts on failure.
 
   updated   .claude/rules/enola.md
-  unchanged .claude/skills/enola/SKILL.md
   unchanged .claude/skills/enola-intent/SKILL.md
   unchanged .claude/skills/enola-memory/SKILL.md
   unchanged .claude/skills/enola-review/SKILL.md

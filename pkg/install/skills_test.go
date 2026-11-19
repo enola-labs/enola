@@ -24,14 +24,21 @@ func installedSkills(t *testing.T) []string {
 }
 
 // Both directories get every installable skill, renamed and marked; Claude Code reads
-// only the first, every other agent the second.
+// only the first, every other agent the second. Claude Code's copy leaves out what its
+// rule file already says.
 func TestInstall_SkillsGoToBothDirectories(t *testing.T) {
 	o := opts(t, false)
 	if _, err := Install(o); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(o.RepoDir, ".claude", "skills", "enola")); err == nil {
+		t.Error(".claude/skills/enola: the rule file says the same, so Claude Code should not get it as a skill")
+	}
 	for _, root := range []string{".claude/skills", ".agents/skills"} {
 		for _, name := range installedSkills(t) {
+			if root == ".claude/skills" && name == "enola" {
+				continue
+			}
 			md := []byte(read(t, filepath.Join(o.RepoDir, root, name, "SKILL.md")))
 			if !strings.Contains(string(md), "\nname: "+name+"\n") {
 				t.Errorf("%s/%s: frontmatter does not name it %s", root, name, name)
@@ -83,7 +90,7 @@ func TestInstall_SkillsFollowTheTargets(t *testing.T) {
 func TestInstall_SkillLeavesTheUsersOwnAlone(t *testing.T) {
 	o := opts(t, false)
 	o.Targets = []string{"claude"}
-	name := installedSkills(t)[0]
+	name := installedSkills(t)[1] // [0] is the routing skill, which Claude Code does not get
 	mine := filepath.Join(o.RepoDir, ".claude", "skills", name, "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(mine), 0o755); err != nil {
 		t.Fatal(err)
@@ -178,7 +185,7 @@ func TestInstall_ClaudeSkillsDeferToThePlugin(t *testing.T) {
 	if a, _ := actionFor(rs, filepath.Join(".claude", "skills")); a != ActionSkipped {
 		t.Errorf(".claude/skills: %q with the plugin installed, want skipped", a)
 	}
-	if _, err := os.Stat(filepath.Join(o.RepoDir, ".claude", "skills", "enola")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(o.RepoDir, ".claude", "skills", "enola-review")); !os.IsNotExist(err) {
 		t.Errorf("the copy an earlier install wrote survived: %v", err)
 	}
 	read(t, filepath.Join(o.RepoDir, ".claude", "rules", "enola.md"))
@@ -189,5 +196,25 @@ func TestInstall_ClaudeSkillsDeferToThePlugin(t *testing.T) {
 	if _, err := Install(other); err != nil {
 		t.Fatal(err)
 	}
-	read(t, filepath.Join(other.RepoDir, ".claude", "skills", "enola", "SKILL.md"))
+	read(t, filepath.Join(other.RepoDir, ".claude", "skills", "enola-review", "SKILL.md"))
+}
+
+// An install from before the routing skill was left out of Claude Code's directory wrote
+// it there; the next install takes it away.
+func TestInstall_RemovesTheRoutingSkillFromClaude(t *testing.T) {
+	o := opts(t, false)
+	o.Targets = []string{"claude"}
+	old := filepath.Join(o.RepoDir, ".claude", "skills", "enola", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("---\nname: enola\n---\n\n"+skillMarker), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(o); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("the routing skill an earlier install wrote survived: %v", err)
+	}
 }
