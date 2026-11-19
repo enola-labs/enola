@@ -25,6 +25,9 @@ var skillNonTools = map[string]bool{
 var (
 	codeSpan  = regexp.MustCompile("`([^`\n]+)`")
 	toolShape = regexp.MustCompile(`^[a-z]+(?:_[a-z]+)+$`)
+	// toolCall is a tool written as a call, `impact_analysis(target=X)`: the name before
+	// the parenthesis is checked like a bare one.
+	toolCall = regexp.MustCompile(`^([a-z]+(?:_[a-z]+)*)\(`)
 )
 
 // TestSkillsNameRealCommandsAndTools — a skill is instructions an agent follows to the
@@ -68,6 +71,9 @@ func TestSkillsNameRealCommandsAndTools(t *testing.T) {
 			for _, code := range codeOf(string(f.Content)) {
 				if toolShape.MatchString(code) && !tools[code] && !skillNonTools[code] {
 					t.Errorf("%s: `%s` looks like a tool and is none; add it to skillNonTools if it is a property", where, code)
+				}
+				if m := toolCall.FindStringSubmatch(code); m != nil && !tools[m[1]] {
+					t.Errorf("%s: `%s` calls %s, which is no tool", where, code, m[1])
 				}
 				for _, inv := range invocations(code) {
 					checked++
