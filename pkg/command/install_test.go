@@ -117,6 +117,21 @@ func TestInstall_PrintsThePlanOnceWhenApplyingMatchesThePreview(t *testing.T) {
 	}
 }
 
+// A repository with an AGENTS.md is the case where one target's reason depended on
+// another's write: the agents target fills AGENTS.md, and opencode, deciding after it,
+// worded its skip differently in the apply than in the preview. A real install then
+// printed every file twice under "differs from the preview".
+func TestInstall_MatchesThePreviewWithAnAgentsMd(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# Agents\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := runInstallCapturing(t, false, "--yes", repo)
+	if strings.Contains(out, "differs from the preview") || !strings.Contains(out, "as previewed.") {
+		t.Errorf("an install that did what it previewed was reported as divergent:\n%s", out)
+	}
+}
+
 // Uninstall runs the same two passes, so it gets the same treatment — and its own
 // verb, since "Written" is not what a removal did.
 func TestUninstall_PrintsThePlanOnceAndSaysRemoved(t *testing.T) {

@@ -156,13 +156,17 @@ func agentsMdServesOpencode(o Options) string {
 	if err != nil {
 		return ""
 	}
-	if strings.Contains(string(raw), beginMarker) {
-		return "opencode reads this repository's AGENTS.md, which already carries enola's block"
-	}
+	// This run's own agents target first. Asked of the disk first, the answer came back
+	// "will write" in the preview and "already carries" in the apply, the agents target
+	// having written in between, and the run reported a divergence that was only a
+	// change of wording.
 	for _, t := range o.selectedTargets() {
 		if t == "agents" {
 			return "opencode reads this repository's AGENTS.md, where the `agents` target in this run writes the same text"
 		}
+	}
+	if strings.Contains(string(raw), beginMarker) {
+		return "opencode reads this repository's AGENTS.md, which already carries enola's block"
 	}
 	return ""
 }

@@ -102,5 +102,5 @@ if [ -z "${ENOLA_NO_RUBYDEX_FETCH:-}" ]; then
 fi
 
 echo ""
-echo "If \$HOME/.local/bin is not in your PATH, add it:"
-echo "  export PATH=\"$HOME/.local/bin:\$PATH\""
+echo "If $INSTALL_DIR is not in your PATH, add it:"
+echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
