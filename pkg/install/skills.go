@@ -153,16 +153,12 @@ func syncSkills(root, stop string, o Options, remove bool, skip map[string]bool)
 				continue
 			}
 			keep[name] = true
-			for _, f := range s.Files {
-				content := f.Content
-				if f.Path == "SKILL.md" {
-					renamed, err := skills.Rename(content, name)
-					if err != nil {
-						return nil, fmt.Errorf("skill %s: %w", s.Dir, err)
-					}
-					content = append(renamed, []byte("\n"+skillMarker)...)
-				}
-				r, err := writeOwnedFile(filepath.Join(dir, filepath.FromSlash(f.Path)), string(content), o.DryRun)
+			files, err := renderSkill(s)
+			if err != nil {
+				return nil, err
+			}
+			for _, f := range files {
+				r, err := writeOwnedFile(filepath.Join(dir, filepath.FromSlash(f.Path)), string(f.Content), o.DryRun)
 				if err != nil {
 					return nil, err
 				}
@@ -184,6 +180,25 @@ func syncSkills(root, stop string, o Options, remove bool, skip map[string]bool)
 			return nil, err
 		}
 		out = append(out, rs...)
+	}
+	return out, nil
+}
+
+// renderSkill is a skill's files as install writes them: SKILL.md renamed to the
+// installed name and ending with the marker, every other file as shipped.
+func renderSkill(s skills.Skill) ([]skills.File, error) {
+	name := skills.InstalledName(s.Dir)
+	out := make([]skills.File, 0, len(s.Files))
+	for _, f := range s.Files {
+		content := f.Content
+		if f.Path == "SKILL.md" {
+			renamed, err := skills.Rename(content, name)
+			if err != nil {
+				return nil, fmt.Errorf("skill %s: %w", s.Dir, err)
+			}
+			content = append(renamed, []byte("\n"+skillMarker)...)
+		}
+		out = append(out, skills.File{Path: f.Path, Content: content})
 	}
 	return out, nil
 }

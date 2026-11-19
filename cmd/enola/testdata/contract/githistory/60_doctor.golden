@@ -17,6 +17,13 @@ Updates
 Baseline
   comparable — the gate can grade against it
 
+Skills
+  .claude/skills     for Claude Code
+                     none installed
+  .agents/skills     for Codex, Cursor, Copilot, Pi, opencode
+                     none installed
+  No enola skills are installed. `enola install` writes them; docs/SKILLS.md says what each does.
+
 Session hooks
   not configured for this repository.
   Run `enola install --hooks` to have the loop run itself: a baseline pinned

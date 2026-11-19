@@ -150,6 +150,10 @@ always loaded. Every other agent, and the plugin, does.
 
 ## If a skill does not load
 
+Start with `enola doctor`. Its Skills section lists every skill in each directory
+`enola install` writes to, and marks any that are missing, differ from what your
+binary would write, or are a skill of yours under enola's name.
+
 - **It is not listed.** Restart the agent: most read skills once, at session start.
 - **Pi does nothing, or waits.** Pi loads a project's skills and extensions only once the
   project is trusted: accept the prompt, run `/trust`, or start it with `pi --approve`.

@@ -45,7 +45,7 @@ func (r *Runner) Doctor(args []string) {
 				"Report whether enola's agent hooks are actually firing in this repository.\n\n"+
 				"`install --hooks` can write a configuration the agent ignores — it reports\n"+
 				"success either way. This asks the only question that settles it: when did the\n"+
-				"hooks last run?\n\nFlags:\n")
+				"hooks last run?\n\nIt also lists enola's skills in each directory `install` writes them to, and\nany that differ from what this binary would write.\n\nFlags:\n")
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "doctor")
 	}
@@ -158,6 +158,8 @@ func (r *Runner) Doctor(args []string) {
 		fmt.Printf("      %s baseline pin\n", r.name())
 	}
 	fmt.Println()
+
+	r.printSkills(repoDir)
 
 	fmt.Println("Session hooks")
 
@@ -357,4 +359,75 @@ func humanSince(t time.Time) string {
 func outcomeIs(state hookstate.State, e hookstate.Event, o hookstate.Outcome) bool {
 	r := state.Get(e)
 	return r != nil && r.LastOutcome == o
+}
+
+// printSkills reports the skills directories `enola install` writes, against what this
+// binary would write there: which of enola's skills are current, which an older or newer
+// enola wrote, which are missing, and which name a skill of the user's. A home-directory
+// location is listed only when it holds something, since most installs are per
+// repository.
+func (r *Runner) printSkills(repoDir string) {
+	fmt.Println("Skills")
+	home, _ := os.UserHomeDir()
+	locs, err := install.SkillsReport(repoDir, home)
+	if err != nil {
+		fmt.Printf("  could not be read: %v\n\n", err)
+		return
+	}
+	found := false
+	var todo []string
+	for _, l := range locs {
+		if l.Global && !l.Installed() && !l.ServedByPlugin {
+			continue
+		}
+		shown := l.Dir
+		if l.Global {
+			shown = "~" + strings.TrimPrefix(l.Dir, home)
+		} else if rel, err := filepath.Rel(repoDir, l.Dir); err == nil {
+			shown = rel
+		}
+		fmt.Printf("  %-18s %s\n", shown, "for "+l.Agents)
+		if l.ServedByPlugin {
+			fmt.Printf("  %-18s served by the enola Claude Code plugin\n", "")
+		}
+		byState := map[install.SkillState][]string{}
+		for _, s := range l.Skills {
+			byState[s.State] = append(byState[s.State], s.Name)
+		}
+		if !l.Installed() && !l.ServedByPlugin {
+			fmt.Printf("  %-18s none installed\n", "")
+		} else {
+			found = true
+		}
+		// A skill of the user's under enola's name gets the sentence below, not a row.
+		for _, st := range []install.SkillState{install.SkillCurrent, install.SkillOutdated, install.SkillMissing, install.SkillRetired} {
+			names := byState[st]
+			if len(names) == 0 || (st == install.SkillMissing && !l.Installed()) {
+				continue
+			}
+			fmt.Printf("  %-18s %-9s %s\n", "", st, strings.Join(names, ", "))
+			switch st {
+			case install.SkillOutdated:
+				todo = append(todo, shown+": differs from what this version writes (another version wrote it, or it was edited)")
+			case install.SkillMissing:
+				todo = append(todo, shown+": a skill this version ships is not there")
+			case install.SkillRetired:
+				todo = append(todo, shown+": a skill this version no longer installs there")
+			}
+		}
+		if names := byState[install.SkillTheirs]; len(names) > 0 {
+			fmt.Printf("  %-18s %s is a skill of yours under enola's name; install leaves it alone\n", "", strings.Join(names, ", "))
+		}
+	}
+	switch {
+	case !found:
+		fmt.Printf("  No enola skills are installed. `%s install` writes them; docs/SKILLS.md says what each does.\n", r.name())
+	case len(todo) > 0:
+		fmt.Println()
+		for _, t := range todo {
+			fmt.Printf("  %s\n", t)
+		}
+		fmt.Printf("  Run `%s install` to bring them in line with this binary.\n", r.name())
+	}
+	fmt.Println()
 }
