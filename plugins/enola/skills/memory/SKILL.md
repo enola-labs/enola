@@ -30,6 +30,12 @@ Cite the narrowest place the memory is about: one line for a bug or a gotcha, th
 declaration line for a memory about the whole function. A line outside every symbol
 (an import, a package-level block) gets no stamp; record the file path instead.
 
+The stamp names the innermost symbol enola holds at that line, which can be smaller
+than what a reader would call a declaration: a method of an object literal that a
+function returns, a function named inside another function, a default export written as
+a call. Every status below is about that symbol, not the function around it. Do not
+overrule a status because the symbol is not a declaration by some other definition.
+
 ## Saving a memory
 
 1. Write the memory as the user's memory system expects.
