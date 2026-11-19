@@ -8,6 +8,7 @@ Hooks:      no — instructions and skills only. Re-run with --hooks to automate
   created   .claude/rules/enola.md
   created   .claude/skills/enola/SKILL.md
   created   .claude/skills/enola-intent/SKILL.md
+  created   .claude/skills/enola-memory/SKILL.md
   created   .claude/skills/enola-review/SKILL.md
   created   .claude/skills/enola-test-plan/SKILL.md
 
