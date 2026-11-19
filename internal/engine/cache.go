@@ -3718,7 +3718,9 @@ import (
 // v656: dbt: an exposure's line is its own entry's, not the file's first.
 // v657: the warehouse-lineage binder links dbt sources, change-feed records and
 // topics to what loads them, a Go service's queried tables included.
-const cacheVersion = "v657"
+// v658: Go: a test's call through a function's result (`testRunner().Doctor()`,
+// `r := build(); r.Run()`) is a reference to the method on the returned type.
+const cacheVersion = "v658"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
