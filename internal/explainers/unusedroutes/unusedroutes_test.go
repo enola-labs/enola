@@ -508,3 +508,178 @@ func TestExplain_GoRoutesOnDifferentMuxesDoNotCompete(t *testing.T) {
 		t.Fatalf("want only /healthz, an unnamed mux beside a named one; got %+v (%v)", insights, err)
 	}
 }
+
+// A hook takes any number of callbacks, so two registrations of one are not a
+// duplicate, and neither are a test's registrations on its own server, nor two engines
+// mounted at one path. A client-side screen and a server endpoint on one path are matched by
+// different routers and do not compete; two screens on one path still do.
+func TestExplain_HooksAndScreensAreNotEndpoints(t *testing.T) {
+	store := facts.NewStore()
+	route := func(method, path, file string, props map[string]any) facts.Fact {
+		p := map[string]any{"method": method}
+		for k, v := range props {
+			p[k] = v
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "site", Props: p}
+	}
+	hook := map[string]any{"framework": "wordpress", "type": "hook"}
+	screen := map[string]any{"framework": "react-router", "type": "page", "router": "react-router"}
+	store.Add(
+		route("ACTION", "ACTION add_user_role", "src/default-filters.php", hook),
+		route("ACTION", "ACTION add_user_role", "tests/capabilities.php", hook),
+		route("GET", "/", "config/routes.rb", map[string]any{"framework": "rails"}),
+		route("GET", "/", "app/javascript/app.jsx", screen),
+		route("GET", "/settings", "app/javascript/app.jsx", screen),
+		route("GET", "/settings", "app/javascript/admin.jsx", screen),
+		route("REST", "REST test-ns", "tests/phpunit/tests/rest-api.php", nil),
+		route("REST", "REST test-ns", "tests/phpunit/tests/rest-server.php", nil),
+		route("MOUNT", "/", "plugins/automation/config/routes.rb", map[string]any{"framework": "rails"}),
+		route("MOUNT", "/", "plugins/events/config/routes.rb", map[string]any{"framework": "rails"}),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 || len(insights[0].Evidence) != 1 ||
+		insights[0].Evidence[0].Detail != "screen GET /settings is registered at app/javascript/admin.jsx:1, app/javascript/app.jsx:1" {
+		t.Fatalf("want only the two /settings screens; got %+v (%v)", insights, err)
+	}
+}
+
+// A monorepo holds several applications, each under its own manifest, and each
+// serves its own routes: two of them on "/" shadow nothing. A package one of them
+// imports serves inside it, so its routes compete with that application's. A file
+// under no manifest is not known to be apart from anything.
+func TestExplain_RoutesInSeparateApplicationsDoNotCompete(t *testing.T) {
+	store := facts.NewStore()
+	manifests := func(files ...string) facts.Fact {
+		return facts.Fact{Kind: facts.KindExtraction, Name: facts.ManifestsFact, File: "mono", Repo: "mono",
+			Props: map[string]any{facts.PropManifests: files}}
+	}
+	mod := func(dir string) facts.Fact {
+		return facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "mono", Props: map[string]any{"language": "typescript"}}
+	}
+	imports := func(from, to string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + to, File: from + "/index.ts", Repo: "mono",
+			Props: map[string]any{"language": "typescript", "source": "internal"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: to}}}
+	}
+	route := func(path, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "mono",
+			Props: map[string]any{"method": "GET", "language": "typescript", "framework": "express"}}
+	}
+	store.Add(
+		manifests("apps/docs/package.json", "apps/web/package.json", "packages/auth/package.json"),
+		mod("apps/web/src"), mod("apps/docs/src"), mod("packages/auth/src"),
+		imports("apps/web/src", "packages/auth/src"),
+		route("/", "apps/web/src/server.ts"), route("/", "apps/docs/src/server.ts"),
+		route("/login", "apps/web/src/server.ts"), route("/login", "packages/auth/src/routes.ts"),
+		route("/health", "apps/docs/src/server.ts"), route("/health", "scripts/serve.ts"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("want one finding, got %+v (%v)", insights, err)
+	}
+	var got []string
+	for _, ev := range insights[0].Evidence {
+		got = append(got, ev.Detail)
+	}
+	want := "GET /health is registered at apps/docs/src/server.ts:1, scripts/serve.ts:1\n" +
+		"GET /login is registered at apps/web/src/server.ts:1, packages/auth/src/routes.ts:1"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("evidence =\n%s\nwant\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// A .NET project is an application root, and a test project referencing two of them
+// does not make them one application.
+func TestExplain_TestProjectDoesNotJoinApplications(t *testing.T) {
+	store := facts.NewStore()
+	project := func(dir string, refs ...string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "docs",
+			Props: map[string]any{"language": "csharp", "msbuild": true}}
+		for _, r := range refs {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: r})
+		}
+		return f
+	}
+	route := func(file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/states", File: file, Line: 1, Repo: "docs",
+			Props: map[string]any{"method": "GET", "language": "csharp", "framework": "aspnetcore"}}
+	}
+	store.Add(
+		project("src/Docs.Server"), project("src/Docs.WasmHost"),
+		func() facts.Fact {
+			f := project("src/Docs.UnitTests", "src/Docs.Server", "src/Docs.WasmHost")
+			f.Props[facts.PropModuleRole] = facts.ModuleRoleTest
+			return f
+		}(),
+		route("src/Docs.Server/Controllers/StatesController.cs"),
+		route("src/Docs.WasmHost/Controllers/StatesController.cs"),
+	)
+	if insights, err := New().Explain(context.Background(), store); err != nil || len(insights) != 0 {
+		t.Fatalf("two hosts a test project references are still two applications; got %+v (%v)", insights, err)
+	}
+}
+
+// One path under two disjoint sets of API versions is two endpoints: the request's
+// version header picks between them. Overlapping versions, a version-neutral one, or
+// one with no version at all still compete.
+func TestExplain_DisjointAPIVersionsDoNotCompete(t *testing.T) {
+	store := facts.NewStore()
+	route := func(path, file string, versions ...string) facts.Fact {
+		p := map[string]any{"method": "DELETE", "language": "typescript", "framework": "nestjs"}
+		if len(versions) > 0 {
+			p[facts.PropAPIVersions] = versions
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "api", Props: p}
+	}
+	store.Add(
+		route("/v2/event-types/:id", "v2024_04_15/controller.ts", "VERSION_2024_04_15", "VERSION_2024_06_11"),
+		route("/v2/event-types/:id", "v2024_06_14/controller.ts", "VERSION_2024_06_14"),
+		route("/v2/schedules", "schedules_a.ts", "VERSION_2024_04_15", "VERSION_2024_06_11"),
+		route("/v2/schedules", "schedules_b.ts", "VERSION_2024_06_11"),
+		route("/v2/me", "me_a.ts", "VERSION_2024_04_15"),
+		route("/v2/me", "me_b.ts", facts.VersionNeutral),
+		route("/v2/slots", "slots_a.ts", "VERSION_2024_04_15"),
+		route("/v2/slots", "slots_b.ts"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("want one finding, got %+v (%v)", insights, err)
+	}
+	var got []string
+	for _, ev := range insights[0].Evidence {
+		got = append(got, strings.SplitN(ev.Detail, " is registered", 2)[0])
+	}
+	if want := "DELETE /v2/me,DELETE /v2/schedules,DELETE /v2/slots"; strings.Join(got, ",") != want {
+		t.Errorf("duplicates = %v, want %s", got, want)
+	}
+}
+
+// An application and a package that import each other are one unit: neither is used
+// by nobody, and without collapsing the cycle no application reached either, so the
+// pair competed with every route in the repository.
+func TestExplain_ApplicationsInAnImportCycleAreOneUnit(t *testing.T) {
+	store := facts.NewStore()
+	mod := func(dir string) facts.Fact {
+		return facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "mono", Props: map[string]any{"language": "python"}}
+	}
+	imports := func(from, to string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + to, File: from + "/mod.py", Repo: "mono",
+			Props: map[string]any{"language": "python", "source": "internal"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: to}}}
+	}
+	route := func(path, file, lang string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "mono",
+			Props: map[string]any{"method": "GET", "language": lang, "framework": "flask"}}
+	}
+	store.Add(
+		facts.Fact{Kind: facts.KindExtraction, Name: facts.ManifestsFact, File: "mono", Repo: "mono",
+			Props: map[string]any{facts.PropManifests: []string{"pyproject.toml", "core/pyproject.toml", "websocket/package.json"}}},
+		mod("app"), mod("core/lib"), mod("websocket/src"),
+		imports("app", "core/lib"), imports("core/lib", "app"),
+		route("/", "app/views.py", "python"), route("/", "websocket/src/index.js", "typescript"),
+		route("/health", "app/views.py", "python"), route("/health", "core/lib/health.py", "python"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 || len(insights[0].Evidence) != 1 ||
+		insights[0].Evidence[0].Detail != "GET /health is registered at app/views.py:1, core/lib/health.py:1" {
+		t.Fatalf("want only /health, within the app and the package it shares a cycle with; got %+v (%v)", insights, err)
+	}
+}

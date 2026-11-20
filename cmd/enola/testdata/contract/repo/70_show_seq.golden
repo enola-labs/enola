@@ -1,13 +1,14 @@
 $ enola show @1 .
 exit: 0
 --- stdout
-# revision 7bb1b66 · <TIME>
+# revision 8f3e045 · <TIME>
 
 This is the FIRST recorded revision, so there is nothing before it to compare
 against. What follows is what the graph held at this point, not what changed.
 
-  facts     21
+  facts     22
     dependency   4
+    extraction   1
     intent       3
     module       3
     symbol       9

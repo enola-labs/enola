@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -235,5 +236,65 @@ export class FixtureController {
 		if got := serverRoutes(extractTS(t, src, f)); len(got) != 0 {
 			t.Errorf("%s: test-file controller must emit no routes: %+v", f, got)
 		}
+	}
+}
+
+// A route records the API versions it serves as the source writes them: the
+// controller's `version` (a constant, a literal or an array), replaced by a handler's
+// own @Version. A controller with none records none.
+func TestDecoratorRoutes_NestAPIVersions(t *testing.T) {
+	src := `
+@Controller({ path: "/v2/event-types", version: [VERSION_2024_06_11, VERSION_2024_04_15, VERSION_2024_04_15] })
+export class EventTypesController {
+  @Get("/")
+  async list() {}
+
+  @Version("3")
+  @Delete("/:id")
+  async remove() {}
+}
+
+@Controller("/health")
+export class HealthController {
+  @Get("/")
+  async ok() {}
+}
+`
+	got := map[string][]string{}
+	for _, f := range extractTS(t, src, "src/event-types.controller.ts") {
+		if f.Kind == facts.KindRoute {
+			got[f.PropString("method")+" "+f.Name] = f.PropStrings(facts.PropAPIVersions)
+		}
+	}
+	want := map[string]string{
+		"GET /v2/event-types":        "VERSION_2024_04_15,VERSION_2024_06_11",
+		"DELETE /v2/event-types/:id": "3",
+		"GET /health":                "",
+	}
+	for k, w := range want {
+		v, ok := got[k]
+		if !ok {
+			t.Errorf("no route %s; got %v", k, got)
+			continue
+		}
+		if s := strings.Join(v, ","); s != w {
+			t.Errorf("%s: api_versions = %q, want %q", k, s, w)
+		}
+	}
+}
+
+// A verb decorator naming an array of paths serves its handler on each of them, not
+// on the controller's base path.
+func TestDecoratorRoutes_NestPathArray(t *testing.T) {
+	src := `
+@Controller({ path: "/v2/calendars" })
+export class CalendarsController {
+  @Get(["/:calendar/events/:eventUid", "/:calendar/event/:eventUid"])
+  async details() {}
+}
+`
+	got := serverRoutes(extractTS(t, src, "src/calendars.controller.ts"))
+	if len(got) != 2 || got["/v2/calendars/:calendar/events/:eventUid"] != "GET" || got["/v2/calendars/:calendar/event/:eventUid"] != "GET" {
+		t.Errorf("routes = %v, want both array paths under /v2/calendars", got)
 	}
 }

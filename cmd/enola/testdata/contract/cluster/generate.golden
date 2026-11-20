@@ -8,7 +8,7 @@ Snapshot complete:
   Repositories: 2
     - <TMP>/services/api
     - <TMP>/services/consumer
-  Facts:       22
+  Facts:       24
   Insights:    6
   Artifacts:   3
   Duration:    <DURATION>

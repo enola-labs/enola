@@ -50,7 +50,7 @@
     "insights.json": "sha256:<HASH>",
     "llm_context.md": "sha256:<HASH>"
   },
-  "fact_count": 22,
+  "fact_count": 23,
   "insight_count": 6,
   "quality": {
     "files_seen": 6,

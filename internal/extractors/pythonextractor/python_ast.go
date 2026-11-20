@@ -217,6 +217,10 @@ type pyWalker struct {
 	// type its return annotation names, and funcReturns a top-level function of
 	// the file to its return annotation. See returntypes.go.
 	returnTypes []map[string]string
+	// fabBases holds, per enclosing class, the base path Flask-AppBuilder serves its
+	// @expose routes under ("" when the class's own attributes do not say). See
+	// fabRouteBase.
+	fabBases    []string
 	funcReturns map[string]string
 
 	// callStart is where the call expression being walked begins.
@@ -545,6 +549,58 @@ func (w *pyWalker) popType() {
 	if len(w.returnTypes) > len(w.typeStack) {
 		w.returnTypes = w.returnTypes[:len(w.returnTypes)-1]
 	}
+	if len(w.fabBases) > len(w.typeStack) {
+		w.fabBases = w.fabBases[:len(w.fabBases)-1]
+	}
+}
+
+// fabRouteBase is the path Flask-AppBuilder serves a class's @expose routes under,
+// read from the class's own attributes: `route_base` when set, otherwise a REST API's
+// `/api/<version>/<resource_name>` (version "v1" unless the class sets one). "" when
+// the class sets neither: an inherited base, or a view's class-name default, is not
+// read, and the route keeps its bare path.
+func fabRouteBase(body *sitter.Node, src []byte) string {
+	if body == nil {
+		return ""
+	}
+	attrs := map[string]string{}
+	for i := uint(0); i < uint(body.NamedChildCount()); i++ {
+		stmt := body.NamedChild(i)
+		if kindOf(stmt) != "expression_statement" || stmt.NamedChildCount() == 0 {
+			continue
+		}
+		as := stmt.NamedChild(0)
+		if kindOf(as) != "assignment" {
+			continue
+		}
+		left, right := as.ChildByFieldName("left"), as.ChildByFieldName("right")
+		if left == nil || right == nil || kindOf(left) != "identifier" || kindOf(right) != "string" {
+			continue
+		}
+		switch name := pyText(left, src); name {
+		case "route_base", "resource_name", "version":
+			attrs[name] = strings.Trim(pyText(right, src), `"'`)
+		}
+	}
+	if base, ok := attrs["route_base"]; ok {
+		return base
+	}
+	if res := attrs["resource_name"]; res != "" {
+		version := attrs["version"]
+		if version == "" {
+			version = "v1"
+		}
+		return "/api/" + version + "/" + res
+	}
+	return ""
+}
+
+// currentFabBase is the Flask-AppBuilder base of the innermost enclosing class.
+func (w *pyWalker) currentFabBase() string {
+	if len(w.fabBases) == 0 || len(w.fabBases) != len(w.typeStack) {
+		return ""
+	}
+	return w.fabBases[len(w.fabBases)-1]
 }
 
 func (w *pyWalker) currentMethods() map[string]bool {
@@ -1188,7 +1244,11 @@ func (w *pyWalker) emitDecoratorRoute(c *sitter.Node, text string, pending *[]in
 	}
 	// Flask-AppBuilder @expose("/path", methods=[...]).
 	if m := exposeDecoratorRe.FindStringSubmatch(text); m != nil {
-		w.emitRoutes(m[1], routeMethods(text), "flask", int(c.StartPosition().Row)+1, pending)
+		path := m[1]
+		if base := w.currentFabBase(); base != "" {
+			path = facts.JoinRoutePath(base, path)
+		}
+		w.emitRoutes(path, routeMethods(text), "flask", int(c.StartPosition().Row)+1, pending)
 		w.routeDecorators[c.StartByte()] = true
 		return isRoute, true
 	}
@@ -1205,7 +1265,8 @@ func (w *pyWalker) emitDecoratorRoute(c *sitter.Node, text string, pending *[]in
 // Name is the bare path (like every other extractor) so the cross-repo linker,
 // which treats route Name as the path, can match it; multiple methods on one path
 // produce same-Name facts disambiguated by the method prop (the linker indexes by
-// (path, method)). Blueprint url_prefix / FAB route_base folding is GAP-PY-06.
+// (path, method)). Blueprint url_prefix folding is GAP-PY-06; Flask-AppBuilder's
+// route_base is folded by the caller (fabRouteBase).
 // Each new fact's index is appended to *pending so handleDecoratedDefinition can
 // back-fill the handler prop once the function name is known.
 func (w *pyWalker) emitRoutes(path string, methods []string, framework string, line int, pending *[]int) {
@@ -1406,6 +1467,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 
 	bodyNode := node.ChildByFieldName("body")
 	w.pushType(name, collectPyMethodNames(bodyNode, w.src))
+	w.fabBases = append(w.fabBases, fabRouteBase(bodyNode, w.src))
 	attrTypes := collectSelfAttrTypes(bodyNode, w.src, w.importMap, w.module)
 	w.attrTypes = append(w.attrTypes, attrTypes)
 	if len(attrTypes) > 0 {

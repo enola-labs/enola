@@ -3722,7 +3722,16 @@ import (
 // `r := build(); r.Run()`) is a reference to the method on the returned type.
 // v659: Go: a server route names the mux it is registered on (mux_scope), where the
 // registering function built it or it is net/http's DefaultServeMux.
-const cacheVersion = "v659"
+// v660: manifests: one extraction fact lists every manifest read (manifests:files),
+// a manifest declaring nothing included.
+// v661: TypeScript: a NestJS route lists the API versions it serves (api_versions),
+// from @Controller's version or the handler's @Version.
+// v662: TypeScript: a verb decorator naming an array of paths serves each of them.
+// v663: Python: Flask-AppBuilder @expose routes are served under their class's
+// route_base, or /api/<version>/<resource_name> for a REST API.
+// v664: Ruby: an engine the application mounts from a file no route table reaches
+// (a plugin's routes.rb or plugin.rb) serves its routes under that mount.
+const cacheVersion = "v664"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -9,7 +9,7 @@ exit: 0
     "at": "<TIME>",
     "epoch": "<EPOCH>",
     "summary": {
-      "fact_count": 21,
+      "fact_count": 22,
       "insight_count": 6,
       "initial": true
     },
@@ -33,7 +33,7 @@ exit: 0
         "module": 1,
         "symbol": 2
       },
-      "fact_count": 25,
+      "fact_count": 26,
       "insight_count": 7
     },
     "blob": {

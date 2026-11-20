@@ -1,6 +1,7 @@
 package rubyextractor
 
 import (
+	"bytes"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
+	ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
 )
 
 // extractAllRoutes finds and parses every Rails route file in the repository, each
@@ -74,6 +76,7 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 	// in: `namespace :admin do draw(:billing) end` serves billing's routes from
 	// admin/ controllers as well as under /admin.
 	drawModules := map[string]string{}
+	engineMounts := appEngineMounts(repoPath, idx, files)
 	parse := func(relFile, prefix, drawnBy string) (draws map[string]string, mounts []routeMount) {
 		if parsed[relFile] {
 			return nil, nil
@@ -83,7 +86,7 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 		if !ok {
 			return nil, nil
 		}
-		ff, res := parseRouteFile(src, relFile, prefix, drawModules[routeDrawKey(relFile)], jsonapi)
+		ff, res := parseRouteFile(src, relFile, prefix, drawModules[routeDrawKey(relFile)], jsonapi, engineMounts)
 		for k, m := range res.drawModules {
 			if _, seen := drawModules[k]; !seen {
 				drawModules[k] = m
@@ -719,4 +722,95 @@ func filterActions(all []restAction, names map[string]bool, isAllow bool) []rest
 		}
 	}
 	return result
+}
+
+// appEngineMounts finds where the application itself mounts each engine, in the
+// files a route table does not reach: a plugin's own config/routes.rb drawing into
+// `Discourse::Application.routes`, or its plugin.rb appending to them
+// (`Discourse::Application.routes.append { mount DiscoursePoll::Engine, at: "/polls" }`).
+// Only a mount written directly in an application-level routes block counts, and only
+// an engine mounted at exactly one path: inside a namespace or scope the path is not
+// the whole prefix, and an engine mounted twice serves its routes twice. Keyed by the
+// normalized engine constant; the value is the mount path without a trailing slash.
+func appEngineMounts(repoPath string, idx routeFileIndex, files []string) map[string]string {
+	var candidates []string
+	for _, f := range idx.all {
+		if f != idx.appRoot {
+			candidates = append(candidates, f)
+		}
+	}
+	for _, f := range files {
+		if filepath.Base(f) == "plugin.rb" {
+			candidates = append(candidates, f)
+		}
+	}
+	sort.Strings(candidates)
+	parser := sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(sitter.NewLanguage(ruby.Language())); err != nil {
+		return nil
+	}
+	seen := map[string]map[string]bool{}
+	for _, rel := range candidates {
+		src, err := os.ReadFile(filepath.Join(repoPath, rel))
+		if err != nil || !bytes.Contains(src, []byte("mount")) {
+			continue
+		}
+		tree := parser.Parse(src, nil)
+		var visit func(n *sitter.Node, inApp bool)
+		visit = func(n *sitter.Node, inApp bool) {
+			if kindOf(n) == "call" {
+				method := rubyText(n.ChildByFieldName("method"), src)
+				switch {
+				case (method == "draw" || method == "append" || method == "prepend") && isApplicationRoutes(n, src):
+					if body := blockBody(n); body != nil {
+						visit(body, true)
+					}
+					return
+				case inApp && (method == "namespace" || method == "scope"):
+					return
+				case inApp && method == "mount":
+					if constant, at := parseMount(n.ChildByFieldName("arguments"), src); constant != "" {
+						at = strings.TrimSuffix("/"+strings.Trim(at, "/"), "/")
+						key := normalizeConstant(constant)
+						if seen[key] == nil {
+							seen[key] = map[string]bool{}
+						}
+						seen[key][at] = true
+					}
+					return
+				}
+			}
+			for i := uint(0); i < uint(n.NamedChildCount()); i++ {
+				visit(n.NamedChild(i), inApp)
+			}
+		}
+		visit(tree.RootNode(), false)
+		tree.Close()
+	}
+	out := map[string]string{}
+	for constant, paths := range seen {
+		if len(paths) != 1 {
+			continue
+		}
+		for p := range paths {
+			out[constant] = p
+		}
+	}
+	return out
+}
+
+// isApplicationRoutes reports whether a `X.routes.draw/append/prepend` call draws the
+// application's own routes: `Rails.application.routes` or `<App>::Application.routes`.
+func isApplicationRoutes(call *sitter.Node, src []byte) bool {
+	routes := call.ChildByFieldName("receiver")
+	if routes == nil || kindOf(routes) != "call" || rubyText(routes.ChildByFieldName("method"), src) != "routes" {
+		return false
+	}
+	owner := routes.ChildByFieldName("receiver")
+	if owner == nil {
+		return false
+	}
+	text := strings.TrimPrefix(rubyText(owner, src), "::")
+	return text == "Rails.application" || text == "Application" || strings.HasSuffix(text, "::Application")
 }

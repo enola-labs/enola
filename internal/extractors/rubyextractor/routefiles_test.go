@@ -247,3 +247,54 @@ func TestDetectRailsProject_EngineOnlyRepo(t *testing.T) {
 		t.Error("config/routes.rb + lib/**/engine.rb is a Rails engine")
 	}
 }
+
+// A plugin's engine is mounted by the application from a file no route table reaches:
+// the plugin's own config/routes.rb drawing into the application's routes, or its
+// plugin.rb appending to them. Its routes are served under that mount, not at the
+// root, where two plugins' /vote read as one endpoint registered twice. An engine
+// the application mounts at two paths keeps its routes bare.
+func TestExtractAllRoutes_ApplicationMountsAPluginEngine(t *testing.T) {
+	repo := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("config/routes.rb", "Discourse::Application.routes.draw do\n  get '/about' => 'about#index'\nend\n")
+	// Mounted from plugin.rb.
+	write("plugins/poll/plugin.rb", "after_initialize do\n"+
+		"  Discourse::Application.routes.append { mount ::DiscoursePoll::Engine, at: \"/polls\" }\n"+
+		"end\n")
+	write("plugins/poll/config/routes.rb", "DiscoursePoll::Engine.routes.draw do\n  put \"/vote\" => \"polls#vote\"\nend\n")
+	// Mounted from its own route file, below the engine's draw.
+	write("plugins/assign/config/routes.rb", "DiscourseAssign::Engine.routes.draw do\n  put \"/claim/:topic_id\" => \"assign#claim\"\nend\n\n"+
+		"Discourse::Application.routes.draw do\n  mount ::DiscourseAssign::Engine, at: \"/assign\"\nend\n")
+	// Mounted twice: which path a route is served at is not one answer.
+	write("plugins/votes/plugin.rb", "Discourse::Application.routes.append do\n"+
+		"  mount ::DiscourseVotes::Engine, at: \"/voting\"\n  mount ::DiscourseVotes::Engine, at: \"/votes\"\nend\n")
+	write("plugins/votes/config/routes.rb", "DiscourseVotes::Engine.routes.draw do\n  post \"/vote\" => \"votes#vote\"\nend\n")
+
+	files := []string{"config/routes.rb", "plugins/poll/plugin.rb", "plugins/poll/config/routes.rb",
+		"plugins/assign/config/routes.rb", "plugins/votes/plugin.rb", "plugins/votes/config/routes.rb"}
+	got, _ := extractAllRoutes(repo, files)
+	byName := map[string]bool{}
+	for _, f := range got {
+		if f.Kind == facts.KindRoute {
+			byName[f.Props["method"].(string)+" "+f.Name] = true
+		}
+	}
+	for _, want := range []string{"GET /about", "PUT /polls/vote", "PUT /assign/claim/:topic_id", "MOUNT /assign/", "POST /vote"} {
+		if !byName[want] {
+			t.Errorf("missing %q; got %v", want, byName)
+		}
+	}
+	for _, not := range []string{"PUT /vote", "PUT /claim/:topic_id"} {
+		if byName[not] {
+			t.Errorf("%q is served under its engine's mount, not at the root", not)
+		}
+	}
+}

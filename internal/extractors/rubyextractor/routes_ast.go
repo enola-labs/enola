@@ -41,7 +41,7 @@ type routeFileResult struct {
 // parseRouteFile parses a Rails route file, seeding the scope stack with
 // initialPrefix (the URL prefix under which a parent routes.rb delegated or mounted
 // this file), and returns what it learned about further route files.
-func parseRouteFile(src []byte, relFile, initialPrefix, initialModule string, jsonapi jsonapiContext) ([]facts.Fact, routeFileResult) {
+func parseRouteFile(src []byte, relFile, initialPrefix, initialModule string, jsonapi jsonapiContext, engineMounts map[string]string) ([]facts.Fact, routeFileResult) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(ruby.Language())); err != nil {
@@ -63,6 +63,9 @@ func parseRouteFile(src []byte, relFile, initialPrefix, initialModule string, js
 		concerns:  map[string]*sitter.Node{},
 		unhandled: map[string]int{},
 		jsonapi:   jsonapi,
+	}
+	if initialPrefix == "" {
+		rw.engineMounts = engineMounts
 	}
 	rw.walk(tree.RootNode(), stack)
 	return rw.out, routeFileResult{draws: rw.draws, drawModules: rw.drawMods, mounts: rw.mounts, unresolved: rw.unhandled, drawOn: rw.drawOn}
@@ -98,6 +101,9 @@ type routeWalker struct {
 	// drawOn is the constant this file's `X.routes.draw` is called on: the engine
 	// class, for an engine's route file.
 	drawOn string
+	// engineMounts maps an engine constant to the one path the application mounts it
+	// at, for a file read at the root prefix. Nil otherwise.
+	engineMounts map[string]string
 }
 
 // routeWrappers are macros that take a block and *contain* routes rather than
@@ -742,8 +748,13 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 		// engine routers, etc.) — recurse into the block. `draw(:pkg)` with no
 		// block is a packwerk delegation — emit a DRAW route.
 		if body != nil {
+			recv := drawReceiver(call, rw.src)
 			if rw.drawOn == "" {
-				rw.drawOn = drawReceiver(call, rw.src)
+				rw.drawOn = recv
+			}
+			if at, ok := rw.engineMounts[recv]; ok && at != "" {
+				rw.walk(body, append(stack, routeScope{pathPrefix: at}))
+				return
 			}
 			rw.walk(body, stack)
 			return
