@@ -282,3 +282,19 @@ export class HealthController {
 		}
 	}
 }
+
+// A verb decorator naming an array of paths serves its handler on each of them, not
+// on the controller's base path.
+func TestDecoratorRoutes_NestPathArray(t *testing.T) {
+	src := `
+@Controller({ path: "/v2/calendars" })
+export class CalendarsController {
+  @Get(["/:calendar/events/:eventUid", "/:calendar/event/:eventUid"])
+  async details() {}
+}
+`
+	got := serverRoutes(extractTS(t, src, "src/calendars.controller.ts"))
+	if len(got) != 2 || got["/v2/calendars/:calendar/events/:eventUid"] != "GET" || got["/v2/calendars/:calendar/event/:eventUid"] != "GET" {
+		t.Errorf("routes = %v, want both array paths under /v2/calendars", got)
+	}
+}

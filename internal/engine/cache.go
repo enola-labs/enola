@@ -3726,7 +3726,8 @@ import (
 // a manifest declaring nothing included.
 // v661: TypeScript: a NestJS route lists the API versions it serves (api_versions),
 // from @Controller's version or the handler's @Version.
-const cacheVersion = "v661"
+// v662: TypeScript: a verb decorator naming an array of paths serves each of them.
+const cacheVersion = "v662"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

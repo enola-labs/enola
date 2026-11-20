@@ -133,32 +133,62 @@ func methodRouteFacts(kinds *tsutil.KindTable, decorators []*sitter.Node, method
 		if !isVerb {
 			continue
 		}
-		full := facts.JoinRoutePath(base, decoratorPathArg(kinds, args, src))
-		props := map[string]any{
-			// Stated explicitly rather than left to the linker's unset=>server
-			// default, so a reader of the fact does not have to know that rule.
-			facts.PropRole: facts.RoleServer,
-			"method":       verb,
-			"framework":    framework,
-			"language":     "typescript",
-			"handler":      handler,
+		// @Get(["/:id/events", "/:id/event"]) serves one handler on each path.
+		for _, sub := range decoratorPathArgs(kinds, args, src) {
+			props := map[string]any{
+				// Stated explicitly rather than left to the linker's unset=>server
+				// default, so a reader of the fact does not have to know that rule.
+				facts.PropRole: facts.RoleServer,
+				"method":       verb,
+				"framework":    framework,
+				"language":     "typescript",
+				"handler":      handler,
+			}
+			if len(versions) > 0 {
+				props[facts.PropAPIVersions] = versions
+			}
+			out = append(out, facts.Fact{
+				Kind:  facts.KindRoute,
+				Name:  facts.JoinRoutePath(base, sub),
+				File:  relFile,
+				Line:  int(method.StartPosition().Row) + 1,
+				Props: props,
+				Relations: []facts.Relation{
+					{Kind: facts.RelDeclares, Target: dir},
+					{Kind: facts.RelHandledBy, Target: dir + "." + className + "." + handler},
+				},
+			})
 		}
-		if len(versions) > 0 {
-			props[facts.PropAPIVersions] = versions
-		}
-		out = append(out, facts.Fact{
-			Kind:  facts.KindRoute,
-			Name:  full,
-			File:  relFile,
-			Line:  int(method.StartPosition().Row) + 1,
-			Props: props,
-			Relations: []facts.Relation{
-				{Kind: facts.RelDeclares, Target: dir},
-				{Kind: facts.RelHandledBy, Target: dir + "." + className + "." + handler},
-			},
-		})
 	}
 	return out
+}
+
+// decoratorPathArgs is decoratorPathArg for a verb decorator, which may also name
+// several paths in an array: @Get(["/:calendar/events/:id", "/:calendar/event/:id"]).
+// An array holding anything but string literals names paths this cannot read, and
+// reads as the class base alone, as an unreadable single path does.
+func decoratorPathArgs(kinds *tsutil.KindTable, args *sitter.Node, src []byte) []string {
+	if args != nil {
+		for i := range args.NamedChildCount() {
+			arr := args.NamedChild(i)
+			if kindOf(kinds, arr) != "array" {
+				break
+			}
+			var paths []string
+			for j := range arr.NamedChildCount() {
+				el := arr.NamedChild(j)
+				if kindOf(kinds, el) != "string" {
+					return []string{""}
+				}
+				paths = append(paths, strings.Trim(nodeText(el, src), "\"'`"))
+			}
+			if len(paths) > 0 {
+				return paths
+			}
+			break
+		}
+	}
+	return []string{decoratorPathArg(kinds, args, src)}
 }
 
 // controllerBase returns the class-level base path and the framework it was declared
