@@ -65,8 +65,14 @@ func (r *Runner) resolveTarget(arg string) target {
 		if inner := filepath.Join(abs, "mcp-arch.yaml"); fileExists(inner) {
 			cfgPath = inner
 		}
-	default:
+	case fileExists(arg):
 		cfgPath = arg
+	default:
+		// A path that names nothing is rejected, not handed on as a config path: the
+		// lookup would fall back to built-in defaults, whose `repo: .` is the working
+		// directory, and a mistyped path would report on whichever repository the
+		// caller stood in, with a success exit.
+		r.checkFatal("%s", notAPathHelp(arg))
 	}
 
 	eng, cfg, err := r.newEngine(bootstrap.Options{ConfigPath: cfgPath})
