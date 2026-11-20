@@ -614,3 +614,38 @@ func TestExplain_TestProjectDoesNotJoinApplications(t *testing.T) {
 		t.Fatalf("two hosts a test project references are still two applications; got %+v (%v)", insights, err)
 	}
 }
+
+// One path under two disjoint sets of API versions is two endpoints: the request's
+// version header picks between them. Overlapping versions, a version-neutral one, or
+// one with no version at all still compete.
+func TestExplain_DisjointAPIVersionsDoNotCompete(t *testing.T) {
+	store := facts.NewStore()
+	route := func(path, file string, versions ...string) facts.Fact {
+		p := map[string]any{"method": "DELETE", "language": "typescript", "framework": "nestjs"}
+		if len(versions) > 0 {
+			p[facts.PropAPIVersions] = versions
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "api", Props: p}
+	}
+	store.Add(
+		route("/v2/event-types/:id", "v2024_04_15/controller.ts", "VERSION_2024_04_15", "VERSION_2024_06_11"),
+		route("/v2/event-types/:id", "v2024_06_14/controller.ts", "VERSION_2024_06_14"),
+		route("/v2/schedules", "schedules_a.ts", "VERSION_2024_04_15", "VERSION_2024_06_11"),
+		route("/v2/schedules", "schedules_b.ts", "VERSION_2024_06_11"),
+		route("/v2/me", "me_a.ts", "VERSION_2024_04_15"),
+		route("/v2/me", "me_b.ts", facts.VersionNeutral),
+		route("/v2/slots", "slots_a.ts", "VERSION_2024_04_15"),
+		route("/v2/slots", "slots_b.ts"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("want one finding, got %+v (%v)", insights, err)
+	}
+	var got []string
+	for _, ev := range insights[0].Evidence {
+		got = append(got, strings.SplitN(ev.Detail, " is registered", 2)[0])
+	}
+	if want := "DELETE /v2/me,DELETE /v2/schedules,DELETE /v2/slots"; strings.Join(got, ",") != want {
+		t.Errorf("duplicates = %v, want %s", got, want)
+	}
+}

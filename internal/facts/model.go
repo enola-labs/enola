@@ -253,6 +253,16 @@ const MuxScopeDefault = "default"
 // A manifest marks where an application or a package starts, which the dependency
 // facts cannot say: they are merged per package across manifests, and a manifest
 // declaring nothing has none.
+// PropAPIVersions is the prop on a server route listing the API versions it serves,
+// as the source writes them (a literal, or the constant naming one): NestJS's
+// `version` on @Controller or @Version on the handler. One path served under two
+// disjoint sets of versions is two endpoints, chosen per request by a header, a
+// media type or a URI segment the path does not show. VersionNeutral serves any.
+const (
+	PropAPIVersions = "api_versions"
+	VersionNeutral  = "VERSION_NEUTRAL"
+)
+
 const (
 	ManifestsFact = "manifests:files"
 	PropManifests = "manifests"

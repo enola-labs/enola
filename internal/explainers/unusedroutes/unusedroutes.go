@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -415,6 +416,9 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		path   string // repo-relative file
 		golang bool
 		mux    string // facts.PropMuxScope, "" when unknown
+		// versions are the API versions it serves (facts.PropAPIVersions), nil when
+		// the source states none.
+		versions []string
 	}
 	moduleKeys := common.NewModuleKeys(store)
 	byKey := map[string]map[string][]site{} // repo → "METHOD path" → registrations
@@ -468,7 +472,8 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 			byKey[f.Repo] = map[string][]site{}
 		}
 		s := site{file: f.File, line: f.Line, repo: f.Repo, path: repoRelative(f),
-			golang: f.PropString("language") == "go", mux: f.PropString(facts.PropMuxScope)}
+			golang: f.PropString("language") == "go", mux: f.PropString(facts.PropMuxScope),
+			versions: f.PropStrings(facts.PropAPIVersions)}
 		for _, r := range f.Relations {
 			if r.Kind == facts.RelDeclares {
 				s.module = moduleKeys.Key(f.Repo, r.Target)
@@ -487,6 +492,9 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 	var apps *appRoots
 	competes := func(a, b site) bool {
 		if a.file == b.file {
+			return false
+		}
+		if disjointVersions(a.versions, b.versions) {
 			return false
 		}
 		if !a.golang || !b.golang {
@@ -614,6 +622,21 @@ func newGoPrograms(store *facts.Store) *goPrograms {
 		}
 	}
 	return p
+}
+
+// disjointVersions reports whether two registrations serve no API version in common,
+// which makes them two endpoints the request picks between. Unknown on either side,
+// or a version-neutral one, is not known to be apart.
+func disjointVersions(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 || slices.Contains(a, facts.VersionNeutral) || slices.Contains(b, facts.VersionNeutral) {
+		return false
+	}
+	for _, v := range a {
+		if slices.Contains(b, v) {
+			return false
+		}
+	}
+	return true
 }
 
 // appRoots answers the same question as goPrograms for the other languages, one

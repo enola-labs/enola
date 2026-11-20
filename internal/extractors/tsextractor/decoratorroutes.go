@@ -12,6 +12,8 @@ package tsextractor
 
 import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
+	"slices"
+	"sort"
 	"strings"
 
 	sitter "github.com/enola-labs/enola/internal/treesitter"
@@ -67,6 +69,12 @@ func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.N
 	if !ok || classBody == nil {
 		return nil
 	}
+	var versions []string
+	if framework == "nestjs" {
+		if args, found := classDecoratorArgs(kinds, classNode, src, "Controller"); found {
+			versions = controllerVersions(kinds, args, src)
+		}
+	}
 	verbs := verbDecorators[framework]
 
 	var out []facts.Fact
@@ -88,7 +96,7 @@ func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.N
 			// one real NestJS API measured against, both a decorated handler
 			// documented just above its signature.
 		case kindOf(kinds, member) == "method_definition":
-			out = append(out, methodRouteFacts(kinds, pending, member, src, base, framework, verbs, relFile, dir, className)...)
+			out = append(out, methodRouteFacts(kinds, pending, member, src, base, framework, verbs, relFile, dir, className, versions)...)
 			pending = pending[:0]
 		default:
 			// A real member (a field, an index signature) ends the run: its decorators
@@ -101,11 +109,22 @@ func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.N
 
 // methodRouteFacts emits the routes declared by one method's decorators.
 func methodRouteFacts(kinds *tsutil.KindTable, decorators []*sitter.Node, method *sitter.Node, src []byte,
-	base, framework string, verbs map[string]string, relFile, dir, className string) []facts.Fact {
+	base, framework string, verbs map[string]string, relFile, dir, className string, versions []string) []facts.Fact {
 
 	handler := methodDecoratorName(kinds, method, src)
 	if handler == "" {
 		return nil
+	}
+	// A handler's own @Version replaces its controller's.
+	if framework == "nestjs" {
+		for _, dec := range decorators {
+			if name, args := decoratorNameArgs(kinds, dec, src); name == "Version" && args != nil {
+				for i := range args.NamedChildCount() {
+					versions = versionValues(kinds, args.NamedChild(i), src)
+					break
+				}
+			}
+		}
 	}
 	var out []facts.Fact
 	for _, dec := range decorators {
@@ -115,20 +134,24 @@ func methodRouteFacts(kinds *tsutil.KindTable, decorators []*sitter.Node, method
 			continue
 		}
 		full := facts.JoinRoutePath(base, decoratorPathArg(kinds, args, src))
+		props := map[string]any{
+			// Stated explicitly rather than left to the linker's unset=>server
+			// default, so a reader of the fact does not have to know that rule.
+			facts.PropRole: facts.RoleServer,
+			"method":       verb,
+			"framework":    framework,
+			"language":     "typescript",
+			"handler":      handler,
+		}
+		if len(versions) > 0 {
+			props[facts.PropAPIVersions] = versions
+		}
 		out = append(out, facts.Fact{
-			Kind: facts.KindRoute,
-			Name: full,
-			File: relFile,
-			Line: int(method.StartPosition().Row) + 1,
-			Props: map[string]any{
-				// Stated explicitly rather than left to the linker's unset=>server
-				// default, so a reader of the fact does not have to know that rule.
-				facts.PropRole: facts.RoleServer,
-				"method":       verb,
-				"framework":    framework,
-				"language":     "typescript",
-				"handler":      handler,
-			},
+			Kind:  facts.KindRoute,
+			Name:  full,
+			File:  relFile,
+			Line:  int(method.StartPosition().Row) + 1,
+			Props: props,
 			Relations: []facts.Relation{
 				{Kind: facts.RelDeclares, Target: dir},
 				{Kind: facts.RelHandledBy, Target: dir + "." + className + "." + handler},
@@ -208,6 +231,64 @@ func decoratorPathArg(kinds *tsutil.KindTable, args *sitter.Node, src []byte) st
 		}
 	}
 	return ""
+}
+
+// controllerVersions reads the `version` property of @Controller's options object:
+// @Controller({path: "event-types", version: [VERSION_2024_04_15, "2"]}).
+func controllerVersions(kinds *tsutil.KindTable, args *sitter.Node, src []byte) []string {
+	for i := range args.ChildCount() {
+		obj := args.Child(i)
+		if kindOf(kinds, obj) != "object" {
+			continue
+		}
+		for j := range obj.ChildCount() {
+			pair := obj.Child(j)
+			if kindOf(kinds, pair) != "pair" {
+				continue
+			}
+			if k := pair.ChildByFieldName("key"); k == nil || strings.Trim(nodeText(k, src), `"'`) != "version" {
+				continue
+			}
+			return versionValues(kinds, pair.ChildByFieldName("value"), src)
+		}
+	}
+	return nil
+}
+
+// versionValues reads a version value as written: a string literal ("2"), a constant
+// (VERSION_2024_06_14, Versions.V2), or an array of them. Sorted, without repeats; nil
+// for anything else, which leaves the version unknown.
+func versionValues(kinds *tsutil.KindTable, v *sitter.Node, src []byte) []string {
+	if v == nil {
+		return nil
+	}
+	var out []string
+	add := func(n *sitter.Node) bool {
+		switch kindOf(kinds, n) {
+		case "string":
+			out = append(out, strings.Trim(nodeText(n, src), "\"'"))
+		case "identifier", "member_expression":
+			text := nodeText(n, src)
+			if strings.HasSuffix(text, facts.VersionNeutral) {
+				text = facts.VersionNeutral
+			}
+			out = append(out, text)
+		default:
+			return false
+		}
+		return true
+	}
+	if kindOf(kinds, v) == "array" {
+		for i := range v.NamedChildCount() {
+			if !add(v.NamedChild(i)) {
+				return nil
+			}
+		}
+	} else if !add(v) {
+		return nil
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
 }
 
 // objectStringProp returns the string value of a named property of an object literal.

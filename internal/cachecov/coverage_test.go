@@ -253,6 +253,7 @@ var versionCoverage = map[int][]string{
 	658: {"TestExtractTestRefs_CallThroughAFunctionsResult"},
 	659: {"TestExtractRoutes_MuxScope"},
 	660: {"TestManifests_ListsEveryManifestRead"},
+	661: {"TestDecoratorRoutes_NestAPIVersions"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

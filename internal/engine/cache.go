@@ -3724,7 +3724,9 @@ import (
 // registering function built it or it is net/http's DefaultServeMux.
 // v660: manifests: one extraction fact lists every manifest read (manifests:files),
 // a manifest declaring nothing included.
-const cacheVersion = "v660"
+// v661: TypeScript: a NestJS route lists the API versions it serves (api_versions),
+// from @Controller's version or the handler's @Version.
+const cacheVersion = "v661"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
