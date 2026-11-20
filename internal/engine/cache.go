@@ -3729,7 +3729,9 @@ import (
 // v662: TypeScript: a verb decorator naming an array of paths serves each of them.
 // v663: Python: Flask-AppBuilder @expose routes are served under their class's
 // route_base, or /api/<version>/<resource_name> for a REST API.
-const cacheVersion = "v663"
+// v664: Ruby: an engine the application mounts from a file no route table reaches
+// (a plugin's routes.rb or plugin.rb) serves its routes under that mount.
+const cacheVersion = "v664"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
