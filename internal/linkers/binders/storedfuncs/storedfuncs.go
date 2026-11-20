@@ -84,11 +84,15 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if f.Kind != facts.KindSymbol || len(targets) == 0 {
 			return
 		}
+		var added []string
 		for _, t := range targets {
 			if !hasCall(f, t) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: t})
+				added = append(added, t)
 			}
 		}
+		// Marked so the module rollup can tell these from calls the caller names.
+		f.AddPropStrings(facts.PropStoredCalls, added...)
 	})
 	return nil
 }

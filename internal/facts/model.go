@@ -230,6 +230,13 @@ const PropMixinMembers = "mixin_members"
 // inherited member dispatches on.
 const PropInheritedCalls = "inherited_calls"
 
+// PropStoredCalls is the prop on a caller listing each calls target that reaches a
+// function value stored in a field rather than a function the caller names. The
+// call runs at runtime, so flows follow it, but it is no dependency of the caller:
+// the code that stored the value depends on the holder, never the reverse, and a
+// module edge rolled up from it points against the import that exists.
+const PropStoredCalls = "stored_calls"
+
 // PropMemberCalls is the prop on a method listing calls on the object it runs on
 // that its file could not resolve, because what they name is declared in another
 // file: `common` for self.common(), `helper.work` for self.helper.work(). The
