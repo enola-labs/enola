@@ -168,12 +168,8 @@ func methodRouteFacts(kinds *tsutil.KindTable, decorators []*sitter.Node, method
 // An array holding anything but string literals names paths this cannot read, and
 // reads as the class base alone, as an unreadable single path does.
 func decoratorPathArgs(kinds *tsutil.KindTable, args *sitter.Node, src []byte) []string {
-	if args != nil {
-		for i := range args.NamedChildCount() {
-			arr := args.NamedChild(i)
-			if kindOf(kinds, arr) != "array" {
-				break
-			}
+	if args != nil && args.NamedChildCount() > 0 {
+		if arr := args.NamedChild(0); kindOf(kinds, arr) == "array" {
 			var paths []string
 			for j := range arr.NamedChildCount() {
 				el := arr.NamedChild(j)
@@ -185,7 +181,6 @@ func decoratorPathArgs(kinds *tsutil.KindTable, args *sitter.Node, src []byte) [
 			if len(paths) > 0 {
 				return paths
 			}
-			break
 		}
 	}
 	return []string{decoratorPathArg(kinds, args, src)}
