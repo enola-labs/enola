@@ -649,3 +649,34 @@ func TestExplain_DisjointAPIVersionsDoNotCompete(t *testing.T) {
 		t.Errorf("duplicates = %v, want %s", got, want)
 	}
 }
+
+// An application and a package that import each other are one unit: neither is used
+// by nobody, and without collapsing the cycle no application reached either, so the
+// pair competed with every route in the repository.
+func TestExplain_ApplicationsInAnImportCycleAreOneUnit(t *testing.T) {
+	store := facts.NewStore()
+	mod := func(dir string) facts.Fact {
+		return facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "mono", Props: map[string]any{"language": "python"}}
+	}
+	imports := func(from, to string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + to, File: from + "/mod.py", Repo: "mono",
+			Props: map[string]any{"language": "python", "source": "internal"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: to}}}
+	}
+	route := func(path, file, lang string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "mono",
+			Props: map[string]any{"method": "GET", "language": lang, "framework": "flask"}}
+	}
+	store.Add(
+		facts.Fact{Kind: facts.KindExtraction, Name: facts.ManifestsFact, File: "mono", Repo: "mono",
+			Props: map[string]any{facts.PropManifests: []string{"pyproject.toml", "core/pyproject.toml", "websocket/package.json"}}},
+		mod("app"), mod("core/lib"), mod("websocket/src"),
+		imports("app", "core/lib"), imports("core/lib", "app"),
+		route("/", "app/views.py", "python"), route("/", "websocket/src/index.js", "typescript"),
+		route("/health", "app/views.py", "python"), route("/health", "core/lib/health.py", "python"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 || len(insights[0].Evidence) != 1 ||
+		insights[0].Evidence[0].Detail != "GET /health is registered at app/views.py:1, core/lib/health.py:1" {
+		t.Fatalf("want only /health, within the app and the package it shares a cycle with; got %+v (%v)", insights, err)
+	}
+}

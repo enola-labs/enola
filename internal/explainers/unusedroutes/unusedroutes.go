@@ -711,12 +711,10 @@ func newAppRoots(store *facts.Store) *appRoots {
 			}
 		}
 	}
-	used := map[string]bool{}
-	for _, to := range uses {
-		for t := range to {
-			used[t] = true
-		}
-	}
+	// Roots that use each other (an application and a package importing it back)
+	// are one unit: none of them is used by nobody, and without collapsing them no
+	// application would reach any of them. An application is a unit nothing outside
+	// it uses, and it reaches every root of its own unit and of the units it uses.
 	var all []string
 	for repo, dirs := range a.roots {
 		for d := range dirs {
@@ -724,25 +722,47 @@ func newAppRoots(store *facts.Store) *appRoots {
 		}
 	}
 	sort.Strings(all)
-	for _, app := range all {
-		if used[app] {
+	graph := make(map[string][]string, len(all))
+	for _, r := range all {
+		var next []string
+		for t := range uses[r] {
+			next = append(next, t)
+		}
+		sort.Strings(next)
+		graph[r] = next
+	}
+	units := common.StronglyConnectedComponents(graph)
+	unitOf := map[string]int{}
+	for i, u := range units {
+		for _, r := range u {
+			unitOf[r] = i
+		}
+	}
+	usedUnit := map[int]bool{}
+	for from, to := range uses {
+		for t := range to {
+			if unitOf[from] != unitOf[t] {
+				usedUnit[unitOf[t]] = true
+			}
+		}
+	}
+	for i, u := range units {
+		if usedUnit[i] {
 			continue
 		}
-		seen := map[string]bool{app: true}
-		queue := []string{app}
+		app := u[0] // the unit's smallest root names it
+		seen := map[int]bool{i: true}
+		queue := []int{i}
 		for len(queue) > 0 {
 			n := queue[0]
 			queue = queue[1:]
-			a.reachedBy[n] = append(a.reachedBy[n], app)
-			next := make([]string, 0, len(uses[n]))
-			for t := range uses[n] {
-				next = append(next, t)
-			}
-			sort.Strings(next)
-			for _, t := range next {
-				if !seen[t] {
-					seen[t] = true
-					queue = append(queue, t)
+			for _, r := range units[n] {
+				a.reachedBy[r] = append(a.reachedBy[r], app)
+				for _, t := range graph[r] {
+					if j := unitOf[t]; !seen[j] {
+						seen[j] = true
+						queue = append(queue, j)
+					}
 				}
 			}
 		}
