@@ -3743,7 +3743,11 @@ import (
 // v669: .NET: a .NET Aspire AppHost project carries launches_projects.
 // v670: Ruby: a Grape route whose path is built at runtime in part carries
 // path_partial.
-const cacheVersion = "v670"
+// v671: Ruby: an application's own helper naming an existing route file by symbol
+// (`draw_all :project`) draws it in the scope it is called from, and a method the
+// route file defines is declared where it is called; a file drawn from several
+// scopes is served under each.
+const cacheVersion = "v671"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

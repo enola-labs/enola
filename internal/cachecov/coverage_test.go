@@ -263,6 +263,7 @@ var versionCoverage = map[int][]string{
 	668: {"TestMinimalAPI_GroupHandedToAnExtensionMethod"},
 	669: {"TestMSBuild_AspireHostLaunchesItsProjects"},
 	670: {"TestExtractGrapeRoutes_PathBuiltAtRuntimeIsPartial"},
+	671: {"TestExtractAllRoutes_ApplicationHelperDrawsARouteFile", "TestParseRouteFile_MethodIsDeclaredWhereItIsCalled", "TestExtractAllRoutes_FileDrawnFromTwoScopes"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

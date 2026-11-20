@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -77,16 +78,39 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 	// admin/ controllers as well as under /admin.
 	drawModules := map[string]string{}
 	engineMounts := appEngineMounts(repoPath, idx, files)
-	parse := func(relFile, prefix, drawnBy string) (draws map[string]string, mounts []routeMount) {
-		if parsed[relFile] {
+	// read is keyed by file and prefix: a file drawn from two scopes is read under
+	// each. parsed records the files read at all.
+	read := map[string]bool{}
+	parse := func(relFile, prefix, drawnBy string) (draws map[string][]string, mounts []routeMount) {
+		if read[relFile+"\x00"+prefix] {
 			return nil, nil
 		}
+		read[relFile+"\x00"+prefix] = true
 		parsed[relFile] = true
 		src, ok := readSrc(relFile)
 		if !ok {
 			return nil, nil
 		}
 		ff, res := parseRouteFile(src, relFile, prefix, drawModules[routeDrawKey(relFile)], jsonapi, engineMounts)
+		// A helper of the application's own naming a route file that exists draws
+		// it (GitLab's `draw_all :project` loads config/routes/project.rb with its
+		// EE copy), and is no unexpanded route macro.
+		for _, key := range sortedHelperKeys(res.helperDraws) {
+			h := res.helperDraws[key]
+			if len(idx.drawTargets[key]) == 0 {
+				continue
+			}
+			if _, drawn := res.draws[key]; drawn {
+				continue // drawn by name already; the helper is something else
+			}
+			res.draws[key] = []string{h.prefix}
+			if h.module != "" {
+				res.drawModules[key] = h.module
+			}
+			if res.unresolved[h.macro]--; res.unresolved[h.macro] <= 0 {
+				delete(res.unresolved, h.macro)
+			}
+		}
 		for k, m := range res.drawModules {
 			if _, seen := drawModules[k]; !seen {
 				drawModules[k] = m
@@ -103,7 +127,7 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 	}
 
 	// Pass 1: the application's own routes.rb, at the root prefix.
-	var pendingDraws map[string]string
+	var pendingDraws map[string][]string
 	var pendingMounts []routeMount
 	if idx.appRoot != "" {
 		pendingDraws, pendingMounts = parse(idx.appRoot, "", "")
@@ -115,17 +139,20 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 	// in the repository, not just the root one, because GitLab's `draw` override loads
 	// the CE and EE copy of a name together.
 	for len(pendingDraws) > 0 {
-		next := map[string]string{}
+		next := map[string][]string{}
 		for _, key := range sortedDrawKeys(pendingDraws) {
-			prefix := pendingDraws[key]
-			for _, target := range idx.drawTargets[key] {
-				draws, mounts := parse(target, prefix, "")
-				for k, v := range draws {
-					if _, seen := next[k]; !seen {
-						next[k] = v
+			for _, prefix := range pendingDraws[key] {
+				for _, target := range idx.drawTargets[key] {
+					draws, mounts := parse(target, prefix, "")
+					for _, k := range sortedDrawKeys(draws) {
+						for _, v := range draws[k] {
+							if !slices.Contains(next[k], v) {
+								next[k] = append(next[k], v)
+							}
+						}
 					}
+					pendingMounts = append(pendingMounts, mounts...)
 				}
-				pendingMounts = append(pendingMounts, mounts...)
 			}
 		}
 		pendingDraws = next
@@ -147,8 +174,10 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 		// An engine may draw and mount in turn; one extra level covers the real cases
 		// (an engine mounting a sub-engine) without an unbounded fixpoint.
 		for _, key := range sortedDrawKeys(draws) {
-			for _, t := range idx.drawTargets[key] {
-				parse(t, draws[key], target)
+			for _, prefix := range draws[key] {
+				for _, t := range idx.drawTargets[key] {
+					parse(t, prefix, target)
+				}
 			}
 		}
 		for _, sub := range mounts {
@@ -164,7 +193,9 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 	// site is in a file enola cannot see (a plugin loader, an initializer) still serves
 	// its routes; recording them un-prefixed is closer to the truth than recording none.
 	for _, relFile := range idx.all {
-		parse(relFile, "", "")
+		if !parsed[relFile] {
+			parse(relFile, "", "")
+		}
 	}
 
 	allFacts = dropResolvedDraws(allFacts, idx.drawTargets, parsed)
@@ -197,8 +228,18 @@ func dropResolvedDraws(all []facts.Fact, targets map[string][]string, parsed map
 	return out
 }
 
+// sortedHelperKeys returns m's keys in sorted order.
+func sortedHelperKeys(m map[string]helperDraw) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // sortedDrawKeys returns m's keys in sorted order, so route emission is deterministic.
-func sortedDrawKeys(m map[string]string) []string {
+func sortedDrawKeys(m map[string][]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)

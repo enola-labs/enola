@@ -2,6 +2,7 @@ package rubyextractor
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
@@ -22,9 +23,10 @@ type routeMount struct {
 // routeFileResult is what parsing one route file taught us about the OTHER files that
 // make up the same route table.
 type routeFileResult struct {
-	// draws maps each draw(:pkg) delegation found in this file to the URL prefix it is
-	// scoped under, so the caller can parse config/routes/<pkg>.rb with it.
-	draws map[string]string
+	// draws maps each draw(:pkg) delegation found in this file to the URL prefixes it
+	// is scoped under, in source order, so the caller can parse config/routes/<pkg>.rb
+	// under each.
+	draws map[string][]string
 	// drawModules maps a delegation to the controller module the draw sat in, when
 	// it sat in one.
 	drawModules map[string]string
@@ -36,6 +38,17 @@ type routeFileResult struct {
 	unresolved map[string]int
 	// drawOn is the engine class the file draws its routes on, or "".
 	drawOn string
+	// helperDraws are calls of a macro this walker does not know, with one symbol
+	// argument and no block (`draw_all :project`), by that symbol. An application's
+	// own helper that draws route files by name looks like this; the caller treats
+	// one as a delegation when a route file of that name exists.
+	helperDraws map[string]helperDraw
+}
+
+// helperDraw is a possible delegation through an application's own helper: the
+// scope it sat in and the macro that made it.
+type helperDraw struct {
+	prefix, module, macro string
 }
 
 // parseRouteFile parses a Rails route file, seeding the scope stack with
@@ -58,17 +71,20 @@ func parseRouteFile(src []byte, relFile, initialPrefix, initialModule string, js
 		src:       src,
 		relFile:   relFile,
 		dir:       factpath.Dir(relFile),
-		draws:     map[string]string{},
+		draws:     map[string][]string{},
 		drawMods:  map[string]string{},
 		concerns:  map[string]*sitter.Node{},
 		unhandled: map[string]int{},
 		jsonapi:   jsonapi,
+		helpers:   map[string]helperDraw{},
+		defs:      map[string]*sitter.Node{},
+		defCalls:  map[string]int{},
 	}
 	if initialPrefix == "" {
 		rw.engineMounts = engineMounts
 	}
 	rw.walk(tree.RootNode(), stack)
-	return rw.out, routeFileResult{draws: rw.draws, drawModules: rw.drawMods, mounts: rw.mounts, unresolved: rw.unhandled, drawOn: rw.drawOn}
+	return rw.out, routeFileResult{draws: rw.draws, drawModules: rw.drawMods, mounts: rw.mounts, unresolved: rw.unhandled, drawOn: rw.drawOn, helperDraws: rw.helpers}
 }
 
 type routeWalker struct {
@@ -78,8 +94,12 @@ type routeWalker struct {
 	out     []facts.Fact
 	// draws maps each draw(:pkg) delegation found in this file to the URL prefix it
 	// is scoped under, so the caller can parse config/routes/<pkg>.rb with it.
-	draws    map[string]string
+	draws    map[string][]string
 	drawMods map[string]string // delegation -> enclosing controller module
+	// replaying counts the methods of this file being replayed for a second time
+	// or more (defOrCall), and defCalls how often each was called.
+	replaying int
+	defCalls  map[string]int
 	// mounts collects the engine mount sites found in this file.
 	mounts []routeMount
 	// concerns maps a `concern :name do ... end` definition to its block body, so a
@@ -104,6 +124,13 @@ type routeWalker struct {
 	// engineMounts maps an engine constant to the one path the application mounts it
 	// at, for a file read at the root prefix. Nil otherwise.
 	engineMounts map[string]string
+	// helpers are the possible delegations through the application's own helpers.
+	// See routeFileResult.helperDraws.
+	helpers map[string]helperDraw
+	// defs are the methods this file defines, by name: a route table written in a
+	// method (`def draw_all_routes ... end`) is declared where it is called, under
+	// the caller's scope, as often as it is called.
+	defs map[string]*sitter.Node
 }
 
 // routeWrappers are macros that take a block and *contain* routes rather than
@@ -146,10 +173,48 @@ func (rw *routeWalker) walk(node *sitter.Node, stack []routeScope) {
 			rw.handleCall(c, stack)
 			continue
 		}
+		if rw.defOrCall(c, stack) {
+			continue
+		}
 		if isControlFlowNode(kindOf(c)) {
 			rw.walkControlFlow(c, stack)
 		}
 	}
+}
+
+// defOrCall records a method the file defines, or replays one it calls by bare
+// name, and reports whether c was either. A method is replayed under the scope of
+// each call, as Ruby runs it: GitLab's route table is one method drawn at the root
+// and again under an organization scope.
+func (rw *routeWalker) defOrCall(c *sitter.Node, stack []routeScope) bool {
+	switch kindOf(c) {
+	case "method":
+		if name := rubyText(c.ChildByFieldName("name"), rw.src); name != "" && rw.defs != nil {
+			if _, seen := rw.defs[name]; !seen {
+				rw.defs[name] = c.ChildByFieldName("body")
+			} else {
+				rw.defs[name] = nil // defined twice: which body runs is not this walk's to say
+			}
+		}
+		return true
+	case "identifier":
+		body, ok := rw.defs[rubyText(c, rw.src)]
+		if !ok || body == nil || rw.concernDepth >= maxConcernDepth {
+			return ok
+		}
+		name := rubyText(c, rw.src)
+		rw.defCalls[name]++
+		repeat := 0
+		if rw.defCalls[name] > 1 {
+			repeat = 1 // the draws its first call made are what it draws
+		}
+		rw.concernDepth++
+		rw.replaying += repeat
+		defer func() { rw.concernDepth--; rw.replaying -= repeat }()
+		rw.walk(body, stack)
+		return true
+	}
+	return false
 }
 
 // walkControlFlow descends into a conditional or block-structured statement, skipping
@@ -164,6 +229,9 @@ func (rw *routeWalker) walkControlFlow(node *sitter.Node, stack []routeScope) {
 		}
 		if kindOf(c) == "call" {
 			rw.handleCall(c, stack)
+			continue
+		}
+		if rw.defOrCall(c, stack) {
 			continue
 		}
 		if isControlFlowNode(kindOf(c)) {
@@ -762,9 +830,14 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 		if pkg := firstSymbolArg(args, rw.src); pkg != "" {
 			// Record the delegation so the caller can parse config/routes/<pkg>.rb
 			// seeded with this prefix, giving its routes their real /api/vN scope.
-			if rw.draws != nil {
-				rw.draws[pkg] = prefix
-				if mod := buildModule(stack); mod != "" && rw.drawMods != nil {
+			// A file drawn from two scopes is served under both. A method replayed
+			// under a further scope (GitLab clones its whole route table under an
+			// organization path) draws its files again; those keep the scopes of the
+			// draws written in the source, or every drawn file would be read twice.
+			_, seen := rw.draws[pkg]
+			if rw.draws != nil && (!seen || rw.replaying == 0) && !slices.Contains(rw.draws[pkg], prefix) {
+				rw.draws[pkg] = append(rw.draws[pkg], prefix)
+				if mod := buildModule(stack); mod != "" && rw.drawMods != nil && !seen {
 					rw.drawMods[pkg] = mod
 				}
 			}
@@ -791,6 +864,11 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 		// is what makes an absent API surface look like an empty one. Count it.
 		if !routeWrappers[method] && firstSymbolArg(args, rw.src) != "" {
 			rw.unhandled[method]++
+			if syms := positionalSymbols(args, rw.src); body == nil && len(syms) == 1 && rw.helpers != nil {
+				if _, seen := rw.helpers[syms[0]]; !seen {
+					rw.helpers[syms[0]] = helperDraw{prefix: prefix, module: buildModule(stack), macro: method}
+				}
+			}
 		}
 		if body != nil {
 			rw.walk(body, stack)
