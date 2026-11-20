@@ -21,6 +21,10 @@ type tsFileIndex struct {
 	known  map[string]bool      // the known files themselves
 	root   string               // the repository on disk, for a path no indexed file holds (onDisk)
 	probe  func(relPath string) // records each path onDisk looks for, so the cache key covers it
+
+	// packages maps each directory declaring an npm package to its name. A
+	// baseUrl-rooted path names a file of the importing package only.
+	packages map[string]string
 }
 
 // diskModuleExts are the extensions a module on disk may carry: the indexed ones and
@@ -87,6 +91,12 @@ func newTSFileIndex(knownFiles map[string]bool) *tsFileIndex {
 // segments: one bare word is how every npm package is imported, and a local file
 // sharing that word is no evidence.
 //
+// An unprefixed specifier is a baseUrl path only within the importing file's own
+// package: tsconfig roots it there. A file of another workspace package that happens
+// to end in it (`next/navigation` against apps/studio/compat/next/navigation.ts,
+// imported from apps/www) is a different program's file, and the import is the
+// package of that name.
+//
 // Several matches are told apart by nearness: an alias or a baseUrl is rooted in the
 // importing project, so the file sharing the longest directory prefix with fromFile
 // is the one it names (`$lib/utils` from web/src/lib/x.ts is web/src/lib/utils.ts,
@@ -95,7 +105,7 @@ func (ix *tsFileIndex) resolve(spec, fromFile string) (string, bool) {
 	if ix == nil || spec == "" {
 		return "", false
 	}
-	rest := spec
+	rest, unprefixed := spec, false
 	switch {
 	case strings.HasPrefix(spec, "$"), strings.HasPrefix(spec, "~"), strings.HasPrefix(spec, "#"), strings.HasPrefix(spec, "@/"):
 		i := strings.IndexByte(spec, '/')
@@ -105,6 +115,8 @@ func (ix *tsFileIndex) resolve(spec, fromFile string) (string, bool) {
 		rest = spec[i+1:]
 	case strings.HasPrefix(spec, "@"), !strings.Contains(spec, "/"):
 		return "", false // a scoped or bare package name
+	default:
+		unprefixed = true
 	}
 	rest = strings.TrimSuffix(rest, path.Ext(rest))
 	if rest == "" {
@@ -122,6 +134,9 @@ func (ix *tsFileIndex) resolve(spec, fromFile string) (string, bool) {
 		if !ok || file == found {
 			continue
 		}
+		if unprefixed && !ix.samePackage(file, fromFile) {
+			continue
+		}
 		switch near := sharedDirs(file, fromFile); {
 		case near > best:
 			found, best, tied = file, near, false
@@ -133,6 +148,17 @@ func (ix *tsFileIndex) resolve(spec, fromFile string) (string, bool) {
 		return "", false
 	}
 	return found, found != ""
+}
+
+// samePackage reports whether two repository files belong to the same npm package,
+// the nearest ancestor directory declaring one. Files under no package share one.
+func (ix *tsFileIndex) samePackage(a, b string) bool {
+	if len(ix.packages) == 0 {
+		return true
+	}
+	pa, _ := nearestPackageDir(ix.packages, path.Dir(a))
+	pb, _ := nearestPackageDir(ix.packages, path.Dir(b))
+	return pa == pb
 }
 
 // sharedDirs counts the leading directories two repository paths have in common.

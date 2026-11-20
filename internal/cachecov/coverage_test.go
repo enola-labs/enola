@@ -257,6 +257,7 @@ var versionCoverage = map[int][]string{
 	662: {"TestDecoratorRoutes_NestPathArray"},
 	663: {"TestRouteExtractor_ExposeRestAPIBase"},
 	664: {"TestExtractAllRoutes_ApplicationMountsAPluginEngine"},
+	665: {"TestFileIndex_BaseURLPathStaysInItsPackage"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

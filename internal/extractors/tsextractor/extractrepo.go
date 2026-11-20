@@ -39,6 +39,8 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	rc := newRepoCtx(fw, tsFiles, sources, knownFiles)
 	rc.files.root = repoPath
 	rc.files.probe = plugin.DiskProber(ctx)
+	pkgNames, publishedPkgs := collectPackageNames(repoPath)
+	rc.files.packages = pkgNames
 	perFile := e.extractFiles(ctx, tsFiles, sources, rc, aliasRoots)
 	templates := scanAngularTemplates(ctx, repoPath, htmlFiles)
 
@@ -58,7 +60,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	if isPrisma {
 		a.facts = append(a.facts, extractPrismaStorage(repoPath, tsRoot)...)
 	}
-	a.facts = append(a.facts, moduleFacts(repoPath, a.modules, fw.isAngular, packageDocs(tsFiles, sources))...)
+	a.facts = append(a.facts, moduleFacts(repoPath, a.modules, pkgNames, publishedPkgs, fw.isAngular, packageDocs(tsFiles, sources))...)
 	return a.facts, nil
 }
 
@@ -389,8 +391,7 @@ func (a *tsAssembly) coverageFacts(repoPath string) []facts.Fact {
 	return out
 }
 
-func moduleFacts(repoPath string, modules map[string]bool, isAngular bool, docs map[string]string) []facts.Fact {
-	pkgNames, publishedPkgs := collectPackageNames(repoPath)
+func moduleFacts(repoPath string, modules map[string]bool, pkgNames map[string]string, publishedPkgs map[string]bool, isAngular bool, docs map[string]string) []facts.Fact {
 	// The workspace project each directory belongs to, where the repository states
 	// one. A monorepo's unit of ownership is its project, not its directory, and
 	// every reading that groups by unit was inferring the boundary from the path.

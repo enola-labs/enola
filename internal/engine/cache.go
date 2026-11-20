@@ -3731,7 +3731,10 @@ import (
 // route_base, or /api/<version>/<resource_name> for a REST API.
 // v664: Ruby: an engine the application mounts from a file no route table reaches
 // (a plugin's routes.rb or plugin.rb) serves its routes under that mount.
-const cacheVersion = "v664"
+// v665: TypeScript: an unprefixed import path is a baseUrl path only within the
+// importing file's npm package, so a sibling package's shim of `next/navigation`
+// no longer takes the calls of every other package importing it.
+const cacheVersion = "v665"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
