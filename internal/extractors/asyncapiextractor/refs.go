@@ -6,12 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/workspace"
 	"gopkg.in/yaml.v3"
 )
 
 // refResolver resolves local JSON References across YAML/JSON documents. Reads
-// are confined to repoRoot: a contract cannot use ../../ or an absolute path to
-// make extraction read arbitrary files outside the repository.
+// are confined to the checkout at repoRoot: a contract cannot use ../../ or an
+// absolute path to read files outside the repository, nor reach into a linked
+// worktree nested in it.
 type refResolver struct {
 	repoRoot string
 	docs     map[string]map[string]any
@@ -68,7 +70,9 @@ func (r *refResolver) follow(ref, baseFile string) (resolvedMap, bool) {
 		}
 		targetFile = filepath.Clean(filepath.Join(filepath.Dir(baseFile), filepath.FromSlash(filePart))) //factpath:host
 	}
-	if !withinRoot(r.repoRoot, targetFile) {
+	// Outside the repository, or inside a linked worktree nested in it: not this
+	// checkout's file, though the second is under the root and on disk.
+	if !workspace.InCheckout(r.repoRoot, targetFile) {
 		return resolvedMap{}, false
 	}
 	doc, err := r.load(targetFile)
@@ -122,9 +126,4 @@ func jsonPointer(root any, pointer string) (any, error) {
 		}
 	}
 	return current, nil
-}
-
-func withinRoot(root, path string) bool {
-	rel, err := filepath.Rel(root, path) //factpath:host
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

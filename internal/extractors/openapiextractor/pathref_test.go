@@ -176,3 +176,31 @@ paths:
 		t.Errorf("got %d routes, want 3: a fragment must not add its own", n)
 	}
 }
+
+// A path item may $ref into a linked worktree nested in the repository (an agent
+// harness's .claude/worktrees/<name>): it is inside the root and present, but it is
+// another checkout's file. It is not followed, so the route set of a tree does not
+// depend on which worktrees sit beside it; an in-repo fragment still resolves.
+func TestExtract_PathItemRefIntoNestedWorktreeIsNotFollowed(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "openapi/spec.yaml", `openapi: 3.0.3
+info: { title: Items, version: "1" }
+paths:
+  /items/{id}:
+    $ref: '../.claude/worktrees/feat/openapi/paths/secret.yaml'
+  /things/{id}:
+    $ref: './paths/item.yaml'
+`)
+	writeSpec(t, repo, "openapi/paths/item.yaml", "get:\n  operationId: getThing\n")
+	writeSpec(t, repo, ".git/worktrees/feat/commondir", "../..\n")
+	writeSpec(t, repo, ".claude/worktrees/feat/.git", "gitdir: ../../../.git/worktrees/feat\n")
+	writeSpec(t, repo, ".claude/worktrees/feat/openapi/paths/secret.yaml", "get:\n  operationId: leakedFromWorktree\n")
+
+	got := extract(t, repo)
+	if r := findRoute(got, "/items/{id}", "GET"); r != nil {
+		t.Errorf("a path item was read from a nested worktree: %+v", r.Props)
+	}
+	if r := findRoute(got, "/things/{id}", "GET"); r == nil || r.Props["path_item_file"] != "openapi/paths/item.yaml" {
+		t.Errorf("the in-repo fragment must still resolve; got %+v", r)
+	}
+}

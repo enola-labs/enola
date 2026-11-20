@@ -3747,7 +3747,10 @@ import (
 // (`draw_all :project`) draws it in the scope it is called from, and a method the
 // route file defines is declared where it is called; a file drawn from several
 // scopes is served under each.
-const cacheVersion = "v671"
+// v672: OpenAPI, AsyncAPI and Tailwind read a file a reference or import points to
+// only when it is this checkout's: not out of the repository, and not inside a linked
+// worktree nested in it.
+const cacheVersion = "v672"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

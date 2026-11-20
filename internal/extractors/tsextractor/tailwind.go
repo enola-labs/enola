@@ -273,7 +273,14 @@ func (r *themeReader) file(rel string) *themeFile {
 		return tf
 	}
 	r.parsed[rel] = nil
-	src, err := os.ReadFile(filepath.Join(r.repoPath, rel)) //factpath:host
+	// An import is followed to disk, past the walk: a relative one can climb out of
+	// the repository (`..` survives the lexical clean) or into a linked worktree
+	// nested in it. Neither is this checkout's file.
+	abs := filepath.Join(r.repoPath, filepath.FromSlash(rel)) //factpath:host
+	if !workspace.InCheckout(r.repoPath, abs) {
+		return nil
+	}
+	src, err := os.ReadFile(abs)
 	if err != nil {
 		return nil
 	}

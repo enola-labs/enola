@@ -2,6 +2,8 @@ package tsextractor
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -368,5 +370,59 @@ func TestTailwind_PackageManifestsOutsideTheIndex(t *testing.T) {
 	users := nodeUsers(ff)
 	if strings.Join(users["tailwind/kit/src/borderRadius.sm"], ",") != "web/Home.tsx" || users["tailwind/tokens/borderRadius.sm"] != nil {
 		t.Errorf("rounded-sm users %v", users)
+	}
+}
+
+// A theme module a config imports is read from disk, past the walk. An import that
+// resolves into a linked worktree nested in the repository (another checkout's file) or
+// out of the repository declares no token; an in-repo import still does.
+func TestTailwind_ImportIntoNestedWorktreeOrOutsideIsNotRead(t *testing.T) {
+	files := map[string]string{
+		"app/package.json": `{"name": "app", "devDependencies": {"tailwindcss": "3"}}`,
+		"app/tailwind.config.ts": `import { base } from "./theme/base"
+import { leaked } from "../.claude/worktrees/feat/app/theme/leaked"
+import { outside } from "../../outside/theme"
+export default { content: ["./src/**/*.tsx"], theme: { extend: { colors: { ...base, ...leaked, ...outside } } } }`,
+		"app/theme/base.ts": `export const base = { normalbrand: "#00ff00" }`,
+		"app/src/App.tsx":   `export function App() { return <div className="bg-normalbrand bg-leakedbrand bg-outsidebrand" /> }`,
+	}
+	dir := setupTSProject(t, files, false)
+	for rel, content := range map[string]string{
+		".git/worktrees/feat/commondir":              "../..\n",
+		".claude/worktrees/feat/.git":                "gitdir: ../../../.git/worktrees/feat\n",
+		".claude/worktrees/feat/app/theme/leaked.ts": `export const leaked = { leakedbrand: "#ff0000" }`,
+		"../outside/theme.ts":                        `export const outside = { outsidebrand: "#0000ff" }`,
+	} {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var indexed []string
+	for f := range files {
+		if !strings.HasSuffix(f, ".json") {
+			indexed = append(indexed, f)
+		}
+	}
+	ff, err := New().Extract(context.Background(), dir, indexed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, _ := tokenUsers(ff)
+	if !tokens["normalbrand"] {
+		t.Error("the in-repo theme import must still declare its token")
+	}
+	for _, leaked := range []string{"leakedbrand", "outsidebrand"} {
+		if tokens[leaked] {
+			t.Errorf("token %s was read from a file outside this checkout", leaked)
+		}
+	}
+	for _, f := range ff {
+		if strings.HasPrefix(f.File, "../") || strings.HasPrefix(f.File, ".claude/") {
+			t.Errorf("fact %s carries a file outside this checkout: %s", f.Name, f.File)
+		}
 	}
 }
