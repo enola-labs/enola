@@ -489,3 +489,29 @@ func TestUnderscore(t *testing.T) {
 		}
 	}
 }
+
+// A call through a stored function value reaches code that imports the caller's
+// module (it stored the value there), so rolling it up would draw the import
+// backwards. Calls the caller names still roll up from the same symbol.
+func TestBind_StoredFunctionCallsDeriveNoEdge(t *testing.T) {
+	caller := symbol("options.Recommended.ApplyTo", "server/options/recommended.go",
+		calls("sample.Options.Config.func1", "admission.New")...)
+	caller.SetProp(facts.PropStoredCalls, []string{"sample.Options.Config.func1"})
+	store := facts.NewStore()
+	store.Add(
+		module("server/options"), module("sample/server"), module("admission"),
+		caller,
+		symbol("sample.Options.Config.func1", "sample/server/start.go"),
+		symbol("admission.New", "admission/new.go"),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	got := derivedEdges(store)
+	if _, ok := got["server/options -> sample/server"]; ok {
+		t.Errorf("a stored-function call derived a module edge: %v", got)
+	}
+	if got["server/options -> admission"] != 1 {
+		t.Errorf("a named call from the same symbol must still roll up: %v", got)
+	}
+}

@@ -251,8 +251,20 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if sourceModule == "" || !production[sourceModule] {
 			continue
 		}
+		var stored map[string]bool
+		if s := f.PropStrings(facts.PropStoredCalls); len(s) > 0 {
+			stored = make(map[string]bool, len(s))
+			for _, t := range s {
+				stored[t] = true
+			}
+		}
 		for _, r := range f.Relations {
 			if !rolledRelations[r.Kind] {
+				continue
+			}
+			// A call through a stored function value is a callback: the module that
+			// stored it imports this one, so an edge from here would run backwards.
+			if r.Kind == facts.RelCalls && stored[r.Target] {
 				continue
 			}
 			// The target resolves in the caller's own repository. A directory

@@ -61,6 +61,16 @@ func TestBind_HolderFilledFromAParameter(t *testing.T) {
 	if got := callsOf(store, "fines.worker.run"); !slices.Equal(got, []string{"fines.charge"}) {
 		t.Errorf("fines.worker.run calls %v, want only fines.charge", got)
 	}
+	for _, f := range store.FactsRef() {
+		if f.Name == "loans.worker.run" {
+			if got := f.PropStrings(facts.PropStoredCalls); !slices.Equal(got, []string{"loans.Start.func1"}) {
+				t.Errorf("the added call is not marked stored: %v", got)
+			}
+		}
+		if f.Name == "queue.Queue.Drain" && len(f.PropStrings(facts.PropStoredCalls)) > 0 {
+			t.Errorf("a call the extractor read is marked stored")
+		}
+	}
 	if got := callsOf(store, "queue.Queue.Drain"); !slices.Equal(got, []string{"queue.Queue.next"}) {
 		t.Errorf("the generic Drain should gain no edge; it calls %v", got)
 	}
