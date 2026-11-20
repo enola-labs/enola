@@ -41,16 +41,7 @@ type routeFileResult struct {
 // parseRouteFile parses a Rails route file, seeding the scope stack with
 // initialPrefix (the URL prefix under which a parent routes.rb delegated or mounted
 // this file), and returns what it learned about further route files.
-func parseRouteFile(src []byte, relFile, initialPrefix, initialModule string, jsonapi jsonapiContext) ([]facts.Fact, routeFileResult) {
-	return parseRouteFileMounted(src, relFile, initialPrefix, initialModule, jsonapi, nil)
-}
-
-// parseRouteFileMounted is parseRouteFile knowing where the application mounts each
-// engine (engineMounts, see appEngineMounts). A file read at the root prefix that draws
-// an engine's routes (`DiscoursePoll::Engine.routes.draw do ... end`) serves them
-// under that engine's mount path: a plugin's route file holds both the engine's draw
-// and, often, the application-level mount of it, and nothing else reaches the file.
-func parseRouteFileMounted(src []byte, relFile, initialPrefix, initialModule string, jsonapi jsonapiContext, engineMounts map[string]string) ([]facts.Fact, routeFileResult) {
+func parseRouteFile(src []byte, relFile, initialPrefix, initialModule string, jsonapi jsonapiContext, engineMounts map[string]string) ([]facts.Fact, routeFileResult) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(ruby.Language())); err != nil {

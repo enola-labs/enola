@@ -86,7 +86,7 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 		if !ok {
 			return nil, nil
 		}
-		ff, res := parseRouteFileMounted(src, relFile, prefix, drawModules[routeDrawKey(relFile)], jsonapi, engineMounts)
+		ff, res := parseRouteFile(src, relFile, prefix, drawModules[routeDrawKey(relFile)], jsonapi, engineMounts)
 		for k, m := range res.drawModules {
 			if _, seen := drawModules[k]; !seen {
 				drawModules[k] = m
