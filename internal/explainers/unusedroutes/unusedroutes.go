@@ -454,6 +454,11 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		if facts.IsTestPath(f.File) {
 			continue
 		}
+		// A path built at runtime in part is known only as far as its literal
+		// prefix, and two such prefixes agreeing says nothing about the paths served.
+		if f.PropBool(facts.PropPathPartial) {
+			continue
+		}
 		// A spec documents an endpoint and registers nothing: a spec beside the route
 		// it describes, or two specs naming one health check, are not two
 		// registrations a router has to choose between.

@@ -262,6 +262,7 @@ var versionCoverage = map[int][]string{
 	667: {"TestDecoratorRoutes_NestBaseFromAnEnumMember"},
 	668: {"TestMinimalAPI_GroupHandedToAnExtensionMethod"},
 	669: {"TestMSBuild_AspireHostLaunchesItsProjects"},
+	670: {"TestExtractGrapeRoutes_PathBuiltAtRuntimeIsPartial"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

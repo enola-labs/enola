@@ -282,3 +282,69 @@ func TestExtractGrapeRoutes_MountCycleTerminates(t *testing.T) {
 		}
 	}
 }
+
+// A route whose path is built at runtime in part, by its own interpolated path or
+// by an enclosing block or mount under a computed one, says so; a literal one, a
+// symbol and a route_param do not.
+func TestExtractGrapeRoutes_PathBuiltAtRuntimeIsPartial(t *testing.T) {
+	repo := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("lib/api/notes.rb", `
+module API
+  class Notes < Grape::API::Instance
+    resource :projects do
+      get ":id/#{noteables_path}/notes" do
+      end
+      route_param :id do
+        get 'plain' do
+        end
+      end
+    end
+    resource parent_type.pluralize.to_sym, requirements: {} do
+      get 'emoji' do
+      end
+      mount ::API::Inner
+    end
+  end
+end
+`)
+	write("lib/api/inner.rb", `
+module API
+  class Inner < Grape::API::Instance
+    get 'inner' do
+    end
+  end
+end
+`)
+	classFacts := []facts.Fact{
+		{Kind: facts.KindSymbol, Name: "API::Notes", File: "lib/api/notes.rb",
+			Props: map[string]any{"symbol_kind": facts.SymbolClass, "superclass": "Grape::API::Instance"}},
+		{Kind: facts.KindSymbol, Name: "API::Inner", File: "lib/api/inner.rb",
+			Props: map[string]any{"symbol_kind": facts.SymbolClass, "superclass": "Grape::API::Instance"}},
+	}
+	want := map[string]bool{
+		"GET /projects/:id":       true,
+		"GET /projects/:id/plain": false,
+		"GET /emoji":              true,
+		"GET /inner":              true,
+	}
+	idx := grapeIndex(extractGrapeRoutes(context.Background(), repo, classFacts))
+	for name, partial := range want {
+		f, ok := idx[name]
+		if !ok {
+			t.Errorf("missing %q; got:\n  %s", name, grapeNames(idx))
+			continue
+		}
+		if got := f.PropBool(facts.PropPathPartial); got != partial {
+			t.Errorf("%s: path_partial = %v, want %v", name, got, partial)
+		}
+	}
+}

@@ -742,3 +742,24 @@ func TestExplain_AnOrchestratorDoesNotJoinTheServicesItStarts(t *testing.T) {
 		t.Fatalf("want no finding, got %+v (%v)", insights, err)
 	}
 }
+
+// Two routes known only by the literal prefix of a path built at runtime do not
+// compete: the prefixes agreeing says nothing about the paths served.
+func TestExplain_PartialPathsDoNotCompete(t *testing.T) {
+	store := facts.NewStore()
+	route := func(file string, partial bool) facts.Fact {
+		p := map[string]any{"method": "GET", "language": "ruby", "framework": "grape"}
+		if partial {
+			p[facts.PropPathPartial] = true
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/v4/:id", File: file, Line: 1, Repo: "app", Props: p}
+	}
+	store.Add(route("lib/api/notes.rb", true), route("lib/api/discussions.rb", true))
+	if insights, err := New().Explain(context.Background(), store); err != nil || len(insights) != 0 {
+		t.Fatalf("want no finding, got %+v (%v)", insights, err)
+	}
+	store.Add(route("lib/api/projects.rb", false), route("lib/api/groups.rb", false))
+	if insights, _ := New().Explain(context.Background(), store); len(insights) != 1 {
+		t.Errorf("two literal paths: want one finding, got %d", len(insights))
+	}
+}
