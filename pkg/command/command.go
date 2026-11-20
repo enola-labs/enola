@@ -247,6 +247,12 @@ func (r *Runner) UnknownArgHelp(arg string) string {
 	if strings.HasPrefix(arg, "-") {
 		return fmt.Sprintf("unknown flag %q — run `%s --help` for the supported flags.", arg, r.name())
 	}
+	return notAPathHelp(arg)
+}
+
+// notAPathHelp explains a path argument that names nothing on disk. The top level and
+// every subcommand's positional share it, so both reject a mistyped path in the same words.
+func notAPathHelp(arg string) string {
 	return fmt.Sprintf("%q is neither a directory (a repository) nor an existing file (a config).\n\n"+
 		"A path naming a DIRECTORY is treated as a repository; one naming a FILE is treated as a config.", arg)
 }
