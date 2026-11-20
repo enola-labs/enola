@@ -42,8 +42,9 @@ Impact analysis (hotspots)
     medium criticality        0
   Top hotspots (by coupling):
     module                            fan-in  fan-out crit     blast radius
-    example.com/gosample/pkg/a             2        0 low      2
-    example.com/gosample/pkg/b             2        0 low      2
+    example.com/gosample/pkg/a             2        1 low      2
+    example.com/gosample/pkg/b             2        1 low      2
+    example.com/gosample                   0        2 low      0
 
 Dead code
   potential dead code         2  (of 8 symbols)

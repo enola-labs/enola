@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/metrics"
 	"github.com/enola-labs/enola/internal/orphans"
@@ -158,6 +159,12 @@ type Report struct {
 	HighCriticality   int       `json:"high_criticality"`
 	MediumCriticality int       `json:"medium_criticality"`
 	Hotspots          []Hotspot `json:"hotspots,omitempty"`
+
+	// ranked is every module with any coupling, in Hotspots' order; Hotspots is its
+	// first topHotspots. The summary's claims about the repository ("the most
+	// imported module", what is risky to change) are chosen from it, because the
+	// top of a coupling ranking is not the top of a fan-in or blast-radius one.
+	ranked []Hotspot
 
 	// CouplingUnresolved is true when dependency facts exist but none of their
 	// import edges resolved to a module — coupling analysis is unavailable, not
@@ -551,6 +558,11 @@ func computeHotspots(store *facts.Store, r *Report) {
 		modules[f.Name] = true
 	}
 
+	// The importer is the module its file belongs to, resolved by the shared rule: a Go
+	// package is named by its import path and filed under its directory, so the file's
+	// directory names no module, and every Go package would read fan-out 0 and reach
+	// only its direct importers.
+	dirs := common.NewModuleDirs(store)
 	fanIn := map[string]int{}
 	fanOut := map[string]int{}
 	// revAdj[dst] is the set of modules that directly import dst — a deduped reverse
@@ -559,7 +571,10 @@ func computeHotspots(store *facts.Store, r *Report) {
 	resolvedEdges := 0
 	deps := store.ByKind(facts.KindDependency)
 	for _, dep := range deps {
-		src := fileDir(dep.File)
+		src := common.ResolveModule(dep, modules, nil, dirs)
+		if src == "" {
+			src = fileDir(dep.File)
+		}
 		for _, rel := range dep.Relations {
 			if rel.Kind != facts.RelImports {
 				continue
@@ -618,12 +633,8 @@ func computeHotspots(store *facts.Store, r *Report) {
 		return ranked[i].name < ranked[j].name // stable, deterministic
 	})
 
-	limit := topHotspots
-	if len(ranked) < limit {
-		limit = len(ranked)
-	}
-	for _, s := range ranked[:limit] {
-		r.Hotspots = append(r.Hotspots, Hotspot{
+	for _, s := range ranked {
+		r.ranked = append(r.ranked, Hotspot{
 			Module:      s.name,
 			FanIn:       s.fanIn,
 			FanOut:      s.fanOut,
@@ -638,6 +649,10 @@ func computeHotspots(store *facts.Store, r *Report) {
 			Generated:   generatedName(store, s.name),
 		})
 	}
+	// The table is the head of the ranking, capped so that appending to it cannot
+	// write into the rest.
+	top := min(topHotspots, len(r.ranked))
+	r.Hotspots = r.ranked[:top:top]
 }
 
 // reverseModuleReach counts the distinct modules that transitively depend on start

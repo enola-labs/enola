@@ -55,8 +55,11 @@ var hubBudgets = map[string]int{
 	"pkg/check":       11,
 	"internal/config": 4,
 	"pkg/dashboard":   6,
-	"pkg/explain":     7,
-	"cmd/enola":       13,
+	// 8: internal/explainers/common, so coupling resolves an importer's module by the
+	// one shared rule (a Go package is named by import path, not by its directory)
+	// instead of a copy of it.
+	"pkg/explain": 8,
+	"cmd/enola":   13,
 }
 
 // maxChainBudget is the number of packages on the longest import chain. Today:

@@ -540,3 +540,33 @@ func TestFeatureGuide_ServesADeclaredOrder(t *testing.T) {
 		t.Errorf("unordered layers must be named as exempt:\n%s", got)
 	}
 }
+
+// A Go package's importer is the package named by import path, not the file's
+// directory: resolved by directory, every Go row read fan-out 0, and the dependency
+// rules named importers in a form no module has.
+func TestCriticalModulesResolveGoImporter(t *testing.T) {
+	var ff []facts.Fact
+	for _, d := range []string{"a", "b", "c"} {
+		ff = append(ff, facts.Fact{Kind: facts.KindModule, Name: "example.com/app/" + d, File: d,
+			Props: map[string]any{"language": "go"}})
+	}
+	for _, e := range [][2]string{{"a", "b"}, {"b", "c"}} {
+		ff = append(ff, facts.Fact{Kind: facts.KindDependency, File: e[0] + "/x.go",
+			Props:     map[string]any{"language": "go"},
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "example.com/app/" + e[1]}}})
+	}
+	content := string(mustRender(t, makeSnapshot(ff, nil)))
+
+	for _, row := range []string{
+		"| `example.com/app/a` | 0 | 1 | low |",
+		"| `example.com/app/b` | 1 | 1 | low |",
+		"| `example.com/app/c` | 1 | 0 | low |",
+	} {
+		if !strings.Contains(content, row) {
+			t.Errorf("Critical Modules: want row %q", row)
+		}
+	}
+	if !strings.Contains(content, "`example.com/app/a` -> `example.com/app/b`") {
+		t.Errorf("Dependency Rules: want the importer named by import path; got\n%s", content)
+	}
+}

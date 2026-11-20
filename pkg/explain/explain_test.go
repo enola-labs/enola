@@ -608,3 +608,46 @@ func TestCompute_CodeHealth_OmittedWhenEmpty(t *testing.T) {
 		t.Error("Code health section should be omitted when empty")
 	}
 }
+
+// goChainFacts is three Go packages named by import path and filed under their
+// directories, the shape every Go module has had since packages were named by
+// import path: a imports b, b imports c.
+func goChainFacts() []facts.Fact {
+	var ff []facts.Fact
+	for _, d := range []string{"a", "b", "c"} {
+		ff = append(ff, facts.Fact{Kind: facts.KindModule, Name: "example.com/app/" + d, File: d,
+			Props: map[string]any{"language": "go"}})
+	}
+	for _, e := range [][2]string{{"a", "b"}, {"b", "c"}} {
+		ff = append(ff, facts.Fact{Kind: facts.KindDependency,
+			Name: "example.com/app/" + e[0] + " -> example.com/app/" + e[1], File: e[0] + "/x.go",
+			Props:     map[string]any{"language": "go", "source": "internal"},
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "example.com/app/" + e[1]}}})
+	}
+	return ff
+}
+
+// A Go package's importer is the package named by import path, not the file's
+// directory: resolved by directory, no Go module had any fan-out, and a blast
+// radius stopped after one hop because the reverse edges named directories.
+func TestHotspotsResolveGoImporterByImportPath(t *testing.T) {
+	eng := newTestEngine(t)
+	eng.Store().Add(goChainFacts()...)
+	eng.Store().BuildGraph()
+	var r Report
+	computeHotspots(eng.Store(), &r)
+
+	byName := map[string]Hotspot{}
+	for _, h := range r.Hotspots {
+		byName[h.Module] = h
+	}
+	if got := byName["example.com/app/a"].FanOut; got != 1 {
+		t.Errorf("example.com/app/a fan-out: got %d, want 1; hotspots %+v", got, r.Hotspots)
+	}
+	if got := byName["example.com/app/b"].FanOut; got != 1 {
+		t.Errorf("example.com/app/b fan-out: got %d, want 1", got)
+	}
+	if got := byName["example.com/app/c"].BlastRadius; got != 2 {
+		t.Errorf("example.com/app/c blast radius: got %d, want 2 (b directly, a through b)", got)
+	}
+}
