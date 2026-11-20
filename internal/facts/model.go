@@ -245,6 +245,11 @@ const PropStoredCalls = "stored_calls"
 // a call result, which may be any mux.
 const PropMuxScope = "mux_scope"
 
+// PropLaunchesProjects marks a project whose project references are services it
+// starts, each in its own process (a .NET Aspire AppHost), rather than code it
+// links: referencing an application this way does not make it a library.
+const PropLaunchesProjects = "launches_projects"
+
 // MuxScopeDefault is PropMuxScope for net/http's DefaultServeMux.
 const MuxScopeDefault = "default"
 

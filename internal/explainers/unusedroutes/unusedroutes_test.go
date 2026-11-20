@@ -716,3 +716,29 @@ func TestExplain_ReadingAManifestDoesNotJoinApplications(t *testing.T) {
 		t.Errorf("a script importing both applications' code: want one finding, got %d", len(insights))
 	}
 }
+
+// An Aspire AppHost references the services it starts, each its own process: two
+// services it launches are still separate applications.
+func TestExplain_AnOrchestratorDoesNotJoinTheServicesItStarts(t *testing.T) {
+	store := facts.NewStore()
+	project := func(dir string, launches bool, refs ...string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "svc",
+			Props: map[string]any{"language": "csharp", "msbuild": true}}
+		if launches {
+			f.Props[facts.PropLaunchesProjects] = true
+		}
+		for _, r := range refs {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: r})
+		}
+		return f
+	}
+	route := func(file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: "/config", File: file, Line: 1, Repo: "svc",
+			Props: map[string]any{"method": "GET", "language": "csharp", "framework": "aspnetcore"}}
+	}
+	store.Add(project("src/Api", false), project("src/Icons", false), project("AppHost", true, "src/Api", "src/Icons"),
+		route("src/Api/ConfigController.cs"), route("src/Icons/IconsController.cs"))
+	if insights, err := New().Explain(context.Background(), store); err != nil || len(insights) != 0 {
+		t.Fatalf("want no finding, got %+v (%v)", insights, err)
+	}
+}

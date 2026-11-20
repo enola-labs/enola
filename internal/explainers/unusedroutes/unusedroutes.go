@@ -717,6 +717,9 @@ func newAppRoots(store *facts.Store) *appRoots {
 		}
 	}
 	for _, m := range modules {
+		if m.PropBool(facts.PropLaunchesProjects) {
+			continue // an orchestrator starts the applications it references
+		}
 		for _, r := range m.Relations {
 			if r.Kind == facts.RelDependsOn {
 				link(nodeRoot[keys.Key(m.Repo, m.Name)], nodeRoot[keys.Key(m.Repo, r.Target)])

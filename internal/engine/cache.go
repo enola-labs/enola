@@ -3740,7 +3740,8 @@ import (
 // (@Controller(RouteKey.Asset)) is the string the repository declares for it.
 // v668: .NET: a minimal-API route registered on a method's RouteGroupBuilder
 // parameter is served under the groups the method is called on.
-const cacheVersion = "v668"
+// v669: .NET: a .NET Aspire AppHost project carries launches_projects.
+const cacheVersion = "v669"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
