@@ -258,6 +258,7 @@ var versionCoverage = map[int][]string{
 	663: {"TestRouteExtractor_ExposeRestAPIBase"},
 	664: {"TestExtractAllRoutes_ApplicationMountsAPluginEngine"},
 	665: {"TestFileIndex_BaseURLPathStaysInItsPackage"},
+	666: {"TestExtractRoutes_MuxScopeThroughARouterParameter"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

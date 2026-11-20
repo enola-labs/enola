@@ -3734,7 +3734,9 @@ import (
 // v665: TypeScript: an unprefixed import path is a baseUrl path only within the
 // importing file's npm package, so a sibling package's shim of `next/navigation`
 // no longer takes the calls of every other package importing it.
-const cacheVersion = "v665"
+// v666: Go: a route registered on a router parameter names the mux every caller
+// hands it, when each passes the same router it built itself.
+const cacheVersion = "v666"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

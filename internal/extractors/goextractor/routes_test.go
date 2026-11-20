@@ -647,3 +647,74 @@ func lookup() *http.ServeMux { return nil }
 		t.Errorf("found %d of %d routes", seen, len(want))
 	}
 }
+
+// A router handed in names the mux every caller hands it, when that is one router
+// a caller built itself, through any registration function passing it on. Two
+// callers handing different routers, or the function handed out as a value, leave
+// it unnamed.
+func TestExtractRoutes_MuxScopeThroughARouterParameter(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"web/web.go": `package web
+
+import "github.com/go-chi/chi/v5"
+
+func Routes() chi.Router {
+	r := chi.NewRouter()
+	register(r)
+	return r
+}
+
+func register(m chi.Router) {
+	m.Get("/web", nil)
+	nested(m)
+}
+
+func nested(m chi.Router) { m.Get("/nested", nil) }
+`,
+		"install/install.go": `package install
+
+import "github.com/go-chi/chi/v5"
+
+func Routes() chi.Router {
+	r := chi.NewRouter()
+	r.Get("/install", nil)
+	shared(r)
+	return r
+}
+
+func Other() chi.Router {
+	o := chi.NewRouter()
+	shared(o)
+	keep(handed)
+	return o
+}
+
+func shared(m chi.Router) { m.Get("/shared", nil) }
+
+func handed(m chi.Router) { m.Get("/handed", nil) }
+
+func keep(func(chi.Router)) {}
+`,
+	})
+	want := map[string]string{
+		"/web":     "local:testmod/web.Routes#r@6",
+		"/nested":  "local:testmod/web.Routes#r@6",
+		"/install": "local:testmod/install.Routes#r@6",
+		"/shared":  "",
+		"/handed":  "",
+	}
+	seen := 0
+	for _, r := range findFactsByKind(ff, facts.KindRoute) {
+		w, ok := want[strings.TrimPrefix(r.Name, "GET ")]
+		if !ok {
+			continue
+		}
+		seen++
+		if got := r.PropString(facts.PropMuxScope); got != w {
+			t.Errorf("%s: mux_scope = %q, want %q", r.Name, got, w)
+		}
+	}
+	if seen != len(want) {
+		t.Errorf("found %d of %d routes", seen, len(want))
+	}
+}

@@ -74,7 +74,7 @@ func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, rou
 			}
 			seedLocalMounts(prefixes, fn.Body)
 			w := &routeWalk{fset: fset, prefixes: prefixes, closures: map[string]*ast.FuncLit{}, framework: framework, relFile: relFile, pkgDir: pkgDir, result: &result, recvVar: recvVar, recvType: recvType,
-				helpers: routes.helpers, imports: fileImports, funcName: funcKeyFor(fn, pkgDir)}
+				helpers: routes.helpers, imports: fileImports, funcName: funcKeyFor(fn, pkgDir), paramMux: routes.muxParams[funcKeyFor(fn, pkgDir)]}
 			for _, stmt := range fn.Body.List {
 				w.stmt(stmt)
 			}
@@ -172,6 +172,9 @@ type routeWalk struct {
 	// name bound twice. See muxScope.
 	funcName   string
 	localMuxes map[string]int
+	// paramMux is the function's router parameter and the mux every caller hands
+	// it, when that is one (muxparam.go).
+	paramMux paramMux
 }
 
 // noteLocalMux records a local the function builds a fresh router into: a
@@ -182,22 +185,7 @@ func (w *routeWalk) noteLocalMux(name string, value ast.Expr, line int) {
 	if name == "" || name == "_" {
 		return
 	}
-	if u, ok := value.(*ast.UnaryExpr); ok && u.Op == token.AND {
-		value = u.X
-	}
-	fresh := false
-	switch v := value.(type) {
-	case *ast.CompositeLit:
-		fresh = true
-	case *ast.CallExpr:
-		switch fn := v.Fun.(type) {
-		case *ast.Ident:
-			fresh = strings.HasPrefix(fn.Name, "New")
-		case *ast.SelectorExpr:
-			_, pkg := fn.X.(*ast.Ident)
-			fresh = pkg && strings.HasPrefix(fn.Sel.Name, "New")
-		}
-	}
+	fresh := isFreshMux(value)
 	if w.localMuxes == nil {
 		w.localMuxes = map[string]int{}
 	}
@@ -226,6 +214,9 @@ func (w *routeWalk) muxScope(call *ast.CallExpr) string {
 		}
 		if line := w.localMuxes[x.Name]; line > 0 {
 			return fmt.Sprintf("local:%s#%s@%d", w.funcName, x.Name, line)
+		}
+		if _, rebound := w.localMuxes[x.Name]; !rebound && x.Name == w.paramMux.param {
+			return w.paramMux.scope
 		}
 	case *ast.SelectorExpr:
 		if pkg, ok := x.X.(*ast.Ident); ok && w.imports[pkg.Name] == "net/http" && x.Sel.Name == "DefaultServeMux" {
