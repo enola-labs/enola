@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/metrics"
 	"github.com/enola-labs/enola/internal/orphans"
@@ -551,6 +552,11 @@ func computeHotspots(store *facts.Store, r *Report) {
 		modules[f.Name] = true
 	}
 
+	// The importer is the module its file belongs to, resolved by the shared rule: a Go
+	// package is named by its import path and filed under its directory, so the file's
+	// directory names no module, and every Go package would read fan-out 0 and reach
+	// only its direct importers.
+	dirs := common.NewModuleDirs(store)
 	fanIn := map[string]int{}
 	fanOut := map[string]int{}
 	// revAdj[dst] is the set of modules that directly import dst — a deduped reverse
@@ -559,7 +565,10 @@ func computeHotspots(store *facts.Store, r *Report) {
 	resolvedEdges := 0
 	deps := store.ByKind(facts.KindDependency)
 	for _, dep := range deps {
-		src := fileDir(dep.File)
+		src := common.ResolveModule(dep, modules, nil, dirs)
+		if src == "" {
+			src = fileDir(dep.File)
+		}
 		for _, rel := range dep.Relations {
 			if rel.Kind != facts.RelImports {
 				continue

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/explainers/layers"
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -823,9 +824,10 @@ func (r *LLMContextRenderer) renderDependencyRules(snapshot *facts.Snapshot) str
 		}
 	}
 
+	importer := newImporterResolver(snapshot.Facts, modules)
 	var edges []string
 	for _, dep := range deps {
-		sourceModule := fileDir(dep.File)
+		sourceModule := importer(dep)
 		for _, rel := range dep.Relations {
 			if rel.Kind != facts.RelImports {
 				continue
@@ -903,8 +905,9 @@ func (r *LLMContextRenderer) renderCriticalModules(snapshot *facts.Snapshot) str
 	}
 
 	deps := filterByKind(snapshot.Facts, facts.KindDependency)
+	importer := newImporterResolver(snapshot.Facts, modules)
 	for _, dep := range deps {
-		sourceModule := fileDir(dep.File)
+		sourceModule := importer(dep)
 		for _, rel := range dep.Relations {
 			if rel.Kind == facts.RelImports && modules[rel.Target] {
 				fanOut[sourceModule]++
@@ -1257,6 +1260,21 @@ func filterByKind(ff []facts.Fact, kind string) []facts.Fact {
 		}
 	}
 	return result
+}
+
+// newImporterResolver returns the module a dependency fact's file belongs to, by the
+// shared rule. A Go package is named by its import path and filed under its
+// directory, so the file's directory names no module: resolved by directory, every
+// Go package read fan-out 0 and the dependency rules named importers in a form no
+// module has. A file no module encloses keeps its directory.
+func newImporterResolver(ff []facts.Fact, modules map[string]bool) func(facts.Fact) string {
+	dirs := facts.NewModuleDirs(filterByKind(ff, facts.KindModule))
+	return func(dep facts.Fact) string {
+		if m := common.ResolveModule(dep, modules, nil, dirs); m != "" {
+			return m
+		}
+		return fileDir(dep.File)
+	}
 }
 
 func fileDir(file string) string {
