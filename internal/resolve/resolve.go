@@ -327,7 +327,10 @@ const candidateLimit = 500
 func (r Resolver) gatherCandidates(store *facts.Store, sq scopedQuery, term string) []facts.Fact {
 	scoped := sq.Repo != "" || len(sq.Kinds) > 0 || sq.FilePrefix != "" || sq.SymbolKind != ""
 	if !scoped {
-		return store.Query("", "", term, "")
+		// An extraction fact is an extractor's account of its own coverage, named
+		// "<extractor>:<surface>": never the code a structural question is about,
+		// and its name matches any term it happens to contain.
+		return slices.DeleteFunc(store.Query("", "", term, ""), func(f facts.Fact) bool { return f.Kind == facts.KindExtraction })
 	}
 
 	prefixes := []string{""}

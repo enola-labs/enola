@@ -184,7 +184,14 @@ func runGit(repoPath string, args ...string) (string, error) {
 // spots worth reporting, it just is not a gap.
 func coverageSummary(store *facts.Store) *facts.CoverageSummary {
 	services := store.ByKind(facts.KindService)
-	extractions := store.ByKind(facts.KindExtraction)
+	// Only an extraction fact that reports edge coverage is a coverage report; the
+	// manifests extractor's list of what it read is not.
+	var extractions []facts.Fact
+	for _, f := range store.ByKind(facts.KindExtraction) {
+		if f.PropAny("edge_coverage") != nil {
+			extractions = append(extractions, f)
+		}
+	}
 	if len(services) == 0 && len(extractions) == 0 {
 		return nil
 	}

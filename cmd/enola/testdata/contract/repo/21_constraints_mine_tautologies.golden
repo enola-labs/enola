@@ -2,7 +2,7 @@ $ enola constraints mine --min-support 1 --include-tautologies --top 0 .
 exit: 0
 --- stdout
 Snapshot: <TMP>/go_sample/.enola
-Mined 13 candidate constraints over 18 facts — proposals for operator review, never self-adopting law.
+Mined 13 candidate constraints over 19 facts — proposals for operator review, never self-adopting law.
 Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ranked by confidence x support.
 
   1. 1.000 x 9      [prop-implication symbol] 9/9 symbol facts have language containing go

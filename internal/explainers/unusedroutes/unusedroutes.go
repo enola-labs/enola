@@ -14,6 +14,7 @@ package unusedroutes
 import (
 	"context"
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -410,6 +411,8 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		file   string
 		line   int
 		module string // graph node of the declaring module
+		repo   string
+		path   string // repo-relative file
 		golang bool
 		mux    string // facts.PropMuxScope, "" when unknown
 	}
@@ -464,7 +467,8 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		if byKey[f.Repo] == nil {
 			byKey[f.Repo] = map[string][]site{}
 		}
-		s := site{file: f.File, line: f.Line, golang: f.PropString("language") == "go", mux: f.PropString(facts.PropMuxScope)}
+		s := site{file: f.File, line: f.Line, repo: f.Repo, path: repoRelative(f),
+			golang: f.PropString("language") == "go", mux: f.PropString(facts.PropMuxScope)}
 		for _, r := range f.Relations {
 			if r.Kind == facts.RelDeclares {
 				s.module = moduleKeys.Key(f.Repo, r.Target)
@@ -480,12 +484,16 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 	sort.Strings(repos)
 
 	var programs *goPrograms // built on first need: most repositories never ask
+	var apps *appRoots
 	competes := func(a, b site) bool {
 		if a.file == b.file {
 			return false
 		}
 		if !a.golang || !b.golang {
-			return true
+			if apps == nil {
+				apps = newAppRoots(store)
+			}
+			return apps.share(a.repo, a.path, b.repo, b.path)
 		}
 		// Two muxes the extractor could name, and not the same one: each serves its
 		// own registration of the path.
@@ -606,6 +614,161 @@ func newGoPrograms(store *facts.Store) *goPrograms {
 		}
 	}
 	return p
+}
+
+// appRoots answers the same question as goPrograms for the other languages, one
+// level up: which application a file is part of. A monorepo holds several (a web
+// app, a docs site, an admin, examples), each with its manifest, and each serves
+// its own routes: two of them registering "/" shadow nothing. An app root is the
+// directory of a package manifest (package.json, pubspec.yaml, Gemfile, a .NET
+// project, ...), a file belongs to the nearest one above it, and one root uses
+// another when a module under it imports or references a module under the other. Two
+// registrations compete when some root that nothing else uses (an application)
+// reaches both, or when either file is under no root at all.
+type appRoots struct {
+	roots     map[string]map[string]bool // repo -> root directories ("." for the repo root)
+	reachedBy map[string][]string        // repo+"\x00"+root -> sorted applications reaching it
+}
+
+func newAppRoots(store *facts.Store) *appRoots {
+	a := &appRoots{roots: map[string]map[string]bool{}, reachedBy: map[string][]string{}}
+	addRoot := func(repo, dir string) {
+		if a.roots[repo] == nil {
+			a.roots[repo] = map[string]bool{}
+		}
+		a.roots[repo][path.Clean(dir)] = true
+	}
+	for _, f := range store.ByKind(facts.KindExtraction) {
+		if f.Name == facts.ManifestsFact {
+			for _, m := range f.PropStrings(facts.PropManifests) {
+				addRoot(f.Repo, path.Dir(m))
+			}
+		}
+	}
+	modules := store.ByKind(facts.KindModule)
+	for _, m := range modules {
+		if m.PropAny("msbuild") != nil {
+			addRoot(m.Repo, repoRelative(m))
+		}
+	}
+	// Which root each module node sits under, and the edges between roots.
+	keys := common.NewModuleKeys(store)
+	nodeRoot := map[string]string{}
+	// A test project references what it tests, often several applications at once;
+	// it is not an application that serves them together.
+	for _, m := range modules {
+		if common.IsTestModule(m) {
+			continue
+		}
+		if r, ok := a.rootOf(m.Repo, path.Join(repoRelative(m), "x")); ok {
+			nodeRoot[keys.Key(m.Repo, m.Name)] = m.Repo + "\x00" + r
+		}
+	}
+	uses := map[string]map[string]bool{}
+	link := func(from, to string) {
+		if from == "" || to == "" || from == to {
+			return
+		}
+		if uses[from] == nil {
+			uses[from] = map[string]bool{}
+		}
+		uses[from][to] = true
+	}
+	// Imports and project references only: a call resolved by name can land in a
+	// sibling application that happens to declare the same name.
+	for node, targets := range common.BuildModuleGraphExcluding(store, facts.CouplingSymbolRollup) {
+		for _, t := range targets {
+			link(nodeRoot[node], nodeRoot[t])
+		}
+	}
+	for _, m := range modules {
+		for _, r := range m.Relations {
+			if r.Kind == facts.RelDependsOn {
+				link(nodeRoot[keys.Key(m.Repo, m.Name)], nodeRoot[keys.Key(m.Repo, r.Target)])
+			}
+		}
+	}
+	used := map[string]bool{}
+	for _, to := range uses {
+		for t := range to {
+			used[t] = true
+		}
+	}
+	var all []string
+	for repo, dirs := range a.roots {
+		for d := range dirs {
+			all = append(all, repo+"\x00"+d)
+		}
+	}
+	sort.Strings(all)
+	for _, app := range all {
+		if used[app] {
+			continue
+		}
+		seen := map[string]bool{app: true}
+		queue := []string{app}
+		for len(queue) > 0 {
+			n := queue[0]
+			queue = queue[1:]
+			a.reachedBy[n] = append(a.reachedBy[n], app)
+			next := make([]string, 0, len(uses[n]))
+			for t := range uses[n] {
+				next = append(next, t)
+			}
+			sort.Strings(next)
+			for _, t := range next {
+				if !seen[t] {
+					seen[t] = true
+					queue = append(queue, t)
+				}
+			}
+		}
+	}
+	return a
+}
+
+// rootOf is the nearest app root above a repo-relative file.
+func (a *appRoots) rootOf(repo, file string) (string, bool) {
+	dirs := a.roots[repo]
+	for dir := path.Dir(file); ; dir = path.Dir(dir) {
+		if dirs[dir] {
+			return dir, true
+		}
+		if dir == "." || dir == "/" {
+			return "", false
+		}
+	}
+}
+
+// share reports whether one application can serve both files. A file under no root,
+// or a root no application reaches (a cycle of roots using each other), is not known
+// to be apart from anything.
+func (a *appRoots) share(repoA, fileA, repoB, fileB string) bool {
+	ra, okA := a.rootOf(repoA, fileA)
+	rb, okB := a.rootOf(repoB, fileB)
+	if !okA || !okB {
+		return true
+	}
+	pa, pb := a.reachedBy[repoA+"\x00"+ra], a.reachedBy[repoB+"\x00"+rb]
+	if len(pa) == 0 || len(pb) == 0 {
+		return true
+	}
+	for _, x := range pa {
+		for _, y := range pb {
+			if x == y {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// repoRelative is a fact's file without the repo label a multi-repo snapshot adds.
+func repoRelative(f facts.Fact) string {
+	if f.RepoPrefixed {
+		return strings.TrimPrefix(f.File, f.Repo+"/")
+	}
+	return f.File
 }
 
 // share reports whether one program can hold both modules. Both lists are ascending.

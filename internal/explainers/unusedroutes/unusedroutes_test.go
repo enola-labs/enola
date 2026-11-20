@@ -539,3 +539,78 @@ func TestExplain_HooksAndScreensAreNotEndpoints(t *testing.T) {
 		t.Fatalf("want only the two /settings screens; got %+v (%v)", insights, err)
 	}
 }
+
+// A monorepo holds several applications, each under its own manifest, and each
+// serves its own routes: two of them on "/" shadow nothing. A package one of them
+// imports serves inside it, so its routes compete with that application's. A file
+// under no manifest is not known to be apart from anything.
+func TestExplain_RoutesInSeparateApplicationsDoNotCompete(t *testing.T) {
+	store := facts.NewStore()
+	manifests := func(files ...string) facts.Fact {
+		return facts.Fact{Kind: facts.KindExtraction, Name: facts.ManifestsFact, File: "mono", Repo: "mono",
+			Props: map[string]any{facts.PropManifests: files}}
+	}
+	mod := func(dir string) facts.Fact {
+		return facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "mono", Props: map[string]any{"language": "typescript"}}
+	}
+	imports := func(from, to string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + to, File: from + "/index.ts", Repo: "mono",
+			Props: map[string]any{"language": "typescript", "source": "internal"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: to}}}
+	}
+	route := func(path, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "mono",
+			Props: map[string]any{"method": "GET", "language": "typescript", "framework": "express"}}
+	}
+	store.Add(
+		manifests("apps/docs/package.json", "apps/web/package.json", "packages/auth/package.json"),
+		mod("apps/web/src"), mod("apps/docs/src"), mod("packages/auth/src"),
+		imports("apps/web/src", "packages/auth/src"),
+		route("/", "apps/web/src/server.ts"), route("/", "apps/docs/src/server.ts"),
+		route("/login", "apps/web/src/server.ts"), route("/login", "packages/auth/src/routes.ts"),
+		route("/health", "apps/docs/src/server.ts"), route("/health", "scripts/serve.ts"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("want one finding, got %+v (%v)", insights, err)
+	}
+	var got []string
+	for _, ev := range insights[0].Evidence {
+		got = append(got, ev.Detail)
+	}
+	want := "GET /health is registered at apps/docs/src/server.ts:1, scripts/serve.ts:1\n" +
+		"GET /login is registered at apps/web/src/server.ts:1, packages/auth/src/routes.ts:1"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("evidence =\n%s\nwant\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// A .NET project is an application root, and a test project referencing two of them
+// does not make them one application.
+func TestExplain_TestProjectDoesNotJoinApplications(t *testing.T) {
+	store := facts.NewStore()
+	project := func(dir string, refs ...string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "docs",
+			Props: map[string]any{"language": "csharp", "msbuild": true}}
+		for _, r := range refs {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: r})
+		}
+		return f
+	}
+	route := func(file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/states", File: file, Line: 1, Repo: "docs",
+			Props: map[string]any{"method": "GET", "language": "csharp", "framework": "aspnetcore"}}
+	}
+	store.Add(
+		project("src/Docs.Server"), project("src/Docs.WasmHost"),
+		func() facts.Fact {
+			f := project("src/Docs.UnitTests", "src/Docs.Server", "src/Docs.WasmHost")
+			f.Props[facts.PropModuleRole] = facts.ModuleRoleTest
+			return f
+		}(),
+		route("src/Docs.Server/Controllers/StatesController.cs"),
+		route("src/Docs.WasmHost/Controllers/StatesController.cs"),
+	)
+	if insights, err := New().Explain(context.Background(), store); err != nil || len(insights) != 0 {
+		t.Fatalf("two hosts a test project references are still two applications; got %+v (%v)", insights, err)
+	}
+}

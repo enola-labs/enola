@@ -3722,7 +3722,9 @@ import (
 // `r := build(); r.Run()`) is a reference to the method on the returned type.
 // v659: Go: a server route names the mux it is registered on (mux_scope), where the
 // registering function built it or it is net/http's DefaultServeMux.
-const cacheVersion = "v659"
+// v660: manifests: one extraction fact lists every manifest read (manifests:files),
+// a manifest declaring nothing included.
+const cacheVersion = "v660"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

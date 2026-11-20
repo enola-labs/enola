@@ -14,7 +14,7 @@ exit: 0
       "dirty": false
     },
     "summary": {
-      "fact_count": 18,
+      "fact_count": 19,
       "insight_count": 5,
       "initial": true
     },
@@ -46,7 +46,7 @@ exit: 0
         "module": 1,
         "symbol": 2
       },
-      "fact_count": 22,
+      "fact_count": 23,
       "insight_count": 6
     },
     "blob": {

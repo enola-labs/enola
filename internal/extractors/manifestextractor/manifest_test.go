@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -35,6 +36,9 @@ func extract(t *testing.T, files map[string]string) map[string]facts.Fact {
 	}
 	out := map[string]facts.Fact{}
 	for _, f := range got {
+		if f.Kind == facts.KindExtraction && f.Name == facts.ManifestsFact {
+			continue // the list of manifests read; TestManifests_ListsEveryManifestRead
+		}
 		if f.Kind != facts.KindDependency {
 			t.Fatalf("kind = %q, want %q", f.Kind, facts.KindDependency)
 		}
@@ -721,5 +725,30 @@ dependencies:
 	}
 	if m := byName["pkg:helm/mysql"]; m == nil || m["manifest"] != "legacy/requirements.yaml" || m["pinned"] != true {
 		t.Errorf("mysql = %v, want read from the Helm 2 requirements.yaml", m)
+	}
+}
+
+// Every manifest read is listed, one that declares nothing included: it still marks
+// where a package starts, and the dependency facts, merged per package, cannot say.
+func TestManifests_ListsEveryManifestRead(t *testing.T) {
+	dir := repoWith(t, map[string]string{
+		"package.json":                    `{"devDependencies": {"turbo": "2.0.0"}}`,
+		"apps/web/package.json":           `{"dependencies": {"react": "18.0.0"}}`,
+		"apps/docs/package.json":          `{"dependencies": {"react": "18.0.0"}}`,
+		"services/functions/package.json": `{"name": "functions"}`,
+	})
+	ff, err := New().Extract(context.Background(), dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, f := range ff {
+		if f.Kind == facts.KindExtraction && f.Name == facts.ManifestsFact {
+			listed = f.PropStrings(facts.PropManifests)
+		}
+	}
+	want := []string{"apps/docs/package.json", "apps/web/package.json", "package.json", "services/functions/package.json"}
+	if strings.Join(listed, ",") != strings.Join(want, ",") {
+		t.Errorf("manifests = %v, want %v", listed, want)
 	}
 }

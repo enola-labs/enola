@@ -6,7 +6,7 @@ enola: using config <TMP>/services/cluster.yaml
 
 Refresh complete:
   Repository:  <TMP>/services/api (re-read into a union of 2)
-  Facts:       22
+  Facts:       24
   Insights:    6
   Duration:    <DURATION>
   Output:      <TMP>/.enola/graphs/services-cluster-<KEY>

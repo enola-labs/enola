@@ -248,6 +248,16 @@ const PropMuxScope = "mux_scope"
 // MuxScopeDefault is PropMuxScope for net/http's DefaultServeMux.
 const MuxScopeDefault = "default"
 
+// ManifestsFact names the manifests extractor's KindExtraction fact, and
+// PropManifests its prop: every package manifest it read, repo-relative and sorted.
+// A manifest marks where an application or a package starts, which the dependency
+// facts cannot say: they are merged per package across manifests, and a manifest
+// declaring nothing has none.
+const (
+	ManifestsFact = "manifests:files"
+	PropManifests = "manifests"
+)
+
 // PropMemberCalls is the prop on a method listing calls on the object it runs on
 // that its file could not resolve, because what they name is declared in another
 // file: `common` for self.common(), `helper.work` for self.helper.work(). The

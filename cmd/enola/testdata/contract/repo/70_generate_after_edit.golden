@@ -7,7 +7,7 @@ Generating: go_sample: pkg/b/gamma.go added (checked in <DURATION>)
 
 Snapshot complete:
   Repository:  <TMP>/go_sample
-  Facts:       25
+  Facts:       26
   Insights:    7
   Artifacts:   3
   Duration:    <DURATION>

@@ -139,6 +139,7 @@ func (e *Extractor) OwnsFile(relFile string) bool {
 // and AsyncAPI extractors already make, for the same reason.
 func (e *Extractor) Extract(ctx context.Context, repoPath string, _ []string) ([]facts.Fact, error) {
 	var deps []pkgDep
+	var read []string
 	rc := &readCtx{repoPath: repoPath, locks: map[string]map[string]string{}}
 	names := detectnames.Walk(repoPath)
 	sort.Strings(names)
@@ -148,13 +149,26 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, _ []string) ([
 			return nil, ctx.Err()
 		default:
 		}
-		read := manifestReaders[detectnames.Base(rel)]
-		if read == nil {
+		reader := manifestReaders[detectnames.Base(rel)]
+		if reader == nil {
 			continue
 		}
-		deps = append(deps, read(rc, rel)...)
+		read = append(read, rel)
+		deps = append(deps, reader(rc, rel)...)
 	}
-	return factsFor(deps), nil
+	out := factsFor(deps)
+	if len(read) > 0 {
+		out = append(out, facts.Fact{
+			Kind: facts.KindExtraction,
+			Name: facts.ManifestsFact,
+			File: filepath.Base(repoPath),
+			Props: map[string]any{
+				"extractor":         "manifests",
+				facts.PropManifests: read,
+			},
+		})
+	}
+	return out, nil
 }
 
 // factsFor turns parsed dependencies into facts, one per package.

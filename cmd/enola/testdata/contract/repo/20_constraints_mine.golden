@@ -2,7 +2,7 @@ $ enola constraints mine .
 exit: 0
 --- stdout
 Snapshot: <TMP>/go_sample/.enola
-Mined 0 candidate constraints over 18 facts — proposals for operator review, never self-adopting law.
+Mined 0 candidate constraints over 19 facts — proposals for operator review, never self-adopting law.
 Thresholds: support >= 10, confidence >= 0.90, exceptions <= 20 per candidate. Ranked by confidence x support.
 
 Suppressed below the floors (counted, never silent):

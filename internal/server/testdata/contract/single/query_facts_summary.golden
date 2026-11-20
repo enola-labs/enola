@@ -1,6 +1,6 @@
 Filters applied: none. No kind, name, file or prop filter was sent, so this is the whole store.
 
-Found **18** matching facts.
+Found **19** matching facts.
 
 ## By kind
 
@@ -8,6 +8,7 @@ Found **18** matching facts.
 - dependency: 4
 - module: 3
 - test_ref: 2
+- extraction: 1
 
 ## Top files
 
@@ -15,6 +16,7 @@ Found **18** matching facts.
 - main.go: 3
 - pkg/b/b.go: 2
 - .: 1
+- go_sample: 1
 - pkg/a: 1
 - pkg/a/a_ext_test.go: 1
 - pkg/a/a_test.go: 1
