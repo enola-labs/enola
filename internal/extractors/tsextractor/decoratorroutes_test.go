@@ -298,3 +298,39 @@ export class CalendarsController {
 		t.Errorf("routes = %v, want both array paths under /v2/calendars", got)
 	}
 }
+
+// A controller base written as an enum member declared in another file is that
+// member's string; one no file declares leaves the routes under no base, and none
+// of them carries the pending reference out of the extractor.
+func TestDecoratorRoutes_NestBaseFromAnEnumMember(t *testing.T) {
+	ff := extractTSFiles(t, map[string]string{
+		"src/enum.ts": `export enum RouteKey {
+  Asset = 'assets',
+  User = 'users',
+}
+`,
+		"src/asset.controller.ts": `import { RouteKey } from './enum';
+@Controller(RouteKey.Asset)
+export class AssetController {
+  @Get(':id')
+  get() {}
+}
+`,
+		"src/other.controller.ts": `import { Keys } from 'somewhere';
+@Controller(Keys.Other)
+export class OtherController {
+  @Get('ping')
+  ping() {}
+}
+`,
+	})
+	got := serverRoutes(ff)
+	if got["/assets/:id"] != "GET" || got["/ping"] != "GET" || len(got) != 2 {
+		t.Errorf("routes = %v, want /assets/:id and /ping", got)
+	}
+	for _, f := range ff {
+		if f.PropString(propBaseRef) != "" {
+			t.Errorf("%s still carries %s", f.Name, propBaseRef)
+		}
+	}
+}

@@ -31,6 +31,11 @@ type aspnetScaffold struct {
 	// do need the merged symbol set to bind a handler, so they are carried here
 	// and materialised alongside the controller routes.
 	minimal []minimalRoute
+	// groupMethods and groupMounts place the routes registered on a method's
+	// RouteGroupBuilder parameter, whose caller is usually in another file. See
+	// composeGroupParams.
+	groupMethods []string
+	groupMounts  []groupMount
 	// storage holds persistence evidence, decided after the walk for the same
 	// reason routing is: whether a class is a DbContext depends on a base list
 	// naming a type declared in another file.
@@ -53,6 +58,8 @@ func (s *aspnetScaffold) merge(o aspnetScaffold) {
 	s.controllers = append(s.controllers, o.controllers...)
 	s.actions = append(s.actions, o.actions...)
 	s.minimal = append(s.minimal, o.minimal...)
+	s.groupMethods = append(s.groupMethods, o.groupMethods...)
+	s.groupMounts = append(s.groupMounts, o.groupMounts...)
 	s.storage.merge(o.storage)
 	s.clients = append(s.clients, o.clients...)
 	s.conventional = append(s.conventional, o.conventional...)
@@ -316,7 +323,7 @@ func composeControllerRoutes(allFacts []facts.Fact, sc aspnetScaffold) []facts.F
 		}
 	}
 
-	out := minimalRouteFacts(sc.minimal, symbols)
+	out := minimalRouteFacts(composeGroupParams(sc.minimal, sc.groupMethods, sc.groupMounts), symbols)
 	unrouted := 0
 	for _, a := range sc.actions {
 		c, ok := ctrl[a.Controller]

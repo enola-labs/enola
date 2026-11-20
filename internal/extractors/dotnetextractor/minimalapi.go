@@ -2,6 +2,7 @@ package dotnetextractor
 
 import (
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -43,6 +44,10 @@ var mapVerbs = map[string]string{
 type groupPrefix struct {
 	path  string
 	known bool
+	// param names the method whose RouteGroupBuilder parameter the group is
+	// built on: path is then relative to whatever group that method is called on
+	// (see composeGroupParams).
+	param string
 }
 
 // minimalAPIScan collects one file's minimal-API registrations.
@@ -59,6 +64,17 @@ type minimalAPIScan struct {
 	methods []scanMethod
 
 	out []minimalRoute
+	// groupMethods are the methods taking a RouteGroupBuilder, and mounts the calls
+	// made on a group, for composeGroupParams.
+	groupMethods []string
+	mounts       []groupMount
+}
+
+// groupMount is a call made on a route group, `app.MapGroup("/leases").MapLeaseEndpoints()`:
+// the method called and the group's prefix.
+type groupMount struct {
+	method string
+	prefix groupPrefix
 }
 
 // scanMethod is a method being scanned: its name and the node holding its body.
@@ -84,6 +100,9 @@ type minimalRoute struct {
 	File  string
 	Dir   string
 	Line  int
+	// group names the method whose RouteGroupBuilder parameter the route is
+	// registered on, Path then being relative to it; "" otherwise.
+	group string
 }
 
 // collectMinimalAPIRoutes walks a file for minimal-API registrations. It runs its
@@ -91,10 +110,10 @@ type minimalRoute struct {
 // scoped to a BODY and is order-sensitive — a group variable must be bound before
 // the registration that reads it — while the main walker is organised around
 // declarations.
-func collectMinimalAPIRoutes(root *sitter.Node, src []byte, relFile, dir string) []minimalRoute {
+func collectMinimalAPIRoutes(root *sitter.Node, src []byte, relFile, dir string) ([]minimalRoute, []string, []groupMount) {
 	s := &minimalAPIScan{src: src, relFile: relFile, dir: dir}
 	s.walk(root, nil)
-	return s.out
+	return s.out, s.groupMethods, s.mounts
 }
 
 // walk descends declarations, running a fresh scope over each body. `groups` is
@@ -126,6 +145,15 @@ func (s *minimalAPIScan) walkAt(nv sitter.Node, groups map[string]groupPrefix) {
 		s.methods = append(s.methods, scanMethod{nodeText(node.ChildByFieldName("name"), s.src), &kept})
 		defer func() { s.methods = s.methods[:len(s.methods)-1] }()
 		scope := map[string]groupPrefix{}
+		// A method handed a route group (`MapLeaseEndpoints(this RouteGroupBuilder
+		// group)`, the documented way to split endpoints across files) registers
+		// under whatever group its caller built.
+		if name := nodeText(node.ChildByFieldName("name"), s.src); kindOf(node) == "method_declaration" && name != "" {
+			for _, p := range s.groupParams(node) {
+				scope[p] = groupPrefix{known: true, param: name}
+				s.groupMethods = append(s.groupMethods, name)
+			}
+		}
 		if body := node.ChildByFieldName("body"); body != nil {
 			s.walk(body, scope)
 		}
@@ -150,6 +178,7 @@ func (s *minimalAPIScan) walkAt(nv sitter.Node, groups map[string]groupPrefix) {
 	case "invocation_expression":
 		if groups != nil {
 			s.registration(node, groups)
+			s.mountCall(node, groups)
 		}
 	}
 
@@ -208,7 +237,7 @@ func (s *minimalAPIScan) groupPrefixOf(node *sitter.Node, groups map[string]grou
 				if !recv.known {
 					return groupPrefix{known: false}, true
 				}
-				return groupPrefix{path: facts.JoinRoutePath(recv.path, arg), known: true}, true
+				return groupPrefix{path: facts.JoinRoutePath(recv.path, arg), known: true, param: recv.param}, true
 			}
 		}
 	}
@@ -285,11 +314,137 @@ func (s *minimalAPIScan) registration(node *sitter.Node, groups map[string]group
 		File:    s.relFile,
 		Dir:     s.dir,
 		Line:    int(node.StartPosition().Row) + 1,
+		group:   prefix.param,
 	}
 	if r.lambda == nil {
 		r.lambda, r.local = s.localFunctionHandler(node)
 	}
 	s.out = append(s.out, r)
+}
+
+// groupParams returns the names of a method's RouteGroupBuilder parameters.
+func (s *minimalAPIScan) groupParams(method *sitter.Node) []string {
+	params := method.ChildByFieldName("parameters")
+	if params == nil {
+		return nil
+	}
+	var out []string
+	for i := uint(0); i < uint(params.NamedChildCount()); i++ {
+		p := params.NamedChild(i)
+		if kindOf(p) != "parameter" {
+			continue
+		}
+		typ := strings.TrimSuffix(nodeText(p.ChildByFieldName("type"), s.src), "?")
+		if typ == "RouteGroupBuilder" || strings.HasSuffix(typ, ".RouteGroupBuilder") {
+			if name := nodeText(p.ChildByFieldName("name"), s.src); name != "" {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// mountCall records a call made on a route group: a known group variable or a
+// MapGroup chain. A call on anything else names no group and is not recorded.
+func (s *minimalAPIScan) mountCall(node *sitter.Node, groups map[string]groupPrefix) {
+	fn := node.ChildByFieldName("function")
+	if fn == nil || kindOf(fn) != "member_access_expression" {
+		return
+	}
+	name := nodeText(fn.ChildByFieldName("name"), s.src)
+	if _, verb := mapVerbs[name]; verb || name == "MapGroup" || name == "" {
+		return
+	}
+	recv := fn.ChildByFieldName("expression")
+	if recv == nil {
+		return
+	}
+	if kindOf(recv) == "identifier" {
+		if p, ok := groups[nodeText(recv, s.src)]; ok {
+			s.mounts = append(s.mounts, groupMount{method: name, prefix: p})
+		}
+		return
+	}
+	if p, ok := s.groupPrefixOf(recv, groups); ok {
+		s.mounts = append(s.mounts, groupMount{method: name, prefix: p})
+	}
+}
+
+// composeGroupParams places the routes registered on a method's RouteGroupBuilder
+// parameter under the groups the method is called on, one route per distinct
+// prefix. It is done for a method only when the repository declares one method of
+// that name taking a group, calls it, and every call is on a group whose prefix is
+// known (through any method passing its own group on). Otherwise its routes stay as
+// they were registered, relative to a group this cannot name.
+func composeGroupParams(routes []minimalRoute, methods []string, mounts []groupMount) []minimalRoute {
+	declared := map[string]int{}
+	for _, m := range methods {
+		declared[m]++
+	}
+	byMethod := map[string][]groupPrefix{}
+	for _, m := range mounts {
+		if declared[m.method] > 0 {
+			byMethod[m.method] = append(byMethod[m.method], m.prefix)
+		}
+	}
+	memo := map[string][]string{}
+	visiting := map[string]bool{}
+	var prefixes func(method string) ([]string, bool)
+	prefixes = func(method string) ([]string, bool) {
+		if got, ok := memo[method]; ok {
+			return got, got != nil
+		}
+		if declared[method] != 1 || len(byMethod[method]) == 0 || visiting[method] {
+			return nil, false
+		}
+		visiting[method] = true
+		defer delete(visiting, method)
+		set := map[string]bool{}
+		for _, p := range byMethod[method] {
+			if !p.known {
+				memo[method] = nil
+				return nil, false
+			}
+			outer := []string{""}
+			if p.param != "" {
+				var ok bool
+				if outer, ok = prefixes(p.param); !ok {
+					memo[method] = nil
+					return nil, false
+				}
+			}
+			for _, o := range outer {
+				set[facts.JoinRoutePath(o, p.path)] = true
+			}
+		}
+		out := make([]string, 0, len(set))
+		for p := range set {
+			out = append(out, p)
+		}
+		sort.Strings(out)
+		memo[method] = out
+		return out, true
+	}
+	var out []minimalRoute
+	for _, r := range routes {
+		if r.group == "" {
+			out = append(out, r)
+			continue
+		}
+		ps, ok := prefixes(r.group)
+		if !ok {
+			r.group = ""
+			out = append(out, r)
+			continue
+		}
+		for _, p := range ps {
+			c := r
+			c.group = ""
+			c.Path = facts.JoinRoutePath(p, r.Path)
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // handlerTarget resolves a registration's second argument when it is a method

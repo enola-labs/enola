@@ -439,6 +439,14 @@ const DeferredImports = "deferred-imports"
 // its module loads: Python's function-local and `if TYPE_CHECKING:` imports, which
 // the extractor marks Props["deferred"].
 func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[string][]string {
+	return BuildModuleGraphWhere(store, nil, excludeKinds...)
+}
+
+// BuildModuleGraphWhere is BuildModuleGraphExcluding that also drops each import
+// keep rejects, by its dependency fact and raw target. One import of a module is
+// dropped, not the edge: another import between the same two modules still
+// draws it. A nil keep keeps every import.
+func BuildModuleGraphWhere(store *facts.Store, keep func(dep facts.Fact, target string) bool, excludeKinds ...string) map[string][]string {
 	graph := make(map[string][]string)
 
 	var excluded map[string]bool
@@ -496,6 +504,9 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 
 		for _, rel := range dep.Relations {
 			if rel.Kind != facts.RelImports {
+				continue
+			}
+			if keep != nil && !keep(dep, rel.Target) {
 				continue
 			}
 			target := rel.Target

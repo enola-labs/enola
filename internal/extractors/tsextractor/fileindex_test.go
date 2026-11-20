@@ -31,3 +31,28 @@ func TestFileIndex_ResolvesInternalSpecifiersOnly(t *testing.T) {
 		}
 	}
 }
+
+// A baseUrl path names a file of the importing package only. A sibling workspace
+// package's file ending in a package subpath (a shim of `next/navigation`) is not
+// what another package's `next/navigation` import names; an alias still reaches it.
+func TestFileIndex_BaseURLPathStaysInItsPackage(t *testing.T) {
+	ix := newTSFileIndex(map[string]bool{
+		"apps/studio/compat/next/navigation.ts": true,
+		"apps/studio/lib/api/client.ts":         true,
+		"apps/www/components/Menu.tsx":          true,
+		"apps/studio/pages/index.tsx":           true,
+	})
+	ix.packages = map[string]string{"apps/studio": "studio", "apps/www": "www"}
+	for _, c := range []struct{ spec, from, want string }{
+		{"next/navigation", "apps/www/components/Menu.tsx", ""},
+		{"next/navigation", "apps/studio/pages/index.tsx", "apps/studio/compat/next/navigation.ts"},
+		{"lib/api/client", "apps/www/components/Menu.tsx", ""},
+		{"lib/api/client", "apps/studio/pages/index.tsx", "apps/studio/lib/api/client.ts"},
+		{"~/lib/api/client", "apps/www/components/Menu.tsx", "apps/studio/lib/api/client.ts"},
+	} {
+		got, ok := ix.resolve(c.spec, c.from)
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("resolve(%q from %s) = %q, %v; want %q", c.spec, c.from, got, ok, c.want)
+		}
+	}
+}

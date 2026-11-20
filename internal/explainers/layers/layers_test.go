@@ -1294,7 +1294,7 @@ func TestPrescribedTaxonomies(t *testing.T) {
 // misclassifying out of one invents one about a directory every layer references.
 func TestClassifyModule_PrefersUnorderedLayers(t *testing.T) {
 	android := patternDefs[indexOfPattern(t, "android-clean")]
-	i, ok := classifyModule("core/data/src/main/kotlin/app/core/data/di", android)
+	i, ok := classifyModule("core/data/src/main/kotlin/app/core/data/di", false, android)
 	if !ok || android.layers[i].Name != "di" {
 		t.Errorf("nested wiring classified as %q, want di", android.layers[i].Name)
 	}
@@ -1303,13 +1303,13 @@ func TestClassifyModule_PrefersUnorderedLayers(t *testing.T) {
 	}
 
 	spring := patternDefs[indexOfPattern(t, "spring-layered")]
-	i, ok = classifyModule("src/main/java/app/service/config", spring)
+	i, ok = classifyModule("src/main/java/app/service/config", false, spring)
 	if !ok || spring.layers[i].Name != "config" {
 		t.Errorf("nested config classified as %q, want config", spring.layers[i].Name)
 	}
 
 	// An ordered layer with no wiring segment is unaffected.
-	i, ok = classifyModule("src/main/java/app/service/impl", spring)
+	i, ok = classifyModule("src/main/java/app/service/impl", false, spring)
 	if !ok || spring.layers[i].Name != "service" {
 		t.Errorf("ordinary module classified as %q, want service", spring.layers[i].Name)
 	}
@@ -1511,5 +1511,33 @@ func TestDetectViolations_AndroidDomainRepositoryIsDomain(t *testing.T) {
 
 	if titles := violationTitles(t, s); len(titles) != 0 {
 		t.Fatalf("expected no violation, got %v", titles)
+	}
+}
+
+// Go's cmd layer is a program's directory: cmd at the top of the path, or a main
+// package wherever it lives. A library under pkg/ or internal/ that is called cmd,
+// imported by every package building a command, is its enclosing layer's.
+func TestClassifyModule_GoCmdIsAProgramsDirectory(t *testing.T) {
+	goStd := patternDefs[indexOfPattern(t, "go-standard")]
+	for _, tc := range []struct {
+		path   string
+		isMain bool
+		want   string
+	}{
+		{"cmd/kube-proxy/app", false, "cmd"},
+		{"cmd/kube-proxy", true, "cmd"},
+		{"staging/src/k8s.io/kubectl/pkg/cmd/util", false, "pkg"},
+		{"internal/cmd/flags", false, "internal"},
+		{"pkg/cmd/grafana", true, "cmd"},
+		{"pkg/cmd/grafana-cli/commands", false, "pkg"},
+	} {
+		i, ok := classifyModule(tc.path, tc.isMain, goStd)
+		if !ok || goStd.layers[i].Name != tc.want {
+			got := ""
+			if ok {
+				got = goStd.layers[i].Name
+			}
+			t.Errorf("%s (main=%v) classified as %q, want %s", tc.path, tc.isMain, got, tc.want)
+		}
 	}
 }

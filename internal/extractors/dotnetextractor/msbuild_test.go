@@ -333,3 +333,23 @@ func TestMSBuild_PublishedMarksPackableClassLibraries(t *testing.T) {
 		}
 	}
 }
+
+// A .NET Aspire AppHost launches the projects it references: by its SDK, versioned
+// or not, as an Sdk element, or by IsAspireHost. A web application is not one.
+func TestMSBuild_AspireHostLaunchesItsProjects(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"src/A.AppHost/A.AppHost.csproj": `<Project Sdk="Aspire.AppHost.Sdk/13.2.0"></Project>`,
+		"src/A.AppHost/Program.cs":       "public class Program { }",
+		"src/B.AppHost/B.AppHost.csproj": `<Project Sdk="Microsoft.NET.Sdk"><Sdk Name="Aspire.AppHost.Sdk" Version="9.0.0" /></Project>`,
+		"src/B.AppHost/Program.cs":       "public class Program { }",
+		"src/C.AppHost/C.AppHost.csproj": `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsAspireHost>true</IsAspireHost></PropertyGroup></Project>`,
+		"src/C.AppHost/Program.cs":       "public class Program { }",
+		"src/Api/Api.csproj":             `<Project Sdk="Microsoft.NET.Sdk.Web"></Project>`,
+		"src/Api/Startup.cs":             "public class Startup { }",
+	})
+	for name, want := range map[string]bool{"src/A.AppHost": true, "src/B.AppHost": true, "src/C.AppHost": true, "src/Api": false} {
+		if got := moduleNamed(t, ff, name).PropBool(facts.PropLaunchesProjects); got != want {
+			t.Errorf("%s: launches_projects = %v, want %v", name, got, want)
+		}
+	}
+}

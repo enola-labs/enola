@@ -59,6 +59,9 @@ type routeIndex struct {
 	routerFields map[string][]string
 	// helpers are the module's route registration helpers. See reghelper.go.
 	helpers map[string]regHelper
+	// muxParams are the router parameters every caller hands one router to, by
+	// funcKey. See muxparam.go.
+	muxParams map[string]paramMux
 }
 
 // funcKeyFor returns the package-qualified identity of a FuncDecl, matching how
@@ -520,8 +523,7 @@ func analyzeRouterFunc(rf routerFunc, seed string, mounted bool, index map[strin
 // router parameter, accumulating the distinct prefix set per registration
 // function. The result seeds extractRoutes. Deterministic: roots and edges are
 // processed in sorted order and the emitted seed sets are sorted.
-func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, mods goModules, pkgNames map[string]string, fieldTypes map[string]string, wrappers map[string]string, consts stringConsts, routerFields map[string][]string) routePrefixIndex {
-	index := buildRouterFuncIndex(pkgs, mods, pkgNames, wrappers, routerFields)
+func buildRoutePrefixIndex(index map[string]routerFunc, mods goModules, fieldTypes map[string]string, consts stringConsts, routerFields map[string][]string) routePrefixIndex {
 
 	type work struct {
 		key, seed string

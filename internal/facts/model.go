@@ -245,6 +245,16 @@ const PropStoredCalls = "stored_calls"
 // a call result, which may be any mux.
 const PropMuxScope = "mux_scope"
 
+// PropPathPartial marks a route whose path is built at runtime in part (an
+// interpolated or computed segment): its name holds the literal part, which is not
+// the path served.
+const PropPathPartial = "path_partial"
+
+// PropLaunchesProjects marks a project whose project references are services it
+// starts, each in its own process (a .NET Aspire AppHost), rather than code it
+// links: referencing an application this way does not make it a library.
+const PropLaunchesProjects = "launches_projects"
+
 // MuxScopeDefault is PropMuxScope for net/http's DefaultServeMux.
 const MuxScopeDefault = "default"
 

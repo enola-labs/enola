@@ -298,3 +298,103 @@ func TestExtractAllRoutes_ApplicationMountsAPluginEngine(t *testing.T) {
 		}
 	}
 }
+
+// An application's own helper naming a route file by symbol draws it in the scope
+// it is called from, and the files that file draws follow; a helper naming no route
+// file draws nothing.
+func TestExtractAllRoutes_ApplicationHelperDrawsARouteFile(t *testing.T) {
+	repo := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("config/routes.rb", "Rails.application.routes.draw do\n"+
+		"  scope(path: '*namespace_id/:project_id') do\n    draw_all :project\n  end\n"+
+		"  draw_all :nothing_here\nend\n")
+	write("config/routes/project.rb", "scope '-' do\n  get '/issues' => 'issues#index'\n  draw :repository\nend\n")
+	write("config/routes/repository.rb", "get '/refs/switch' => 'refs#switch'\n")
+	files := []string{"config/routes.rb", "config/routes/project.rb", "config/routes/repository.rb"}
+	got, _ := extractAllRoutes(repo, files)
+	byName := map[string]bool{}
+	for _, f := range got {
+		if f.Kind == facts.KindRoute {
+			byName[f.Props["method"].(string)+" "+f.Name] = true
+		}
+	}
+	for _, want := range []string{"GET /*namespace_id/:project_id/-/issues", "GET /*namespace_id/:project_id/-/refs/switch"} {
+		if !byName[want] {
+			t.Errorf("missing %q; got %v", want, byName)
+		}
+	}
+	for _, not := range []string{"GET /-/issues", "GET /refs/switch"} {
+		if byName[not] {
+			t.Errorf("%q is served under the helper's scope, not at the root", not)
+		}
+	}
+}
+
+// A route table written in a method of the route file is declared where the method
+// is called, under each caller's scope; a method never called declares nothing.
+func TestParseRouteFile_MethodIsDeclaredWhereItIsCalled(t *testing.T) {
+	src := []byte(`Rails.application.routes.draw do
+  def draw_all_routes
+    get '/help' => 'help#index'
+  end
+  def unused_routes
+    get '/never' => 'never#index'
+  end
+  draw_all_routes
+  scope(path: '/o/:organization_path') do
+    draw_all_routes
+  end
+end
+`)
+	ff, _ := parseRouteFile(src, "config/routes.rb", "", "", jsonapiContext{}, nil)
+	got := map[string]bool{}
+	for _, f := range ff {
+		got[f.Name] = true
+	}
+	if !got["/help"] || !got["/o/:organization_path/help"] || got["/never"] || len(got) != 2 {
+		t.Errorf("routes = %v, want /help and /o/:organization_path/help", got)
+	}
+}
+
+// A file drawn from two scopes is served under both. A route-file method replayed
+// under a further scope declares its own routes there, but draws no file again.
+func TestExtractAllRoutes_FileDrawnFromTwoScopes(t *testing.T) {
+	repo := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("config/routes.rb", "Rails.application.routes.draw do\n"+
+		"  def all_routes\n    scope '/-/secondary' do\n      draw :git_http\n    end\n    draw :git_http\n    get '/help' => 'help#index'\n  end\n"+
+		"  all_routes\n  scope '/o/:org' do\n    all_routes\n  end\nend\n")
+	write("config/routes/git_http.rb", "get '/info/refs' => 'git#refs'\n")
+	got, _ := extractAllRoutes(repo, []string{"config/routes.rb", "config/routes/git_http.rb"})
+	byName := map[string]bool{}
+	for _, f := range got {
+		if f.Kind == facts.KindRoute {
+			byName[f.Props["method"].(string)+" "+f.Name] = true
+		}
+	}
+	want := []string{"GET /info/refs", "GET /-/secondary/info/refs", "GET /help", "GET /o/:org/help"}
+	for _, w := range want {
+		if !byName[w] {
+			t.Errorf("missing %q; got %v", w, byName)
+		}
+	}
+	if byName["GET /o/:org/info/refs"] || len(byName) != len(want) {
+		t.Errorf("routes = %v, want exactly %v", byName, want)
+	}
+}

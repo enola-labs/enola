@@ -43,6 +43,13 @@ type layerDef struct {
 	// that simply has no place in a dependency order. Keeping it classified keeps
 	// it out of the unclassified remainder, so coverage still counts it.
 	Neutral bool
+	// Program marks a layer of programs, Go's cmd: a package is in it when the
+	// layer's segment is the first layer segment of its path (cmd/kube-proxy/app)
+	// or when it is a program itself (package main). A library under another
+	// layer's directory that happens to be called cmd (kubectl's pkg/cmd/util,
+	// imported by everything that builds a command) is that other layer's, and an
+	// import of it from pkg is no import of a program.
+	Program bool
 }
 
 // Predefined layer patterns for common architectures.
@@ -200,7 +207,7 @@ var (
 	// entrypoints, so anything importing INTO cmd is a library reaching into a binary —
 	// a real smell, and the only one this layout expresses.
 	goStdLayers = []layerDef{
-		{Name: "cmd", Patterns: []string{"cmd"}, Level: 2},
+		{Name: "cmd", Patterns: []string{"cmd"}, Level: 2, Program: true},
 		{Name: "internal", Patterns: []string{"internal"}, Level: 1},
 		{Name: "pkg", Patterns: []string{"pkg"}, Level: 1},
 		{Name: "api", Patterns: []string{"api"}, Level: 1},
@@ -1055,7 +1062,7 @@ func (e *LayerExplainer) detectPatterns(allModules []facts.Fact, frameworks map[
 
 		matchCount := 0
 		for _, mod := range modules {
-			if i, ok := classifyModule(layerPath(mod), def); ok {
+			if i, ok := classifyModule(layerPath(mod), mod.PropString("package") == "main", def); ok {
 				pattern.Layers[def.layers[i].Name] = &def.layers[i]
 				pattern.Modules[mod.Name] = def.layers[i].Name
 				matchCount++
@@ -1177,18 +1184,37 @@ func distinctModules(modules []facts.Fact) int {
 // rejected: it reclassified `adapter/rest` from adapter to handler and broke
 // hexagonal detection on a canonical ports-and-adapters layout, with nothing in
 // the corpus improved.
-func classifyModule(name string, def patternDef) (int, bool) {
+//
+// A Program layer is the exception, read by position: see layerDef.Program.
+func classifyModule(name string, isMain bool, def patternDef) (int, bool) {
 	for _, wantNeutral := range []bool{true, false} {
 		for i := range def.layers {
 			if def.layers[i].Neutral != wantNeutral {
 				continue
 			}
-			if matchesLayerIn(name, def.layers[i].Patterns, def.dottedSegments) {
-				return i, true
+			if !matchesLayerIn(name, def.layers[i].Patterns, def.dottedSegments) {
+				continue
 			}
+			if def.layers[i].Program && !isMain && firstLayerSegment(name, def) != i {
+				continue
+			}
+			return i, true
 		}
 	}
 	return 0, false
+}
+
+// firstLayerSegment returns the layer the first of path's segments to name one
+// names, -1 for none.
+func firstLayerSegment(path string, def patternDef) int {
+	for _, part := range strings.Split(path, "/") {
+		for i := range def.layers {
+			if matchesLayerIn(part, def.layers[i].Patterns, def.dottedSegments) {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // countSignatureLayers returns how many of the given distinctive layer names the

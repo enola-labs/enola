@@ -1011,7 +1011,10 @@ func TestRoutes_DrawPrefixSeeding(t *testing.T) {
 end
 `
 	_, res := parseRouteFile([]byte(main), "config/routes.rb", "", "", jsonapiContext{format: jsonapiRouteDasherized}, nil)
-	draws := res.draws
+	draws := map[string]string{}
+	for k, v := range res.draws {
+		draws[k] = v[0]
+	}
 	if draws["api_core_v3_routes"] != "/api/core/v3" {
 		t.Errorf("api_core_v3_routes prefix = %q, want /api/core/v3", draws["api_core_v3_routes"])
 	}

@@ -279,12 +279,14 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	routerWrappers := routerWrapperPackages(parsedPkgs)
 	stringConstants := buildStringConsts(parsedPkgs)
 	routerFields := ownRouterFields(globalFieldTypes, routerWrappers)
+	routerFuncs := buildRouterFuncIndex(parsedPkgs, mods, pkgNames, routerWrappers, routerFields)
 	routePrefixes := routeIndex{
-		prefixes:     buildRoutePrefixIndex(parsedPkgs, mods, pkgNames, globalFieldTypes, routerWrappers, stringConstants, routerFields),
+		prefixes:     buildRoutePrefixIndex(routerFuncs, mods, globalFieldTypes, stringConstants, routerFields),
 		wrappers:     routerWrappers,
 		consts:       stringConstants,
 		routerFields: routerFields,
 		helpers:      registrationHelpers(parsedPkgs),
+		muxParams:    buildParamMuxScopes(fset, routerFuncs, parsedPkgs, mods, pkgNames, globalFieldTypes),
 	}
 
 	// Pass 3: extract facts per package using the global field types.

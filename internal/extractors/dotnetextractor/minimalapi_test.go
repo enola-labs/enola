@@ -418,3 +418,75 @@ public static class Proxy
 		t.Errorf("ConnectProxy has %d symbols, want one for the routes it serves", n)
 	}
 }
+
+// A method handed a RouteGroupBuilder registers under the group its caller built,
+// in another file, through a method passing its own group on; one called on a
+// group this cannot read, or never called, keeps its routes as registered.
+func TestMinimalAPI_GroupHandedToAnExtensionMethod(t *testing.T) {
+	got, _ := routeSet(t, map[string]string{
+		"Endpoints/Extensions.cs": `
+namespace Acme.Api;
+
+public static class Extensions
+{
+    public static void MapPam(this IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapGroup("/leases").WithDefaults().MapLeaseEndpoints();
+        var requests = endpoints.MapGroup("/access-requests");
+        requests.MapRequestEndpoints();
+        endpoints.MapGroup(Prefix()).MapHiddenEndpoints();
+    }
+}
+`,
+		"Endpoints/Leases.cs": `
+namespace Acme.Api;
+
+internal static class LeaseEndpoints
+{
+    public static RouteGroupBuilder MapLeaseEndpoints(this RouteGroupBuilder group)
+    {
+        group.MapGet("history", () => 1);
+        group.MapGroup("audit").MapAuditEndpoints();
+        return group;
+    }
+
+    public static RouteGroupBuilder MapAuditEndpoints(this RouteGroupBuilder group)
+    {
+        group.MapGet("log", () => 1);
+        return group;
+    }
+}
+`,
+		"Endpoints/Requests.cs": `
+namespace Acme.Api;
+
+internal static class RequestEndpoints
+{
+    public static RouteGroupBuilder MapRequestEndpoints(this RouteGroupBuilder group)
+    {
+        group.MapPost("{id:guid}/revoke", () => 1);
+        return group;
+    }
+
+    public static RouteGroupBuilder MapHiddenEndpoints(this RouteGroupBuilder group)
+    {
+        group.MapGet("hidden", () => 1);
+        return group;
+    }
+
+    public static RouteGroupBuilder MapUnusedEndpoints(this RouteGroupBuilder group)
+    {
+        group.MapGet("unused", () => 1);
+        return group;
+    }
+}
+`,
+	})
+	assertRoutes(t, got, []string{
+		"GET /leases/history",
+		"GET /leases/audit/log",
+		"POST /access-requests/{id:guid}/revoke",
+		"GET /hidden",
+		"GET /unused",
+	})
+}

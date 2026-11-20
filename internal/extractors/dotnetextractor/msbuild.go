@@ -76,6 +76,9 @@ type msbuildProject struct {
 	solution   string // the solution that lists it, if any
 	sdk        string // the Sdk attribute of <Project>; empty for a legacy project
 	packs      bool   // IsPackable or GeneratePackageOnBuild true, or a PackageId set
+	// aspireHost marks a .NET Aspire AppHost: its project references are the
+	// services it launches, each in its own process, not code it links.
+	aspireHost bool
 }
 
 // published reports whether the project builds a class library that ships as a
@@ -92,6 +95,13 @@ func (p *msbuildProject) published() bool {
 		return false
 	}
 	return p.sdk == "Microsoft.NET.Sdk" || p.sdk == "Microsoft.NET.Sdk.Razor"
+}
+
+// isAspireHostSDK reports whether an SDK reference ("Aspire.AppHost.Sdk/13.2.0",
+// any version or none) is the .NET Aspire AppHost SDK.
+func isAspireHostSDK(sdk string) bool {
+	name, _, _ := strings.Cut(sdk, "/")
+	return strings.EqualFold(strings.TrimSpace(name), "Aspire.AppHost.Sdk")
 }
 
 // parseProjectFile reads one MSBuild project.
@@ -142,6 +152,9 @@ func parseProjectFile(repoPath, relFile string) *msbuildProject {
 				if p.sdk == "" {
 					p.sdk = attr(t, "Sdk")
 				}
+				p.aspireHost = p.aspireHost || isAspireHostSDK(attr(t, "Sdk"))
+			case "Sdk":
+				p.aspireHost = p.aspireHost || isAspireHostSDK(attr(t, "Name"))
 			case "ProjectReference":
 				if inc := attr(t, "Include"); inc != "" {
 					if d := resolveProjectRef(p.dir, inc); d != "" {
@@ -172,6 +185,8 @@ func parseProjectFile(repoPath, relFile string) *msbuildProject {
 				p.outputType = v
 			case "IsTestProject":
 				p.isTest = p.isTest || strings.EqualFold(v, "true")
+			case "IsAspireHost":
+				p.aspireHost = p.aspireHost || strings.EqualFold(v, "true")
 			case "IsPackable", "GeneratePackageOnBuild":
 				p.packs = p.packs || strings.EqualFold(v, "true")
 			case "PackageId":
@@ -372,6 +387,9 @@ func applyMSBuild(mods map[string]*facts.Fact, projects []*msbuildProject) []fac
 		}
 		if p.published() {
 			f.SetProp(facts.PropPublished, true)
+		}
+		if p.aspireHost {
+			f.SetProp(facts.PropLaunchesProjects, true)
 		}
 
 		seen := make(map[string]bool, len(p.refs))

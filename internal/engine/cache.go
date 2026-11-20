@@ -3731,7 +3731,23 @@ import (
 // route_base, or /api/<version>/<resource_name> for a REST API.
 // v664: Ruby: an engine the application mounts from a file no route table reaches
 // (a plugin's routes.rb or plugin.rb) serves its routes under that mount.
-const cacheVersion = "v664"
+// v665: TypeScript: an unprefixed import path is a baseUrl path only within the
+// importing file's npm package, so a sibling package's shim of `next/navigation`
+// no longer takes the calls of every other package importing it.
+// v666: Go: a route registered on a router parameter names the mux every caller
+// hands it, when each passes the same router it built itself.
+// v667: TypeScript: a NestJS controller base written as an enum or constant member
+// (@Controller(RouteKey.Asset)) is the string the repository declares for it.
+// v668: .NET: a minimal-API route registered on a method's RouteGroupBuilder
+// parameter is served under the groups the method is called on.
+// v669: .NET: a .NET Aspire AppHost project carries launches_projects.
+// v670: Ruby: a Grape route whose path is built at runtime in part carries
+// path_partial.
+// v671: Ruby: an application's own helper naming an existing route file by symbol
+// (`draw_all :project`) draws it in the scope it is called from, and a method the
+// route file defines is declared where it is called; a file drawn from several
+// scopes is served under each.
+const cacheVersion = "v671"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

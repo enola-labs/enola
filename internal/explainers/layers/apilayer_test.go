@@ -4,7 +4,7 @@ import "testing"
 
 func layerOf(t *testing.T, defs []layerDef, module string) (string, int) {
 	t.Helper()
-	i, ok := classifyModule(module, patternDef{layers: defs})
+	i, ok := classifyModule(module, false, patternDef{layers: defs})
 	if !ok {
 		return "", -1
 	}

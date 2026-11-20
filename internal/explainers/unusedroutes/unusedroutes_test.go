@@ -683,3 +683,83 @@ func TestExplain_ApplicationsInAnImportCycleAreOneUnit(t *testing.T) {
 		t.Fatalf("want only /health, within the app and the package it shares a cycle with; got %+v (%v)", insights, err)
 	}
 }
+
+// A script reading every application's manifest (to bump its version) uses none of
+// their code: the applications stay separate, and their routes do not compete.
+func TestExplain_ReadingAManifestDoesNotJoinApplications(t *testing.T) {
+	store := facts.NewStore()
+	mod := func(dir string) facts.Fact {
+		return facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "mono", Props: map[string]any{"language": "typescript"}}
+	}
+	imports := func(from, to string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + to, File: from + "/bump.ts", Repo: "mono",
+			Props: map[string]any{"language": "typescript", "source": "internal"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: to}}}
+	}
+	route := func(file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: "/settings", File: file, Line: 1, Repo: "mono",
+			Props: map[string]any{"method": "GET", "language": "typescript", "framework": "express"}}
+	}
+	store.Add(
+		facts.Fact{Kind: facts.KindExtraction, Name: facts.ManifestsFact, File: "mono", Repo: "mono",
+			Props: map[string]any{facts.PropManifests: []string{"package.json", "apps/web/package.json", "apps/docs/package.json"}}},
+		mod("apps/web"), mod("apps/docs"), mod("scripts"),
+		imports("scripts", "apps/web/package.json"), imports("scripts", "apps/docs/package.json"),
+		route("apps/web/server.ts"), route("apps/docs/server.ts"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 0 {
+		t.Fatalf("want no finding, got %+v (%v)", insights, err)
+	}
+	// The same script importing an application's code does join them.
+	store.Add(imports("scripts", "apps/web"), imports("scripts", "apps/docs"))
+	if insights, _ = New().Explain(context.Background(), store); len(insights) != 1 {
+		t.Errorf("a script importing both applications' code: want one finding, got %d", len(insights))
+	}
+}
+
+// An Aspire AppHost references the services it starts, each its own process: two
+// services it launches are still separate applications.
+func TestExplain_AnOrchestratorDoesNotJoinTheServicesItStarts(t *testing.T) {
+	store := facts.NewStore()
+	project := func(dir string, launches bool, refs ...string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "svc",
+			Props: map[string]any{"language": "csharp", "msbuild": true}}
+		if launches {
+			f.Props[facts.PropLaunchesProjects] = true
+		}
+		for _, r := range refs {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: r})
+		}
+		return f
+	}
+	route := func(file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: "/config", File: file, Line: 1, Repo: "svc",
+			Props: map[string]any{"method": "GET", "language": "csharp", "framework": "aspnetcore"}}
+	}
+	store.Add(project("src/Api", false), project("src/Icons", false), project("AppHost", true, "src/Api", "src/Icons"),
+		route("src/Api/ConfigController.cs"), route("src/Icons/IconsController.cs"))
+	if insights, err := New().Explain(context.Background(), store); err != nil || len(insights) != 0 {
+		t.Fatalf("want no finding, got %+v (%v)", insights, err)
+	}
+}
+
+// Two routes known only by the literal prefix of a path built at runtime do not
+// compete: the prefixes agreeing says nothing about the paths served.
+func TestExplain_PartialPathsDoNotCompete(t *testing.T) {
+	store := facts.NewStore()
+	route := func(file string, partial bool) facts.Fact {
+		p := map[string]any{"method": "GET", "language": "ruby", "framework": "grape"}
+		if partial {
+			p[facts.PropPathPartial] = true
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/v4/:id", File: file, Line: 1, Repo: "app", Props: p}
+	}
+	store.Add(route("lib/api/notes.rb", true), route("lib/api/discussions.rb", true))
+	if insights, err := New().Explain(context.Background(), store); err != nil || len(insights) != 0 {
+		t.Fatalf("want no finding, got %+v (%v)", insights, err)
+	}
+	store.Add(route("lib/api/projects.rb", false), route("lib/api/groups.rb", false))
+	if insights, _ := New().Explain(context.Background(), store); len(insights) != 1 {
+		t.Errorf("two literal paths: want one finding, got %d", len(insights))
+	}
+}

@@ -57,12 +57,17 @@ type grapeMount struct {
 	constant string // the mounted class, e.g. "API::Projects"
 	path     string // the namespace path at the mount site, "" at class top level
 	line     int
+	partial  bool // path is known only in part; see grapeRoute.partial
 }
 
 type grapeRoute struct {
 	method string
 	path   string
 	line   int
+	// partial is set when a segment of the path is built at runtime: an
+	// interpolated string or a computed argument (`resource parent_type.to_sym`).
+	// The path holds what is literal, and is not the path served.
+	partial bool
 }
 
 // extractGrapeRoutes finds every Grape API class reachable in the repository and emits
@@ -113,8 +118,8 @@ func extractGrapeRoutes(ctx context.Context, repoPath string, classFacts []facts
 	}
 
 	var out []facts.Fact
-	var emit func(c *grapeClass, mountPoint string)
-	emit = func(c *grapeClass, mountPoint string) {
+	var emit func(c *grapeClass, mountPoint string, partial bool)
+	emit = func(c *grapeClass, mountPoint string, partial bool) {
 		if c == nil || c.visited {
 			return
 		}
@@ -125,17 +130,21 @@ func extractGrapeRoutes(ctx context.Context, repoPath string, classFacts []facts
 			if path == "" {
 				path = "/"
 			}
+			props := map[string]any{
+				"method":    r.method,
+				"framework": "grape",
+				"language":  "ruby",
+				"handler":   c.name,
+			}
+			if partial || r.partial {
+				props[facts.PropPathPartial] = true
+			}
 			out = append(out, facts.Fact{
-				Kind: facts.KindRoute,
-				Name: path,
-				File: c.file,
-				Line: r.line,
-				Props: map[string]any{
-					"method":    r.method,
-					"framework": "grape",
-					"language":  "ruby",
-					"handler":   c.name,
-				},
+				Kind:  facts.KindRoute,
+				Name:  path,
+				File:  c.file,
+				Line:  r.line,
+				Props: props,
 				Relations: []facts.Relation{
 					{Kind: facts.RelDeclares, Target: factpath.Dir(c.file)},
 					{Kind: facts.RelHandledBy, Target: c.name},
@@ -143,7 +152,7 @@ func extractGrapeRoutes(ctx context.Context, repoPath string, classFacts []facts
 			})
 		}
 		for _, m := range c.mounts {
-			emit(byName[normalizeConstant(m.constant)], base+m.path)
+			emit(byName[normalizeConstant(m.constant)], base+m.path, partial || m.partial)
 		}
 		c.visited = false
 	}
@@ -151,7 +160,7 @@ func extractGrapeRoutes(ctx context.Context, repoPath string, classFacts []facts
 	sort.Strings(order)
 	for _, name := range order {
 		if !mounted[name] {
-			emit(byName[name], "")
+			emit(byName[name], "", false)
 		}
 	}
 	return out
@@ -234,6 +243,8 @@ type grapeWalker struct {
 	src     []byte
 	relFile string
 	classes []grapeClass
+	// partial counts the enclosing blocks whose path segment is built at runtime.
+	partial int
 }
 
 // walkTop descends through module/class nesting looking for class bodies, tracking the
@@ -294,9 +305,10 @@ func (g *grapeWalker) handleGrapeCall(call *sitter.Node, at string, cls *grapeCl
 		// namespace path itself.
 		path := grapeSegment(firstPositionalPath(args, g.src))
 		cls.routes = append(cls.routes, grapeRoute{
-			method: strings.ToUpper(method),
-			path:   at + path,
-			line:   line(call),
+			method:  strings.ToUpper(method),
+			path:    at + path,
+			line:    line(call),
+			partial: g.partial > 0 || grapePathPartial(args),
 		})
 
 	case "namespace", "resource", "resources", "group", "segment":
@@ -304,6 +316,10 @@ func (g *grapeWalker) handleGrapeCall(call *sitter.Node, at string, cls *grapeCl
 		// A namespace with no name (`namespace do`) adds nothing to the path.
 		seg := grapeSegment(firstPositionalPath(args, g.src))
 		if body != nil {
+			if grapePathPartial(args) {
+				g.partial++
+				defer func() { g.partial-- }()
+			}
 			g.walkBody(body, at+seg, cls)
 		}
 
@@ -352,7 +368,7 @@ func (g *grapeWalker) handleGrapeCall(call *sitter.Node, at string, cls *grapeCl
 		if mountAt != "" && mountAt != "/" {
 			path = at + grapeSegment(mountAt)
 		}
-		cls.mounts = append(cls.mounts, grapeMount{constant: constant, path: path, line: line(call)})
+		cls.mounts = append(cls.mounts, grapeMount{constant: constant, path: path, line: line(call), partial: g.partial > 0})
 
 	case "params", "desc", "helpers", "before", "after", "rescue_from", "format",
 		"content_type", "use", "include", "extend", "insert_before", "require":
@@ -367,6 +383,35 @@ func (g *grapeWalker) handleGrapeCall(call *sitter.Node, at string, cls *grapeCl
 			g.walkBody(body, at, cls)
 		}
 	}
+}
+
+// grapePathPartial reports whether a Grape call's path argument is built at
+// runtime: an interpolated string, or an expression in place of a literal
+// (`resource parent_type.pluralize.to_sym`). No path argument, a literal string, a
+// symbol or a keyword argument alone is a path known in full.
+func grapePathPartial(args *sitter.Node) bool {
+	if args == nil {
+		return false
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		c := args.NamedChild(i)
+		switch kindOf(c) {
+		case "string":
+			for j := uint(0); j < c.ChildCount(); j++ {
+				if kindOf(c.Child(j)) == "interpolation" {
+					return true
+				}
+			}
+			return false
+		case "simple_symbol":
+			return false
+		case "pair", "comment":
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // grapeSegment normalizes a Grape path fragment into a leading-slash segment. Grape

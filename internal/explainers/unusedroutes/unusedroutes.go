@@ -454,6 +454,11 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		if facts.IsTestPath(f.File) {
 			continue
 		}
+		// A path built at runtime in part is known only as far as its literal
+		// prefix, and two such prefixes agreeing says nothing about the paths served.
+		if f.PropBool(facts.PropPathPartial) {
+			continue
+		}
 		// A spec documents an endpoint and registers nothing: a spec beside the route
 		// it describes, or two specs naming one health check, are not two
 		// registrations a router has to choose between.
@@ -666,10 +671,12 @@ func newAppRoots(store *facts.Store) *appRoots {
 		}
 		a.roots[repo][path.Clean(dir)] = true
 	}
+	manifests := map[string]bool{} // repo+"\x00"+path
 	for _, f := range store.ByKind(facts.KindExtraction) {
 		if f.Name == facts.ManifestsFact {
 			for _, m := range f.PropStrings(facts.PropManifests) {
 				addRoot(f.Repo, path.Dir(m))
+				manifests[f.Repo+"\x00"+m] = true
 			}
 		}
 	}
@@ -703,13 +710,21 @@ func newAppRoots(store *facts.Store) *appRoots {
 		uses[from][to] = true
 	}
 	// Imports and project references only: a call resolved by name can land in a
-	// sibling application that happens to declare the same name.
-	for node, targets := range common.BuildModuleGraphExcluding(store, facts.CouplingSymbolRollup) {
+	// sibling application that happens to declare the same name. An import of a
+	// manifest reads the application's version or name (a release script bumping
+	// every app's package.json), and uses none of its code.
+	readsManifest := func(dep facts.Fact, target string) bool {
+		return !manifests[dep.Repo+"\x00"+target]
+	}
+	for node, targets := range common.BuildModuleGraphWhere(store, readsManifest, facts.CouplingSymbolRollup) {
 		for _, t := range targets {
 			link(nodeRoot[node], nodeRoot[t])
 		}
 	}
 	for _, m := range modules {
+		if m.PropBool(facts.PropLaunchesProjects) {
+			continue // an orchestrator starts the applications it references
+		}
 		for _, r := range m.Relations {
 			if r.Kind == facts.RelDependsOn {
 				link(nodeRoot[keys.Key(m.Repo, m.Name)], nodeRoot[keys.Key(m.Repo, r.Target)])
