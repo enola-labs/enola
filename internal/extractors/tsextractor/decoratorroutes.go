@@ -65,7 +65,7 @@ var verbDecorators = map[string]map[string]string{
 //     linker matches on >=2-segment path SUFFIXES, so "/v2/slots/available" still
 //     resolves a client's "/api/v2/slots/available" without it.
 func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.Node, src []byte, relFile, dir, className string) []facts.Fact {
-	base, framework, ok := controllerBase(kinds, classNode, src)
+	base, baseRef, framework, ok := controllerBase(kinds, classNode, src)
 	if !ok || classBody == nil {
 		return nil
 	}
@@ -102,6 +102,11 @@ func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.N
 			// A real member (a field, an index signature) ends the run: its decorators
 			// were its own, and must not carry over to the next method.
 			pending = pending[:0]
+		}
+	}
+	if baseRef != "" {
+		for i := range out {
+			out[i].SetProp(propBaseRef, baseRef)
 		}
 	}
 	return out
@@ -190,15 +195,63 @@ func decoratorPathArgs(kinds *tsutil.KindTable, args *sitter.Node, src []byte) [
 // with. It accepts both argument forms — @Controller("/users") and the object form
 // @Controller({path: "/users"}), which is overwhelmingly the more common one in real
 // NestJS code.
-func controllerBase(kinds *tsutil.KindTable, classNode *sitter.Node, src []byte) (base, framework string, ok bool) {
+//
+// A base written as a constant's member, `@Controller(RouteKey.Asset)`, is returned
+// as ref ("RouteKey.Asset") with an empty base: the enum or object holding it is
+// usually in another file, and resolveControllerBaseRefs composes it once every
+// file's constants are read.
+func controllerBase(kinds *tsutil.KindTable, classNode *sitter.Node, src []byte) (base, ref, framework string, ok bool) {
 	for name, fw := range controllerDecorators {
 		args, found := classDecoratorArgs(kinds, classNode, src, name)
 		if !found {
 			continue
 		}
-		return decoratorPathArg(kinds, args, src), fw, true
+		base = decoratorPathArg(kinds, args, src)
+		if base == "" && args != nil && args.NamedChildCount() > 0 {
+			ref = constMemberRef(kinds, args.NamedChild(0), src)
+		}
+		return base, ref, fw, true
 	}
-	return "", "", false
+	return "", "", "", false
+}
+
+// propBaseRef holds a controller base written as a constant's member until
+// resolveControllerBaseRefs reads it. It never leaves the extractor.
+const propBaseRef = "_controller_base_ref"
+
+// constMemberRef returns "Holder.Member" for an argument written that way, "" for
+// anything else.
+func constMemberRef(kinds *tsutil.KindTable, n *sitter.Node, src []byte) string {
+	if kindOf(kinds, n) != "member_expression" {
+		return ""
+	}
+	obj, prop := n.ChildByFieldName("object"), n.ChildByFieldName("property")
+	if obj == nil || prop == nil || kindOf(kinds, obj) != "identifier" || kindOf(kinds, prop) != "property_identifier" {
+		return ""
+	}
+	return nodeText(obj, src) + "." + nodeText(prop, src)
+}
+
+// resolveControllerBaseRefs composes each route whose controller base is a
+// constant's member under the string the repository declares for it, in an enum
+// or a flat object constant (the same index event names are read from). A member
+// no file declares, or two files declare differently, leaves the route where it
+// was, under no base.
+func resolveControllerBaseRefs(all []facts.Fact, consts map[string]string) {
+	for i := range all {
+		f := &all[i]
+		if f.Kind != facts.KindRoute {
+			continue
+		}
+		ref := f.PropString(propBaseRef)
+		if ref == "" {
+			continue
+		}
+		f.DelProp(propBaseRef)
+		if base, ok := consts[ref]; ok && base != "" {
+			f.Name = facts.JoinRoutePath(base, f.Name)
+		}
+	}
 }
 
 // classDecoratorArgs finds a named decorator on a class, looking at the class node

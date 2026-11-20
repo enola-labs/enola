@@ -3736,7 +3736,9 @@ import (
 // no longer takes the calls of every other package importing it.
 // v666: Go: a route registered on a router parameter names the mux every caller
 // hands it, when each passes the same router it built itself.
-const cacheVersion = "v666"
+// v667: TypeScript: a NestJS controller base written as an enum or constant member
+// (@Controller(RouteKey.Asset)) is the string the repository declares for it.
+const cacheVersion = "v667"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

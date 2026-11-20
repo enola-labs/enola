@@ -305,6 +305,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	}
 	a.facts = append(a.facts, svelteKitActionRoutes(a.facts)...)
 
+	resolveControllerBaseRefs(a.facts, a.eventConsts)
 	if prefix := applyNestGlobalPrefix(a.facts, a.globalPrefixes); prefix != "" {
 		log.Printf("[ts-extractor] NestJS routes served under global prefix /%s", prefix)
 	}
