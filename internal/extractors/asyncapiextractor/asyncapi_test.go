@@ -348,3 +348,41 @@ channels:
 		}
 	}
 }
+
+// A channel may $ref into a linked worktree nested in the repository: inside the root
+// and present, but another checkout's file. It is not followed, so the operation keeps
+// the channel's own name rather than the worktree's address; an in-repo ref still
+// resolves.
+func TestExternalRefIntoNestedWorktreeIsNotFollowed(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "asyncapi/asyncapi.yaml", `asyncapi: 3.0.0
+info: {title: Events, version: 1.0.0}
+channels:
+  leaked:
+    $ref: '../.claude/worktrees/feat/asyncapi/channels.yaml#/leaked'
+  normal:
+    $ref: './channels.yaml#/normal'
+operations:
+  sendLeaked:
+    action: send
+    channel: {$ref: '#/channels/leaked'}
+  sendNormal:
+    action: send
+    channel: {$ref: '#/channels/normal'}
+`)
+	writeSpec(t, repo, "asyncapi/channels.yaml", "normal:\n  address: main.normal.topic\n")
+	writeSpec(t, repo, ".git/worktrees/feat/commondir", "../..\n")
+	writeSpec(t, repo, ".claude/worktrees/feat/.git", "gitdir: ../../../.git/worktrees/feat\n")
+	writeSpec(t, repo, ".claude/worktrees/feat/asyncapi/channels.yaml", "leaked:\n  address: worktree.leaked.topic\n")
+
+	got := extract(t, repo)
+	if f := find(got, "worktree.leaked.topic", facts.MessagingRoleProducer); f != nil {
+		t.Errorf("a channel address was read from a nested worktree: %+v", f)
+	}
+	if find(got, "leaked", facts.MessagingRoleProducer) == nil {
+		t.Errorf("the operation on an unfollowed channel must keep the channel's name: %+v", got)
+	}
+	if find(got, "main.normal.topic", facts.MessagingRoleProducer) == nil {
+		t.Errorf("the in-repo channel ref must still resolve: %+v", got)
+	}
+}

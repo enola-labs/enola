@@ -119,6 +119,29 @@ func IsLinkedWorktree(dir string) bool {
 	return err == nil
 }
 
+// InCheckout reports whether target is a file of the checkout rooted at root: inside
+// root, and not below a linked worktree nested in it. An extractor that follows a
+// reference out of a walked file (a $ref, an import) reads its target from disk, past
+// the walk's own prune, so it asks this before reading. Root itself is never tested,
+// so indexing a worktree reads that worktree's files. Paths are compared as written;
+// symbolic links are not resolved.
+func InCheckout(root, target string) bool {
+	root = filepath.Clean(root)
+	rel, err := filepath.Rel(root, filepath.Clean(target))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return false
+	}
+	dir := root
+	parts := strings.Split(rel, string(filepath.Separator))
+	for _, p := range parts[:len(parts)-1] {
+		dir = filepath.Join(dir, p)
+		if IsLinkedWorktree(dir) {
+			return false
+		}
+	}
+	return true
+}
+
 // IsRepo reports whether dir is itself a git repository.
 func IsRepo(dir string) bool {
 	_, err := os.Lstat(filepath.Join(dir, ".git"))

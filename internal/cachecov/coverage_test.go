@@ -264,6 +264,7 @@ var versionCoverage = map[int][]string{
 	669: {"TestMSBuild_AspireHostLaunchesItsProjects"},
 	670: {"TestExtractGrapeRoutes_PathBuiltAtRuntimeIsPartial"},
 	671: {"TestExtractAllRoutes_ApplicationHelperDrawsARouteFile", "TestParseRouteFile_MethodIsDeclaredWhereItIsCalled", "TestExtractAllRoutes_FileDrawnFromTwoScopes"},
+	672: {"TestExtract_PathItemRefIntoNestedWorktreeIsNotFollowed", "TestExternalRefIntoNestedWorktreeIsNotFollowed", "TestTailwind_ImportIntoNestedWorktreeOrOutsideIsNotRead", "TestInCheckout"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

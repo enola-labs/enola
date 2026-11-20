@@ -76,3 +76,40 @@ func TestIsLinkedWorktree_SubmoduleIsNot(t *testing.T) {
 		t.Error("a malformed .git file was reported as a linked worktree")
 	}
 }
+
+// A reference an extractor follows (a $ref, an import) may be read only when its target
+// is a file of the checkout being indexed: inside the root, and not inside a linked
+// worktree nested in it. A submodule is part of the checkout; the root being a worktree
+// itself is the ordinary case of indexing one.
+func TestInCheckout(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "repo")
+	mkdirs(t, root, ".git/worktrees/feat", ".git/modules/lib", ".claude/worktrees/feat/api", "lib/api", "api")
+	writeFile(t, filepath.Join(root, ".git", "worktrees", "feat", "commondir"), "../..\n")
+	writeFile(t, filepath.Join(root, ".claude", "worktrees", "feat", ".git"), "gitdir: ../../../.git/worktrees/feat\n")
+	writeFile(t, filepath.Join(root, "lib", ".git"), "gitdir: ../.git/modules/lib\n")
+
+	// The root is itself a linked worktree: indexing a worktree reads its own files.
+	wtRoot := filepath.Join(parent, "wt")
+	mkdirs(t, parent, "wt/api", "main/.git/worktrees/wt")
+	writeFile(t, filepath.Join(parent, "main", ".git", "worktrees", "wt", "commondir"), "../..\n")
+	writeFile(t, filepath.Join(wtRoot, ".git"), "gitdir: ../main/.git/worktrees/wt\n")
+
+	for _, c := range []struct {
+		root, target string
+		want         bool
+	}{
+		{root, filepath.Join(root, "api", "item.yaml"), true},
+		{root, filepath.Join(root, "spec.yaml"), true},
+		{root, filepath.Join(root, "lib", "api", "item.yaml"), true},
+		{root, filepath.Join(root, ".claude", "worktrees", "feat", "api", "item.yaml"), false},
+		{root, filepath.Join(root, ".claude", "worktrees", "feat", "spec.yaml"), false},
+		{root, filepath.Join(root, "..", "outside", "theme.ts"), false},
+		{root, filepath.Join(parent, "repo-sibling", "theme.ts"), false},
+		{wtRoot, filepath.Join(wtRoot, "api", "item.yaml"), true},
+	} {
+		if got := InCheckout(c.root, c.target); got != c.want {
+			t.Errorf("InCheckout(%s, %s) = %v, want %v", c.root, c.target, got, c.want)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
+	"github.com/enola-labs/enola/internal/workspace"
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,7 +39,8 @@ func newPathItemResolver(specAbs, relFile string) *pathItemResolver {
 // resolve returns the path item a `$ref` points at, and the repository-relative
 // file it was read from. An item that is not a reference is returned as is,
 // with an empty file. A reference that cannot be followed — remote, outside
-// the repository, missing, or into a file that is itself a full OpenAPI spec
+// this checkout (out of the repository, or into a linked worktree nested in it),
+// missing, or into a file that is itself a full OpenAPI spec
 // (and so extracts its own routes) — yields the original item, which carries
 // no operations and so derives nothing.
 func (r *pathItemResolver) resolve(item map[string]any) (map[string]any, string) {
@@ -72,7 +74,9 @@ func (r *pathItemResolver) follow(base, ref string) (map[string]any, string, boo
 	if filePart != "" {
 		targetAbs = filepath.Clean(filepath.Join(filepath.Dir(base), filepath.FromSlash(filePart))) //factpath:host
 	}
-	if rel, err := filepath.Rel(r.repoRoot, targetAbs); err != nil || strings.HasPrefix(rel, "..") { //factpath:host
+	// Outside the repository, or inside a linked worktree nested in it: not this
+	// checkout's file, though the second is under the root and on disk.
+	if !workspace.InCheckout(r.repoRoot, targetAbs) {
 		return nil, "", false
 	}
 	doc, ok := r.load(targetAbs)
