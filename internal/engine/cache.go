@@ -3727,7 +3727,9 @@ import (
 // v661: TypeScript: a NestJS route lists the API versions it serves (api_versions),
 // from @Controller's version or the handler's @Version.
 // v662: TypeScript: a verb decorator naming an array of paths serves each of them.
-const cacheVersion = "v662"
+// v663: Python: Flask-AppBuilder @expose routes are served under their class's
+// route_base, or /api/<version>/<resource_name> for a REST API.
+const cacheVersion = "v663"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -1465,7 +1465,7 @@ def item():
 }
 
 // Flask-AppBuilder @expose (no receiver dot) on a method inside a view class is
-// detected, tagged flask, and its handler back-filled.
+// detected, tagged flask, served under the class route_base, and its handler back-filled.
 func TestRouteExtractor_Expose(t *testing.T) {
 	src := `
 class HealthView(BaseView):
@@ -1482,8 +1482,8 @@ class HealthView(BaseView):
 		t.Fatalf("expected 1 route fact, got %d: %+v", len(routes), routes)
 	}
 	r := routes[0]
-	if r.Name != "/health" {
-		t.Errorf("route name = %q, want %q", r.Name, "/health")
+	if r.Name != "/api/health" {
+		t.Errorf("route name = %q, want %q (route_base folded)", r.Name, "/api/health")
 	}
 	if r.Props["method"] != "GET" {
 		t.Errorf("method = %v, want GET", r.Props["method"])
@@ -1645,6 +1645,43 @@ func TestApplyDecoratorProps_ModalNeedsImportGuard(t *testing.T) {
 		applyDecoratorProps(guarded, dec, true)
 		if guarded["framework_registered"] != true {
 			t.Errorf("%s with a modal import: framework_registered = %v, want true", dec, guarded["framework_registered"])
+		}
+	}
+}
+
+// A Flask-AppBuilder REST API with no route_base serves under
+// /api/<version>/<resource_name>, version v1 unless the class sets one. A class that
+// sets neither keeps the bare path: its base is inherited or a view default, which
+// this does not read.
+func TestRouteExtractor_ExposeRestAPIBase(t *testing.T) {
+	src := `
+class ChartRestApi(BaseSupersetModelRestApi):
+    resource_name = "chart"
+
+    @expose("/", methods=("DELETE",))
+    def bulk_delete(self):
+        pass
+
+class ChartV2RestApi(BaseApi):
+    resource_name = "chart"
+    version = "v2"
+
+    @expose("/<pk>", methods=("GET",))
+    def get(self, pk):
+        pass
+
+class PlainView(BaseView):
+    @expose("/list/")
+    def list(self):
+        pass
+`
+	got := map[string]bool{}
+	for _, r := range factsByKind(astExtract(t, "superset/charts/api.py", src, false), facts.KindRoute) {
+		got[r.PropString("method")+" "+r.Name] = true
+	}
+	for _, want := range []string{"DELETE /api/v1/chart", "GET /api/v2/chart/<pk>", "GET /list/"} {
+		if !got[want] {
+			t.Errorf("missing %s; got %v", want, got)
 		}
 	}
 }

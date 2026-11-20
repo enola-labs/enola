@@ -1,8 +1,9 @@
 """Blueprint routing and a Flask-AppBuilder @expose view.
 
 @bp.route pins Blueprint detection; @expose (no receiver dot) pins the
-Flask-AppBuilder idiom that is invisible to a receiver-qualified regex. Both emit
-bare leaf paths — url_prefix / route_base folding is tracked as GAP-PY-06.
+Flask-AppBuilder idiom that is invisible to a receiver-qualified regex. The
+Blueprint route keeps its bare leaf path (url_prefix folding is GAP-PY-06); the
+@expose routes are served under the view's route_base.
 """
 
 from flask import Blueprint
