@@ -107,7 +107,7 @@ var helpPages = map[string]helpPage{
 		examples: []cli.Example{
 			{Comment: "Freeze the architecture before you start editing", Command: "enola baseline pin"},
 			{Comment: "The same for another repository", Command: "enola baseline pin /path/to/repo"},
-			{Comment: "What the pinned baseline describes", Command: "enola baseline show"},
+			{Comment: "What the pinned baseline describes, and whether check can grade against it", Command: "enola baseline show"},
 			{Comment: "Remove it", Command: "enola baseline clear"},
 		},
 		seeAlso: []string{"check", "doctor"},

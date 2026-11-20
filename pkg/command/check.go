@@ -504,7 +504,8 @@ func (r *Runner) Baseline(args []string) {
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" baseline <pin|show|clear> [config_path]\n\n"+
 			"  pin    freeze the current .enola snapshot as the diff baseline\n"+
-			"  show   report whether a baseline exists, and what it describes\n"+
+			"  show   report whether a baseline exists, what it describes, and whether check\n"+
+			"         can grade against it (exit 3 when it cannot)\n"+
 			"  clear  remove the pinned baseline\n")
 		r.writeHelpFooter(os.Stderr, args, "baseline")
 	}
@@ -521,6 +522,9 @@ func (r *Runner) Baseline(args []string) {
 	var arg string
 	if len(rest) > 1 {
 		arg = rest[1]
+	}
+	if action == "show" {
+		os.Exit(r.baselineShow(arg))
 	}
 	tgt := r.resolveTarget(arg)
 	eng := tgt.engine
@@ -579,14 +583,6 @@ func (r *Runner) Baseline(args []string) {
 			checkArg = arg
 		}
 		fmt.Printf("\nNow make your changes, then run:\n    %s check %s\n", r.name(), checkArg)
-	case "show":
-		snap, err := bootstrap.LoadSnapshotDir(baseDir)
-		if err != nil {
-			fmt.Printf("No baseline pinned (%s does not hold a snapshot).\nRun `%s --generate` then `%s baseline pin`.\n", baseDir, r.name(), r.name())
-			os.Exit(check.StatusUsageError.ExitCode())
-		}
-		fmt.Printf("Baseline at %s\n", baseDir)
-		describeBaseline(snap)
 	case "clear":
 		if err := os.RemoveAll(baseDir); err != nil {
 			r.checkFatal("could not clear baseline: %v", err)
@@ -597,6 +593,38 @@ func (r *Runner) Baseline(args []string) {
 		fs.Usage()
 		os.Exit(check.StatusUsageError.ExitCode())
 	}
+}
+
+// baselineShow is `baseline show`: what the pinned baseline describes, then whether
+// `check` could grade against it under this config, judged from metadata alone. It
+// returns the exit code: 2 with no baseline, 3 (as `check` declines) when it is not
+// comparable, else 0.
+func (r *Runner) baselineShow(arg string) int {
+	tgt := r.resolveTarget(arg)
+	baseDir := engine.ResolveBaselineDir(tgt.engine.GraphDir(tgt.repoPaths), "pinned")
+	snap, err := bootstrap.LoadSnapshotDir(baseDir)
+	if err != nil {
+		fmt.Printf("No baseline pinned (%s does not hold a snapshot).\nRun `%s --generate` then `%s baseline pin`.\n", baseDir, r.name(), r.name())
+		return check.StatusUsageError.ExitCode()
+	}
+	fmt.Printf("Baseline at %s\n", baseDir)
+	describeBaseline(snap)
+	j := judgeBaseline(tgt.engine, baseDir, tgt.repoPaths)
+	switch j.State {
+	case baselineNotComparable:
+		fmt.Printf("  Verdict:   NOT COMPARABLE: %s\n", j.Reason)
+		pin := r.name() + " baseline pin"
+		if arg != "" {
+			pin += " " + arg
+		}
+		fmt.Printf("  `check` will decline to grade against it until it is re-pinned:\n      %s\n", pin)
+		return check.StatusIncomparable.ExitCode()
+	case baselineUnknown:
+		fmt.Printf("  Verdict:   could not be judged: %s\n", j.Reason)
+	default:
+		fmt.Println("  Verdict:   comparable — check can grade against it")
+	}
+	return 0
 }
 
 // describeBaseline prints what a pinned baseline actually describes, so `show` answers
