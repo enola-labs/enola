@@ -373,6 +373,9 @@ func TestCLIContract_Repo(t *testing.T) {
 
 		{"50_baseline_pin", []string{"baseline", "pin", "."}},
 		{"50_baseline_show", []string{"baseline", "show", "."}},
+		// The first step with a baseline pinned: the comparable shape of doctor's verdict.
+		{"50_doctor_pinned", []string{"doctor", "."}},
+		{"50_doctor_pinned_json", []string{"doctor", "--json", "."}},
 		{"50_check_clean", []string{"check", "."}},
 		{"50_check_clean_json", []string{"check", "--json", "."}},
 		{"50_check_clean_summary", []string{"check", "--summary", "."}},

@@ -11,7 +11,6 @@ import (
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/bootstrap"
-	"github.com/enola-labs/enola/pkg/check"
 )
 
 // snapshotIsCurrent reports whether the graph's on-disk snapshot describes every
@@ -49,11 +48,8 @@ func snapshotIsCurrent(eng *bootstrap.Engine, repoPaths []string) (string, strin
 		if meta.ConfigHash != current.ConfigHash {
 			return "", name + "'s snapshot was written under another config"
 		}
-		for _, kind := range check.BlockingKinds(diff.CompareMeta(*meta, *current)) {
-			if kind == diff.WarnProviderSet {
-				continue
-			}
-			return "", name + "'s snapshot is not comparable with this build: " + string(kind)
+		if kinds := metaBlockingKinds(*meta, *current); len(kinds) > 0 {
+			return "", name + "'s snapshot is not comparable with this build: " + string(kinds[0])
 		}
 		drift, err := eng.DriftFromMeta(repoPath, *meta)
 		if err != nil {
@@ -85,11 +81,23 @@ func snapshotIsCurrent(eng *bootstrap.Engine, repoPaths []string) (string, strin
 // A configured cluster directory outlives its member list, so a config that dropped a
 // member finds the union that measured it there, while every member it still names
 // matches its tree. The per-member checks cannot see a member they were never asked
-// about; members.json can. A directory without one is a single repository's.
+// about; members.json can.
 func membersDropped(dir string, repoPaths []string) string {
+	c := membershipComparability(dir, repoPaths)
+	if c.Comparable {
+		return ""
+	}
+	return fmt.Sprintf("the snapshot in %s is not comparable with this config: %s (%s)",
+		dir, diff.WarnUnionMembership, strings.Join(c.Warnings, "; "))
+}
+
+// membershipComparability is the union arm for the snapshot in dir against
+// repoPaths, read from its members.json. A directory without one is a single
+// repository's and compares clean.
+func membershipComparability(dir string, repoPaths []string) diff.Comparability {
 	members, err := engine.ReadMembersMeta(dir)
 	if err != nil {
-		return ""
+		return diff.CompareMembership(nil, nil)
 	}
 	label := func(path string) string {
 		if m, ok := members[path]; ok && m.RepoLabel != "" {
@@ -107,12 +115,7 @@ func membersDropped(dir string, repoPaths []string) string {
 		}
 		cur = append(cur, label(p))
 	}
-	c := diff.CompareMembership(base, cur)
-	if c.Comparable {
-		return ""
-	}
-	return fmt.Sprintf("the snapshot in %s is not comparable with this config: %s (%s)",
-		dir, diff.WarnUnionMembership, strings.Join(c.Warnings, "; "))
+	return diff.CompareMembership(base, cur)
 }
 
 func readSnapshotMeta(dir string) (*facts.SnapshotMeta, error) {
