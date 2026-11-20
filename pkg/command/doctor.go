@@ -9,14 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/enola-labs/enola/internal/diff"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/hookstate"
 	"github.com/enola-labs/enola/internal/providers"
 	"github.com/enola-labs/enola/internal/updatecheck"
 	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/bootstrap"
-	"github.com/enola-labs/enola/pkg/check"
 	"github.com/enola-labs/enola/pkg/install"
 )
 
@@ -72,7 +70,7 @@ func (r *Runner) Doctor(args []string) {
 	state := hookstate.Load(outDir)
 	where := hooksConfiguredIn(repoDir)
 	installed := where != ""
-	baselineIssue := r.baselineUsability(repoDir, outDir)
+	baseline := r.baselineUsability(repoDir, outDir)
 
 	memLimit, memSource := bootstrap.MemoryLimit()
 	// Zero — "nothing to say" — for a binary this manifest does not describe, so the
@@ -88,7 +86,8 @@ func (r *Runner) Doctor(args []string) {
 			"repo":              repoDir,
 			"hooks_configured":  installed,
 			"state":             state,
-			"baseline_unusable": baselineIssue,
+			"baseline_state":    baseline.State,
+			"baseline_unusable": baseline.Reason,
 			"memory_limit":      memLimit,
 			"memory_limit_from": memSource,
 			"update":            update,
@@ -150,12 +149,21 @@ func (r *Runner) Doctor(args []string) {
 	if folder {
 		fmt.Println("  none — a folder of repositories is not graded; each repository is, by hooks")
 		fmt.Println("  installed inside it")
-	} else if baselineIssue == "" {
-		fmt.Println("  comparable — the gate can grade against it")
 	} else {
-		fmt.Printf("  NOT COMPARABLE: %s\n", baselineIssue)
-		fmt.Println("  Nothing will be graded against it until it is re-pinned:")
-		fmt.Printf("      %s baseline pin\n", r.name())
+		switch baseline.State {
+		case baselineComparable:
+			fmt.Println("  comparable — the gate can grade against it")
+		case baselineAbsent:
+			fmt.Println("  none pinned — nothing to grade against yet. Pin one with")
+			fmt.Printf("      %s baseline pin\n", r.name())
+			fmt.Println("  or let the session-start hook pin it.")
+		case baselineUnknown:
+			fmt.Printf("  could not be judged: %s\n", baseline.Reason)
+		default:
+			fmt.Printf("  NOT COMPARABLE: %s\n", baseline.Reason)
+			fmt.Println("  Nothing will be graded against it until it is re-pinned:")
+			fmt.Printf("      %s baseline pin\n", r.name())
+		}
 	}
 	fmt.Println()
 
@@ -246,25 +254,22 @@ func (r *Runner) Doctor(args []string) {
 	}
 }
 
-// baselineUsability returns why the pinned baseline could not be graded against, or
-// "" when it can. It answers from metadata alone — no files are parsed — so `doctor`
-// stays a report rather than becoming a snapshot.
-func (r *Runner) baselineUsability(repoDir, outDir string) string {
-	base, err := bootstrap.LoadSnapshotDir(engine.ResolveBaselineDir(outDir, "pinned"))
-	if err != nil {
-		return "" // no baseline pinned; the hooks section covers that case
+// baselineUsability judges the pinned baseline the way `baseline show` does (see
+// judgeBaseline), from metadata alone, so `doctor` stays a report rather than
+// becoming a snapshot.
+func (r *Runner) baselineUsability(repoDir, outDir string) baselineJudgement {
+	baseDir := engine.ResolveBaselineDir(outDir, "pinned")
+	if _, err := readSnapshotMeta(baseDir); err != nil {
+		// Answered before an engine is built, so a repository with no baseline costs
+		// doctor no config resolution.
+		return baselineJudgement{State: baselineAbsent, Reason: "no baseline pinned"}
 	}
 	eng, cfg, err := r.newEngine(bootstrap.Options{ConfigPath: configForRepo(repoDir)})
 	if err != nil {
-		return ""
+		return baselineJudgement{State: baselineUnknown, Reason: err.Error()}
 	}
 	cfg.Repo, cfg.Repos = repoDir, nil
-	current := eng.CurrentMeta(repoDir)
-	if current == nil {
-		return ""
-	}
-	v := check.Evaluate(&diff.SnapshotDiff{Comparability: diff.CompareMeta(base.Meta, *current)}, check.Policy{})
-	return v.DeclineReason()
+	return judgeBaseline(eng, baseDir, []string{repoDir})
 }
 
 // hooksConfiguredIn names the file that installs enola's session hooks for this

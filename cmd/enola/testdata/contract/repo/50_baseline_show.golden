@@ -6,5 +6,6 @@ Baseline at <TMP>/go_sample/.enola/baseline
   Repo:      <TMP>/go_sample
   Facts:     22 · Insights: 6
   Snapshot:  sha256:<HASH>
+  Verdict:   comparable — check can grade against it
 --- stderr
 enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

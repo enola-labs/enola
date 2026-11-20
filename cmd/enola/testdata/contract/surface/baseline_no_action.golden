@@ -5,5 +5,6 @@ exit: 2
 Usage: enola baseline <pin|show|clear> [config_path]
 
   pin    freeze the current .enola snapshot as the diff baseline
-  show   report whether a baseline exists, and what it describes
+  show   report whether a baseline exists, what it describes, and whether check
+         can grade against it (exit 3 when it cannot)
   clear  remove the pinned baseline

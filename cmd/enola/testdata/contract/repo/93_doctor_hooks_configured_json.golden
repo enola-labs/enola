@@ -2,7 +2,8 @@ $ enola doctor --json .
 exit: 0
 --- stdout
 {
-  "baseline_unusable": "",
+  "baseline_state": "absent",
+  "baseline_unusable": "no baseline pinned",
   "hooks_configured": true,
   "memory_limit": "<MACHINE>",
   "memory_limit_from": "<MACHINE>",

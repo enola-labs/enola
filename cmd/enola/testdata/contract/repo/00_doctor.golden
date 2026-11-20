@@ -15,7 +15,9 @@ Updates
   not checked (disabled, or this is a dev build)
 
 Baseline
-  comparable — the gate can grade against it
+  none pinned — nothing to grade against yet. Pin one with
+      enola baseline pin
+  or let the session-start hook pin it.
 
 Skills
   .claude/skills     for Claude Code

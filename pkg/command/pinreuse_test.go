@@ -81,3 +81,43 @@ func TestSnapshotIsCurrent_OnlyWhenEveryMemberMatchesItsTree(t *testing.T) {
 		t.Fatal("a moved file in one member still read as current")
 	}
 }
+
+// A cluster directory set in the config outlives the member list. When the config
+// drops a member, the directory still holds the union that measured it, and the
+// members the config still names all match their trees. Reusing it would pin a
+// baseline the gate then refuses on union_membership.
+func TestSnapshotIsCurrent_RefusesASnapshotHoldingAMemberTheConfigDropped(t *testing.T) {
+	repoA, repoB, repoC := writeGoRepo(t), writeGoRepo(t), writeGoRepo(t)
+	clusterDir := t.TempDir()
+	cfgPath := filepath.Join(t.TempDir(), "mcp-arch.yaml")
+	cfg := "repos: [" + repoA + ", " + repoB + ", " + repoC + "]\noutput:\n  cluster_dir: " + clusterDir + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eng, _, err := bootstrap.NewEngine(bootstrap.Options{ConfigPath: cfgPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := []string{repoA, repoB, repoC}
+	if _, err := eng.GenerateCluster(context.Background(), all, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.WriteGraph(); err != nil {
+		t.Fatal(err)
+	}
+	kept := []string{repoA, repoB}
+	if eng.GraphDir(kept) != eng.GraphDir(all) {
+		t.Fatalf("the two member sets must share the configured directory, or this test proves nothing: %s vs %s",
+			eng.GraphDir(kept), eng.GraphDir(all))
+	}
+	if _, stale := snapshotIsCurrent(eng, all); stale != "" {
+		t.Fatalf("the full member set must still read as current: %s", stale)
+	}
+	_, stale := snapshotIsCurrent(eng, kept)
+	if stale == "" {
+		t.Fatal("a snapshot holding a member the config no longer names read as current")
+	}
+	if !strings.Contains(stale, "union_membership") || !strings.Contains(stale, filepath.Base(repoC)) {
+		t.Errorf("stale = %q, want it to name union_membership and the dropped member", stale)
+	}
+}
