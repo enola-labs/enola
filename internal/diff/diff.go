@@ -299,13 +299,21 @@ func compareSnapshots(baseline, current *facts.Snapshot) Comparability {
 	c := compareMeta(baseline.Meta, current.Meta)
 	// The union arm: a multi-repo snapshot's members are labels on its facts,
 	// not fields of its identity.
-	if gone := droppedRepos(baseline, current); len(gone) > 0 {
-		c.add(WarnUnionMembership,
-			"the baseline measured %s and this snapshot does not — every verdict about that code went quiet at once, so a breach that stopped being reported is not a breach that was fixed",
-			strings.Join(gone, ", "))
-		c.Comparable = false
-	}
+	addUnionMembership(&c, droppedRepos(baseline, current))
 	return c
+}
+
+// addUnionMembership raises the union arm for the members the baseline measured and
+// the current snapshot does not. compareSnapshots reads the members from fact labels,
+// CompareMembership from a cluster's members.json, and both word it here.
+func addUnionMembership(c *Comparability, gone []string) {
+	if len(gone) == 0 {
+		return
+	}
+	c.add(WarnUnionMembership,
+		"the baseline measured %s and this snapshot does not — every verdict about that code went quiet at once, so a breach that stopped being reported is not a breach that was fixed",
+		strings.Join(gone, ", "))
+	c.Comparable = false
 }
 
 // Compute returns the delta from baseline to current. A nil snapshot is treated

@@ -181,3 +181,41 @@ func TestCompareSnapshotReceipts_ADroppedUnionMemberIsNotEquivalentInputs(t *tes
 		t.Errorf("an unchanged member set must stay comparable: %+v", same.Comparability)
 	}
 }
+
+// A caller that knows a snapshot's members from its members.json, not from its
+// facts, must reach the verdict the fact-label arm reaches for the same pair: one
+// kind, one message, not comparable.
+func TestCompareMembership_IsTheUnionArmOfCompute(t *testing.T) {
+	meta := facts.SnapshotMeta{EnolaVersion: "1.0", Extractors: []string{"go"}, FilesSeen: 10, FilesParsed: 10}
+	kept := facts.Fact{Kind: facts.KindSymbol, Name: "Kept", File: "web/kept.ts", Repo: "web"}
+	gone := facts.Fact{Kind: facts.KindSymbol, Name: "Gone", File: "api/gone.rb", Repo: "api"}
+	base := &facts.Snapshot{Meta: meta, Facts: []facts.Fact{kept, gone}}
+	cur := &facts.Snapshot{Meta: meta, Facts: []facts.Fact{kept}}
+
+	c := CompareMembership([]string{"web", "api"}, []string{"web"})
+	if c.Comparable || !c.HasKind(WarnUnionMembership) {
+		t.Fatalf("a member set that lost api = %+v, want union_membership and not comparable", c)
+	}
+	if len(c.Warnings) != 1 {
+		t.Fatalf("want one warning, got %q", c.Warnings)
+	}
+	full := Compute(base, cur).Comparability
+	found := false
+	for _, w := range full.Warnings {
+		found = found || w == c.Warnings[0]
+	}
+	if !found {
+		t.Errorf("the two arms word one pair differently:\n facts   %q\n members %q", full.Warnings, c.Warnings)
+	}
+
+	for _, tc := range []struct{ base, cur []string }{
+		{[]string{"web", "api"}, []string{"api", "web"}},
+		{[]string{"web"}, []string{"web", "api"}},
+		{nil, []string{"web"}},
+		{[]string{"web"}, nil},
+	} {
+		if c := CompareMembership(tc.base, tc.cur); !c.Comparable || len(c.Warnings) != 0 {
+			t.Errorf("CompareMembership(%v, %v) = %+v, want comparable with no warning", tc.base, tc.cur, c)
+		}
+	}
+}

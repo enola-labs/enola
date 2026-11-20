@@ -2,8 +2,10 @@ package command
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/diff"
 	"github.com/enola-labs/enola/internal/engine"
@@ -25,6 +27,9 @@ func snapshotIsCurrent(eng *bootstrap.Engine, repoPaths []string) (string, strin
 	newest := ""
 	union := ""
 	graphDir := eng.GraphDir(repoPaths)
+	if gone := membersDropped(graphDir, repoPaths); gone != "" {
+		return "", gone
+	}
 	for _, repoPath := range repoPaths {
 		name := filepath.Base(repoPath)
 		var meta *facts.SnapshotMeta
@@ -73,6 +78,41 @@ func snapshotIsCurrent(eng *bootstrap.Engine, repoPaths []string) (string, strin
 		return "", "no members"
 	}
 	return newest, ""
+}
+
+// membersDropped names the members the snapshot in dir measured that repoPaths does
+// not, as the gate would decline them (union_membership), or "" when there are none.
+// A configured cluster directory outlives its member list, so a config that dropped a
+// member finds the union that measured it there, while every member it still names
+// matches its tree. The per-member checks cannot see a member they were never asked
+// about; members.json can. A directory without one is a single repository's.
+func membersDropped(dir string, repoPaths []string) string {
+	members, err := engine.ReadMembersMeta(dir)
+	if err != nil {
+		return ""
+	}
+	label := func(path string) string {
+		if m, ok := members[path]; ok && m.RepoLabel != "" {
+			return m.RepoLabel
+		}
+		return filepath.Base(path)
+	}
+	var base, cur []string
+	for path := range members {
+		base = append(base, label(path))
+	}
+	for _, p := range repoPaths {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		cur = append(cur, label(p))
+	}
+	c := diff.CompareMembership(base, cur)
+	if c.Comparable {
+		return ""
+	}
+	return fmt.Sprintf("the snapshot in %s is not comparable with this config: %s (%s)",
+		dir, diff.WarnUnionMembership, strings.Join(c.Warnings, "; "))
 }
 
 func readSnapshotMeta(dir string) (*facts.SnapshotMeta, error) {

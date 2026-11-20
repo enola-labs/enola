@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -15,6 +16,30 @@ import (
 // clean here; a caller holding both snapshots uses CompareSnapshotReceipts.
 func CompareMeta(base, cur facts.SnapshotMeta) Comparability {
 	return compareMeta(base, cur)
+}
+
+// CompareMembership is the union arm of the diff for callers that know a snapshot's
+// members from a cluster's members.json rather than from its facts: the members the
+// baseline measured that the current set lacks. Either side empty means the set is
+// unknown, not empty, and compares clean, as droppedRepos does.
+func CompareMembership(base, cur []string) Comparability {
+	c := Comparability{Comparable: true}
+	if len(base) == 0 || len(cur) == 0 {
+		return c
+	}
+	now := make(map[string]bool, len(cur))
+	for _, m := range cur {
+		now[m] = true
+	}
+	var gone []string
+	for _, m := range base {
+		if !now[m] {
+			gone = append(gone, m)
+		}
+	}
+	sort.Strings(gone)
+	addUnionMembership(&c, gone)
+	return c
 }
 
 // MetricDelta is a single receipt metric's before/after with its change.
