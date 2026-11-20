@@ -510,7 +510,8 @@ func TestExplain_GoRoutesOnDifferentMuxesDoNotCompete(t *testing.T) {
 }
 
 // A hook takes any number of callbacks, so two registrations of one are not a
-// duplicate, and neither are a test's registrations on its own server. A client-side screen and a server endpoint on one path are matched by
+// duplicate, and neither are a test's registrations on its own server, nor two engines
+// mounted at one path. A client-side screen and a server endpoint on one path are matched by
 // different routers and do not compete; two screens on one path still do.
 func TestExplain_HooksAndScreensAreNotEndpoints(t *testing.T) {
 	store := facts.NewStore()
@@ -532,6 +533,8 @@ func TestExplain_HooksAndScreensAreNotEndpoints(t *testing.T) {
 		route("GET", "/settings", "app/javascript/admin.jsx", screen),
 		route("REST", "REST test-ns", "tests/phpunit/tests/rest-api.php", nil),
 		route("REST", "REST test-ns", "tests/phpunit/tests/rest-server.php", nil),
+		route("MOUNT", "/", "plugins/automation/config/routes.rb", map[string]any{"framework": "rails"}),
+		route("MOUNT", "/", "plugins/events/config/routes.rb", map[string]any{"framework": "rails"}),
 	)
 	insights, err := New().Explain(context.Background(), store)
 	if err != nil || len(insights) != 1 || len(insights[0].Evidence) != 1 ||

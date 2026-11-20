@@ -444,6 +444,11 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		if f.PropString("type") == "hook" {
 			continue
 		}
+		// A mount or a draw delegation is a placeholder for a route table served
+		// below it: two engines mounted at "/" layer their tables, they do not compete.
+		if strings.EqualFold(method, "MOUNT") || strings.EqualFold(method, "DRAW") {
+			continue
+		}
 		// A test registers on a server of its own, often the same path in every case;
 		// what it registers is not the application's routing.
 		if facts.IsTestPath(f.File) {
