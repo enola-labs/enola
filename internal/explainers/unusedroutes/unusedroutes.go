@@ -386,6 +386,20 @@ var wrapsEndpoints = map[string]bool{
 	"template": true, "not-found": true, "default": true,
 }
 
+// navigationRouters are the client-side routers: a route of theirs is a screen the
+// application navigates to, matched in the browser or the app, and never an HTTP
+// request a server answers. Keyed by framework, or by router where one framework
+// prop covers both (`vue`).
+var navigationRouters = map[string]bool{
+	"react-router": true, "angular": true, "auto_route": true, "go_router": true, "vue-router": true,
+}
+
+// isNavigationRoute reports whether a route is a client-side screen rather than an
+// HTTP endpoint.
+func isNavigationRoute(f facts.Fact) bool {
+	return navigationRouters[f.PropString("framework")] || navigationRouters[f.PropString("router")]
+}
+
 // duplicateRoutes reports a server route — one method on one path — registered in
 // more than one file of a repository. A router serves one registration of a path
 // and the other handler never runs, or refuses to start; which one wins depends on
@@ -418,6 +432,16 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		if kind, _ := f.PropAny("type").(string); wrapsEndpoints[kind] || strings.EqualFold(method, "USE") {
 			continue
 		}
+		// A hook (WordPress's add_action, add_filter) takes any number of callbacks,
+		// and every one of them runs: a second registration adds, it shadows nothing.
+		if f.PropString("type") == "hook" {
+			continue
+		}
+		// A test registers on a server of its own, often the same path in every case;
+		// what it registers is not the application's routing.
+		if facts.IsTestPath(f.File) {
+			continue
+		}
 		// A spec documents an endpoint and registers nothing: a spec beside the route
 		// it describes, or two specs naming one health check, are not two
 		// registrations a router has to choose between.
@@ -425,7 +449,13 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		case facts.RouteSourceOpenAPI, facts.RouteSourceGRPCProto, facts.RouteSourceOpenAPITypeScript:
 			continue
 		}
-		key := strings.ToUpper(method) + " " + pathParam.ReplaceAllStringFunc(f.Name, func(m string) string {
+		// A screen and an endpoint on one path are matched by different routers, one
+		// in the browser and one on the server, so only screens compete with screens.
+		namespace := ""
+		if isNavigationRoute(f) {
+			namespace = "screen "
+		}
+		key := namespace + strings.ToUpper(method) + " " + pathParam.ReplaceAllStringFunc(f.Name, func(m string) string {
 			if strings.HasPrefix(m, "/") {
 				return "/{}"
 			}

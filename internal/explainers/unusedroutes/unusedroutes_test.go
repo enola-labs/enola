@@ -508,3 +508,34 @@ func TestExplain_GoRoutesOnDifferentMuxesDoNotCompete(t *testing.T) {
 		t.Fatalf("want only /healthz, an unnamed mux beside a named one; got %+v (%v)", insights, err)
 	}
 }
+
+// A hook takes any number of callbacks, so two registrations of one are not a
+// duplicate, and neither are a test's registrations on its own server. A client-side screen and a server endpoint on one path are matched by
+// different routers and do not compete; two screens on one path still do.
+func TestExplain_HooksAndScreensAreNotEndpoints(t *testing.T) {
+	store := facts.NewStore()
+	route := func(method, path, file string, props map[string]any) facts.Fact {
+		p := map[string]any{"method": method}
+		for k, v := range props {
+			p[k] = v
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "site", Props: p}
+	}
+	hook := map[string]any{"framework": "wordpress", "type": "hook"}
+	screen := map[string]any{"framework": "react-router", "type": "page", "router": "react-router"}
+	store.Add(
+		route("ACTION", "ACTION add_user_role", "src/default-filters.php", hook),
+		route("ACTION", "ACTION add_user_role", "tests/capabilities.php", hook),
+		route("GET", "/", "config/routes.rb", map[string]any{"framework": "rails"}),
+		route("GET", "/", "app/javascript/app.jsx", screen),
+		route("GET", "/settings", "app/javascript/app.jsx", screen),
+		route("GET", "/settings", "app/javascript/admin.jsx", screen),
+		route("REST", "REST test-ns", "tests/phpunit/tests/rest-api.php", nil),
+		route("REST", "REST test-ns", "tests/phpunit/tests/rest-server.php", nil),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 || len(insights[0].Evidence) != 1 ||
+		insights[0].Evidence[0].Detail != "screen GET /settings is registered at app/javascript/admin.jsx:1, app/javascript/app.jsx:1" {
+		t.Fatalf("want only the two /settings screens; got %+v (%v)", insights, err)
+	}
+}
