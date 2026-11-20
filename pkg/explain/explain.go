@@ -160,6 +160,12 @@ type Report struct {
 	MediumCriticality int       `json:"medium_criticality"`
 	Hotspots          []Hotspot `json:"hotspots,omitempty"`
 
+	// ranked is every module with any coupling, in Hotspots' order; Hotspots is its
+	// first topHotspots. The summary's claims about the repository ("the most
+	// imported module", what is risky to change) are chosen from it, because the
+	// top of a coupling ranking is not the top of a fan-in or blast-radius one.
+	ranked []Hotspot
+
 	// CouplingUnresolved is true when dependency facts exist but none of their
 	// import edges resolved to a module — coupling analysis is unavailable, not
 	// genuinely zero. The renderer surfaces this as a note.
@@ -627,12 +633,8 @@ func computeHotspots(store *facts.Store, r *Report) {
 		return ranked[i].name < ranked[j].name // stable, deterministic
 	})
 
-	limit := topHotspots
-	if len(ranked) < limit {
-		limit = len(ranked)
-	}
-	for _, s := range ranked[:limit] {
-		r.Hotspots = append(r.Hotspots, Hotspot{
+	for _, s := range ranked {
+		r.ranked = append(r.ranked, Hotspot{
 			Module:      s.name,
 			FanIn:       s.fanIn,
 			FanOut:      s.fanOut,
@@ -647,6 +649,10 @@ func computeHotspots(store *facts.Store, r *Report) {
 			Generated:   generatedName(store, s.name),
 		})
 	}
+	// The table is the head of the ranking, capped so that appending to it cannot
+	// write into the rest.
+	top := min(topHotspots, len(r.ranked))
+	r.Hotspots = r.ranked[:top:top]
 }
 
 // reverseModuleReach counts the distinct modules that transitively depend on start

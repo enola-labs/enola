@@ -272,8 +272,8 @@ func startHere(r *Report, entries []entryPoint) []plain.Item {
 	// The module the most others import is what the rest of the code builds on,
 	// once it is imported often enough for that to be true.
 	var core *Hotspot
-	for i := range r.Hotspots {
-		h := &r.Hotspots[i]
+	for i := range r.ranked {
+		h := &r.ranked[i]
 		if h.Generated || h.FanIn < careFloor {
 			continue
 		}
@@ -317,7 +317,7 @@ func careful(r *Report) []plain.Item {
 		bar = careFloor
 	}
 	var risky []Hotspot
-	for _, h := range r.Hotspots {
+	for _, h := range r.ranked {
 		if !h.Generated && h.BlastRadius >= bar {
 			risky = append(risky, h)
 		}

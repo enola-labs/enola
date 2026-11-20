@@ -1,6 +1,7 @@
 package explain
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -99,7 +100,7 @@ func TestSummary_HealthVerdict(t *testing.T) {
 }
 
 func TestSummary_CarefulScalesWithRepositorySize(t *testing.T) {
-	r := &Report{Modules: 100, Hotspots: []Hotspot{
+	r := &Report{Modules: 100, ranked: []Hotspot{
 		{Module: "pkg/small", BlastRadius: 9},
 		{Module: "pkg/core", BlastRadius: 12},
 		{Module: "vendor/lib", BlastRadius: 50, Generated: true},
@@ -113,7 +114,7 @@ func TestSummary_CarefulScalesWithRepositorySize(t *testing.T) {
 	}
 
 	// In a small repository the floor holds: reaching 3 of 10 modules is local.
-	small := &Report{Modules: 10, Hotspots: []Hotspot{{Module: "a", BlastRadius: 3}}}
+	small := &Report{Modules: 10, ranked: []Hotspot{{Module: "a", BlastRadius: 3}}}
 	if got := summarize(small, nil).Careful; got[0].Subject != "" || !strings.Contains(got[0].Text, "No module stands out") {
 		t.Errorf("small repository: got %+v", got)
 	}
@@ -155,7 +156,7 @@ func TestSummary_SkipsGeneratedOffenders(t *testing.T) {
 }
 
 func TestSummary_StartHere(t *testing.T) {
-	r := &Report{Hotspots: []Hotspot{
+	r := &Report{ranked: []Hotspot{
 		{Module: "pkg/glue", FanIn: 1, FanOut: 90},
 		{Module: "pkg/rare", FanIn: careFloor - 1},
 		{Module: "internal/facts", FanIn: 345, FanOut: 1},
@@ -275,7 +276,7 @@ func TestSummaryRender_OnlyHedgesAreLabelled(t *testing.T) {
 }
 
 func TestSummary_NoCoreInASmallRepository(t *testing.T) {
-	r := &Report{Hotspots: []Hotspot{{Module: "pkg/a", FanIn: 2}}}
+	r := &Report{ranked: []Hotspot{{Module: "pkg/a", FanIn: 2}}}
 	for _, it := range summarize(r, nil).StartHere {
 		if it.Subject == "pkg/a" {
 			t.Errorf("a module imported twice is not what the code builds on: %+v", it)
@@ -327,5 +328,82 @@ func TestCompute_DeclaredLayersAndWhere(t *testing.T) {
 	r := Compute(eng)
 	if r.DeclaredLayers != 2 || !reflect.DeepEqual(r.LayerFiles, []string{"enola-intent.yaml"}) {
 		t.Errorf("layers = %d in %v, want 2 in [enola-intent.yaml]", r.DeclaredLayers, r.LayerFiles)
+	}
+}
+
+// trapReport is a repository whose most imported module ranks ninth on coupling:
+// eight modules m1..m8 each import sixteen leaf modules and are imported by six,
+// coupling 22 apiece, and z is imported by twenty-one modules and imports nothing,
+// coupling 21. The report's top-8 coupling table holds only the m modules.
+func trapReport(t *testing.T) *Report {
+	t.Helper()
+	var ff []facts.Fact
+	mod := func(name string) { ff = append(ff, facts.Fact{Kind: facts.KindModule, Name: name, File: name}) }
+	dep := func(from string, to ...string) {
+		for _, target := range to {
+			ff = append(ff, facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + target, File: from + "/x.go",
+				Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}}})
+		}
+	}
+	var leaves, ms []string
+	for i := 1; i <= 16; i++ {
+		leaves = append(leaves, fmt.Sprintf("s%02d", i))
+	}
+	for i := 1; i <= 8; i++ {
+		ms = append(ms, fmt.Sprintf("m%d", i))
+	}
+	mod("z")
+	for _, s := range leaves {
+		mod(s)
+	}
+	for _, m := range ms {
+		mod(m)
+		dep(m, leaves...)
+	}
+	for i := 1; i <= 6; i++ {
+		c := fmt.Sprintf("c%d", i)
+		mod(c)
+		dep(c, append([]string{"z"}, ms...)...)
+	}
+	for i := 1; i <= 15; i++ {
+		d := fmt.Sprintf("d%02d", i)
+		mod(d)
+		dep(d, "z")
+	}
+	eng := newTestEngine(t)
+	eng.Store().Add(ff...)
+	eng.Store().BuildGraph()
+	r := &Report{Modules: len(eng.Store().ByKind(facts.KindModule))}
+	computeHotspots(eng.Store(), r)
+	for _, h := range r.Hotspots {
+		if h.Module == "z" {
+			t.Fatalf("the fixture must keep z out of the top-8 table: %+v", r.Hotspots)
+		}
+	}
+	return r
+}
+
+// "The most imported module" is a claim about the repository, so it is chosen from
+// every module, not from the top-8 coupling table, which ranks something else.
+func TestSummaryMostImportedOverWholeRepo(t *testing.T) {
+	r := trapReport(t)
+	var core *plain.Item
+	for _, it := range summarize(r, nil).StartHere {
+		if strings.Contains(it.Text, "most imported module") {
+			core = &it
+		}
+	}
+	if core == nil || core.Subject != "z" || !strings.Contains(core.Text, "imported 21 times") {
+		t.Errorf("want z, imported 21 times, as the most imported module; got %+v", core)
+	}
+}
+
+// The Careful bar is a share of the repository's modules, so it is applied to every
+// module: one that reaches far is risky whatever its coupling rank.
+func TestSummaryCarefulOverWholeRepo(t *testing.T) {
+	r := trapReport(t)
+	got := summarize(r, nil).Careful
+	if len(got) == 0 || got[0].Subject != "z" || !strings.Contains(got[0].Text, "reach 21 other folders") {
+		t.Errorf("want z, reaching 21 modules, first in Careful; got %+v", got)
 	}
 }
