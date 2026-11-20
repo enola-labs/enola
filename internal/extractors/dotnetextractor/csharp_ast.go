@@ -67,7 +67,7 @@ func extractFileASTFull(src []byte, relFile string) ([]facts.Fact, aspnetScaffol
 	}
 	root := tree.RootNode()
 	w.walkTopLevelChildren(root)
-	w.scaffold.minimal = collectMinimalAPIRoutes(root, src, relFile, w.dir)
+	w.scaffold.minimal, w.scaffold.groupMethods, w.scaffold.groupMounts = collectMinimalAPIRoutes(root, src, relFile, w.dir)
 	w.lambdaHandlerSymbols(w.scaffold.minimal)
 	// APPEND: noteRefit already added this file's Refit declarations during the
 	// walk above, and assigning here would discard them.

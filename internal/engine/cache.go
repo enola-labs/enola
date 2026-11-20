@@ -3738,7 +3738,9 @@ import (
 // hands it, when each passes the same router it built itself.
 // v667: TypeScript: a NestJS controller base written as an enum or constant member
 // (@Controller(RouteKey.Asset)) is the string the repository declares for it.
-const cacheVersion = "v667"
+// v668: .NET: a minimal-API route registered on a method's RouteGroupBuilder
+// parameter is served under the groups the method is called on.
+const cacheVersion = "v668"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
