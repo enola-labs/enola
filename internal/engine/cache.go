@@ -3720,7 +3720,9 @@ import (
 // topics to what loads them, a Go service's queried tables included.
 // v658: Go: a test's call through a function's result (`testRunner().Doctor()`,
 // `r := build(); r.Run()`) is a reference to the method on the returned type.
-const cacheVersion = "v658"
+// v659: Go: a server route names the mux it is registered on (mux_scope), where the
+// registering function built it or it is net/http's DefaultServeMux.
+const cacheVersion = "v659"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -433,3 +433,78 @@ func TestExplain_RoutesCalledOnlyFromCodeThatNeverRuns(t *testing.T) {
 		t.Errorf("evidence should name the call that never runs, got %q", d)
 	}
 }
+
+// A Go repository builds many binaries, each with its own mux: two of them
+// serving /metrics shadow nothing. Registrations compete only when one main
+// package reaches both, or when no main package reaches one of them (a library
+// whose programs are outside the snapshot).
+func TestExplain_GoRoutesInSeparateProgramsDoNotCompete(t *testing.T) {
+	store := facts.NewStore()
+	mod := func(name string, main bool) facts.Fact {
+		p := map[string]any{"language": "go"}
+		if main {
+			p["package"] = "main"
+		}
+		return facts.Fact{Kind: facts.KindModule, Name: name, File: name, Repo: "mono", Props: p}
+	}
+	imports := func(from, to string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + to, File: from + "/main.go", Repo: "mono",
+			Props: map[string]any{"language": "go", "source": "internal"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: to}}}
+	}
+	route := func(path, module string, line int) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: module + "/server.go", Line: line, Repo: "mono",
+			Props:     map[string]any{"method": "ALL", "language": "go", "framework": "net/http"},
+			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: module}}}
+	}
+	store.Add(
+		mod("cmd/proxy", true), mod("cmd/scheduler", true), mod("cmd/all", true),
+		mod("proxy/app", false), mod("scheduler/app", false), mod("lib/a", false), mod("lib/b", false),
+		mod("web/one", false), mod("web/two", false),
+		imports("cmd/proxy", "proxy/app"), imports("cmd/scheduler", "scheduler/app"),
+		imports("cmd/all", "web/one"), imports("cmd/all", "web/two"),
+		route("/metrics", "proxy/app", 10), route("/metrics", "scheduler/app", 20),
+		route("/healthz", "web/one", 30), route("/healthz", "web/two", 40),
+		route("/debug", "lib/a", 50), route("/debug", "lib/b", 60),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("want one duplicate-route finding, got %+v (%v)", insights, err)
+	}
+	var got []string
+	for _, ev := range insights[0].Evidence {
+		got = append(got, ev.Detail)
+	}
+	want := []string{
+		"ALL /debug is registered at lib/a/server.go:50, lib/b/server.go:60",
+		"ALL /healthz is registered at web/one/server.go:30, web/two/server.go:40",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("evidence =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// One program can still serve a path twice without conflict, from two muxes: two
+// components each building their own, or one on the DefaultServeMux. A mux the
+// extractor could not name may be either, so it competes with both.
+func TestExplain_GoRoutesOnDifferentMuxesDoNotCompete(t *testing.T) {
+	store := facts.NewStore()
+	route := func(path, file, mux string) facts.Fact {
+		p := map[string]any{"method": "ALL", "language": "go"}
+		if mux != "" {
+			p[facts.PropMuxScope] = mux
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "mono", Props: p}
+	}
+	store.Add(
+		route("/metrics", "proxy/server.go", "local:proxy.serve#m@3"),
+		route("/metrics", "scheduler/server.go", "local:scheduler.serve#m@7"),
+		route("/metrics", "liveness/server.go", facts.MuxScopeDefault),
+		route("/healthz", "proxy/server.go", "local:proxy.serve#m@3"),
+		route("/healthz", "kubelet/server.go", ""),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 || len(insights[0].Evidence) != 1 ||
+		insights[0].Evidence[0].Detail != "ALL /healthz is registered at kubelet/server.go:1, proxy/server.go:1" {
+		t.Fatalf("want only /healthz, an unnamed mux beside a named one; got %+v (%v)", insights, err)
+	}
+}

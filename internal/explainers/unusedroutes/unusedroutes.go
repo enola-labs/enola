@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/providers"
 )
@@ -392,9 +393,13 @@ var wrapsEndpoints = map[string]bool{
 // one endpoint, and a change made in the wrong one changes nothing.
 func duplicateRoutes(store *facts.Store) []facts.Insight {
 	type site struct {
-		file string
-		line int
+		file   string
+		line   int
+		module string // graph node of the declaring module
+		golang bool
+		mux    string // facts.PropMuxScope, "" when unknown
 	}
+	moduleKeys := common.NewModuleKeys(store)
 	byKey := map[string]map[string][]site{} // repo → "METHOD path" → registrations
 	for _, f := range store.ByKind(facts.KindRoute) {
 		if f.Props == nil {
@@ -429,7 +434,14 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		if byKey[f.Repo] == nil {
 			byKey[f.Repo] = map[string][]site{}
 		}
-		byKey[f.Repo][key] = append(byKey[f.Repo][key], site{f.File, f.Line})
+		s := site{file: f.File, line: f.Line, golang: f.PropString("language") == "go", mux: f.PropString(facts.PropMuxScope)}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelDeclares {
+				s.module = moduleKeys.Key(f.Repo, r.Target)
+				break
+			}
+		}
+		byKey[f.Repo][key] = append(byKey[f.Repo][key], s)
 	}
 	repos := make([]string, 0, len(byKey))
 	for r := range byKey {
@@ -437,16 +449,47 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 	}
 	sort.Strings(repos)
 
+	var programs *goPrograms // built on first need: most repositories never ask
+	competes := func(a, b site) bool {
+		if a.file == b.file {
+			return false
+		}
+		if !a.golang || !b.golang {
+			return true
+		}
+		// Two muxes the extractor could name, and not the same one: each serves its
+		// own registration of the path.
+		if a.mux != "" && b.mux != "" && a.mux != b.mux {
+			return false
+		}
+		if programs == nil {
+			programs = newGoPrograms(store)
+		}
+		return programs.share(a.module, b.module)
+	}
+
 	var out []facts.Insight
 	for _, repo := range repos {
 		var keys []string
+		competing := map[string][]site{}
 		for key, sites := range byKey[repo] {
-			files := map[string]bool{}
-			for _, s := range sites {
-				files[s.file] = true
+			in := make([]bool, len(sites))
+			for i := range sites {
+				for j := i + 1; j < len(sites); j++ {
+					if competes(sites[i], sites[j]) {
+						in[i], in[j] = true, true
+					}
+				}
 			}
-			if len(files) > 1 {
+			var kept []site
+			for i, s := range sites {
+				if in[i] {
+					kept = append(kept, s)
+				}
+			}
+			if len(kept) > 0 {
 				keys = append(keys, key)
+				competing[key] = kept
 			}
 		}
 		if len(keys) == 0 {
@@ -458,7 +501,7 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 			if len(evidence) >= maxSamples {
 				break
 			}
-			sites := byKey[repo][key]
+			sites := competing[key]
 			sort.Slice(sites, func(i, j int) bool {
 				if sites[i].file != sites[j].file {
 					return sites[i].file < sites[j].file
@@ -494,6 +537,64 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		})
 	}
 	return out
+}
+
+// goPrograms answers whether two Go packages can be linked into one program. A Go
+// repository often builds many binaries, each serving its own mux: two of them both
+// registering /metrics shadow nothing. A program is a main package and everything it
+// imports, so two registrations compete only when some main package reaches both, or
+// when either is reached by none (a library served by programs outside the snapshot,
+// which may well mount both).
+type goPrograms struct {
+	reachedBy map[string][]int // module node -> indices of the main packages reaching it
+}
+
+func newGoPrograms(store *facts.Store) *goPrograms {
+	graph := common.BuildModuleGraphExcluding(store, facts.CouplingSymbolRollup)
+	keys := common.NewModuleKeys(store)
+	var mains []string
+	for _, m := range store.ByKind(facts.KindModule) {
+		if m.PropString("language") == "go" && m.PropString("package") == "main" && !common.IsTestModule(m) {
+			mains = append(mains, keys.Key(m.Repo, m.Name))
+		}
+	}
+	sort.Strings(mains)
+	p := &goPrograms{reachedBy: map[string][]int{}}
+	for i, root := range mains {
+		seen := map[string]bool{root: true}
+		queue := []string{root}
+		for len(queue) > 0 {
+			n := queue[0]
+			queue = queue[1:]
+			p.reachedBy[n] = append(p.reachedBy[n], i)
+			for _, next := range graph[n] {
+				if !seen[next] {
+					seen[next] = true
+					queue = append(queue, next)
+				}
+			}
+		}
+	}
+	return p
+}
+
+// share reports whether one program can hold both modules. Both lists are ascending.
+func (p *goPrograms) share(a, b string) bool {
+	pa, pb := p.reachedBy[a], p.reachedBy[b]
+	if len(pa) == 0 || len(pb) == 0 {
+		return true
+	}
+	for i, j := 0, 0; i < len(pa) && j < len(pb); {
+		switch {
+		case pa[i] == pb[j]:
+			return true
+		case pa[i] < pb[j]:
+			i++
+		default:
+			j++
+		}
+	}
+	return false
 }
 
 // upperMethod upper-cases the method of a "METHOD path" label, the spelling the

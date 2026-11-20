@@ -1,6 +1,7 @@
 package goextractor
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"sort"
@@ -73,7 +74,7 @@ func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, rou
 			}
 			seedLocalMounts(prefixes, fn.Body)
 			w := &routeWalk{fset: fset, prefixes: prefixes, closures: map[string]*ast.FuncLit{}, framework: framework, relFile: relFile, pkgDir: pkgDir, result: &result, recvVar: recvVar, recvType: recvType,
-				helpers: routes.helpers, imports: fileImports}
+				helpers: routes.helpers, imports: fileImports, funcName: funcKeyFor(fn, pkgDir)}
 			for _, stmt := range fn.Body.List {
 				w.stmt(stmt)
 			}
@@ -166,6 +167,72 @@ type routeWalk struct {
 	// the file's import names, to resolve a call to one.
 	helpers map[string]regHelper
 	imports map[string]string
+	// funcName names the function walked, and localMuxes the routers it builds
+	// itself: the line of the `mux := http.NewServeMux()` that made each, 0 for a
+	// name bound twice. See muxScope.
+	funcName   string
+	localMuxes map[string]int
+}
+
+// noteLocalMux records a local the function builds a fresh router into: a
+// constructor named New... (`http.NewServeMux()`, `mux.NewPathRecorderMux(name)`,
+// `chi.NewRouter()`) or a struct literal. Any other call may hand back a router
+// somebody else registers on too, so it records nothing.
+func (w *routeWalk) noteLocalMux(name string, value ast.Expr, line int) {
+	if name == "" || name == "_" {
+		return
+	}
+	if u, ok := value.(*ast.UnaryExpr); ok && u.Op == token.AND {
+		value = u.X
+	}
+	fresh := false
+	switch v := value.(type) {
+	case *ast.CompositeLit:
+		fresh = true
+	case *ast.CallExpr:
+		switch fn := v.Fun.(type) {
+		case *ast.Ident:
+			fresh = strings.HasPrefix(fn.Name, "New")
+		case *ast.SelectorExpr:
+			_, pkg := fn.X.(*ast.Ident)
+			fresh = pkg && strings.HasPrefix(fn.Sel.Name, "New")
+		}
+	}
+	if w.localMuxes == nil {
+		w.localMuxes = map[string]int{}
+	}
+	if _, seen := w.localMuxes[name]; seen || !fresh {
+		w.localMuxes[name] = 0
+		return
+	}
+	w.localMuxes[name] = line
+}
+
+// muxScope is the PropMuxScope of a registration call, "" when its router is not
+// one the function can name.
+func (w *routeWalk) muxScope(call *ast.CallExpr) string {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	// gorilla's r.HandleFunc(...).Methods("GET") registers on the inner call's router.
+	if inner, ok := sel.X.(*ast.CallExpr); ok && sel.Sel.Name == "Methods" {
+		return w.muxScope(inner)
+	}
+	switch x := sel.X.(type) {
+	case *ast.Ident:
+		if w.imports[x.Name] == "net/http" {
+			return facts.MuxScopeDefault
+		}
+		if line := w.localMuxes[x.Name]; line > 0 {
+			return fmt.Sprintf("local:%s#%s@%d", w.funcName, x.Name, line)
+		}
+	case *ast.SelectorExpr:
+		if pkg, ok := x.X.(*ast.Ident); ok && w.imports[pkg.Name] == "net/http" && x.Sel.Name == "DefaultServeMux" {
+			return facts.MuxScopeDefault
+		}
+	}
+	return ""
 }
 
 func (w *routeWalk) emit(call *ast.CallExpr) {
@@ -197,6 +264,11 @@ func (w *routeWalk) emit(call *ast.CallExpr) {
 		}
 		if r.target != "" && fact.PropString(facts.PropHandlerTarget) == "" {
 			fact.SetProp(facts.PropHandlerTarget, r.target)
+		}
+		if r.method != "USE" && opID == "" {
+			if scope := w.muxScope(call); scope != "" {
+				fact.SetProp(facts.PropMuxScope, scope)
+			}
 		}
 		*w.result = append(*w.result, fact)
 	}
@@ -304,6 +376,7 @@ func (w *routeWalk) stmt(stmt ast.Stmt) {
 				if vs, ok := spec.(*ast.ValueSpec); ok && len(vs.Names) == len(vs.Values) {
 					for i, name := range vs.Names {
 						w.noteLocalType(name.Name, vs.Values[i])
+						w.noteLocalMux(name.Name, vs.Values[i], w.fset.Position(name.Pos()).Line)
 					}
 				}
 			}
@@ -313,6 +386,12 @@ func (w *routeWalk) stmt(stmt ast.Stmt) {
 			for i, lhs := range s.Lhs {
 				if name := identName(lhs); name != "" {
 					w.noteLocalType(name, s.Rhs[i])
+					if s.Tok == token.DEFINE {
+						w.noteLocalMux(name, s.Rhs[i], w.fset.Position(lhs.Pos()).Line)
+					} else if _, local := w.localMuxes[name]; local {
+						// Reassigned: which router it holds now is not read.
+						w.localMuxes[name] = 0
+					}
 				}
 			}
 		}

@@ -589,3 +589,61 @@ func (h *handler) serve(w http.ResponseWriter, req *http.Request) {}
 		}
 	}
 }
+
+// A route names the mux it is registered on where the function shows it: the
+// process-wide DefaultServeMux, or a router the function built itself. A router
+// handed in, read from a field or returned by a call may be any router and names
+// nothing.
+func TestExtractRoutes_MuxScope(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"app/serve.go": `package app
+
+import (
+	"net/http"
+
+	"example.com/mono/mux"
+)
+
+type server struct{ mux *http.ServeMux }
+
+func metrics() {
+	m := mux.NewPathRecorderMux("proxy")
+	m.Handle("/metrics", nil)
+	http.HandleFunc("/healthz", nil)
+	http.DefaultServeMux.Handle("/readyz", nil)
+}
+
+func (s *server) install(given *http.ServeMux) {
+	given.Handle("/a", nil)
+	s.mux.Handle("/b", nil)
+	got := lookup()
+	got.Handle("/c", nil)
+	again := http.NewServeMux()
+	again = lookup()
+	again.Handle("/d", nil)
+}
+
+func lookup() *http.ServeMux { return nil }
+`,
+	})
+	want := map[string]string{
+		"/metrics": "local:testmod/app.metrics#m@12",
+		"/healthz": facts.MuxScopeDefault,
+		"/readyz":  facts.MuxScopeDefault,
+		"/a":       "", "/b": "", "/c": "", "/d": "",
+	}
+	seen := 0
+	for _, r := range findFactsByKind(ff, facts.KindRoute) {
+		w, ok := want[r.Name]
+		if !ok {
+			continue
+		}
+		seen++
+		if got := r.PropString(facts.PropMuxScope); got != w {
+			t.Errorf("%s: mux_scope = %q, want %q", r.Name, got, w)
+		}
+	}
+	if seen != len(want) {
+		t.Errorf("found %d of %d routes", seen, len(want))
+	}
+}

@@ -237,6 +237,17 @@ const PropInheritedCalls = "inherited_calls"
 // module edge rolled up from it points against the import that exists.
 const PropStoredCalls = "stored_calls"
 
+// PropMuxScope is the prop on a Go server route naming the mux it is registered on,
+// where the extractor can tell: MuxScopeDefault for net/http's process-wide
+// DefaultServeMux, or "local:<function>#<variable>@<line>" for a mux the
+// registering function built itself. Two registrations on different known muxes
+// do not compete for a path. Absent when the mux arrives as a parameter, a field or
+// a call result, which may be any mux.
+const PropMuxScope = "mux_scope"
+
+// MuxScopeDefault is PropMuxScope for net/http's DefaultServeMux.
+const MuxScopeDefault = "default"
+
 // PropMemberCalls is the prop on a method listing calls on the object it runs on
 // that its file could not resolve, because what they name is declared in another
 // file: `common` for self.common(), `helper.work` for self.helper.work(). The
