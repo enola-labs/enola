@@ -3750,7 +3750,9 @@ import (
 // v672: OpenAPI, AsyncAPI and Tailwind read a file a reference or import points to
 // only when it is this checkout's: not out of the repository, and not inside a linked
 // worktree nested in it.
-const cacheVersion = "v672"
+// v673: Tailwind: a theme file the reader follows an import into is keyed by its
+// content, so editing or deleting a theme outside the walk re-extracts.
+const cacheVersion = "v673"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
