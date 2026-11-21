@@ -504,6 +504,30 @@ func edgeKindBreakdown(added, removed map[string]int) string {
 	if len(kinds) == 0 {
 		return ""
 	}
+	ordered := rankedKinds(kinds)
+	parts := make([]string, 0, len(ordered))
+	for _, k := range ordered {
+		parts = append(parts, k+" "+signed(added[k], removed[k]))
+	}
+	return "  (" + strings.Join(parts, ", ") + ")"
+}
+
+// perKind renders "imports 5, calls 6, declares 5" in the order the edge lists use.
+func perKind(counts map[string]int) string {
+	kinds := make(map[string]bool, len(counts))
+	for k := range counts {
+		kinds[k] = true
+	}
+	ordered := rankedKinds(kinds)
+	parts := make([]string, 0, len(ordered))
+	for _, k := range ordered {
+		parts = append(parts, fmt.Sprintf("%s %d", k, counts[k]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// rankedKinds orders edge kinds by rankOf, then by name.
+func rankedKinds(kinds map[string]bool) []string {
 	ordered := make([]string, 0, len(kinds))
 	for k := range kinds {
 		ordered = append(ordered, k)
@@ -515,11 +539,7 @@ func edgeKindBreakdown(added, removed map[string]int) string {
 		}
 		return ordered[i] < ordered[j]
 	})
-	parts := make([]string, 0, len(ordered))
-	for _, k := range ordered {
-		parts = append(parts, k+" "+signed(added[k], removed[k]))
-	}
-	return "  (" + strings.Join(parts, ", ") + ")"
+	return ordered
 }
 
 func writeEdgeLines(sb *strings.Builder, heading string, edges []diff.Edge) {
@@ -540,7 +560,9 @@ func writeEdgeLines(sb *strings.Builder, heading string, edges []diff.Edge) {
 		return ordered[i].Target < ordered[j].Target
 	})
 
-	fmt.Fprintf(sb, "\n%s (%d):\n", heading, len(ordered))
+	// The heading counts each kind, so the summary's "uses between modules",
+	// which are import pairs, can be found among the imports here.
+	fmt.Fprintf(sb, "\n%s (%d: %s):\n", heading, len(ordered), perKind(edgeKindCounts(ordered)))
 	for i, e := range ordered {
 		if i == listCap {
 			fmt.Fprintf(sb, "  … %d more (--detail for the full list)\n", len(ordered)-listCap)
