@@ -46,7 +46,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	a := assembleFileResults(perFile, tsFiles)
 	a.compose(repoPath, rc, templates)
-	a.facts = bindTailwind(a.facts, tailwindTokens(repoPath, files), repoPath, files, tsFiles, sources)
+	a.facts = bindTailwind(a.facts, tailwindTokens(repoPath, files, plugin.DiskReader(ctx)), repoPath, files, tsFiles, sources)
 	a.facts = mergeFileRefs(append(a.facts, e.viteHTMLFacts(ctx, repoPath, files, aliasRoots, rc)...))
 	a.facts = append(a.facts, a.coverageFacts(repoPath)...)
 

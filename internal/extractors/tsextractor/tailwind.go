@@ -110,8 +110,9 @@ type tailwindToken struct {
 
 // tailwindTokens reads the tokens a repository's Tailwind themes declare: every
 // tailwind.config.*, every preset or plugin module (a file importing from
-// "tailwindcss"), and every @theme block in CSS.
-func tailwindTokens(repoPath string, files []string) []tailwindToken {
+// "tailwindcss"), and every @theme block in CSS. read records each file a theme is
+// followed into, so the cache key covers its content (plugin.DiskReader).
+func tailwindTokens(repoPath string, files []string, read func(relPath string)) []tailwindToken {
 	var out []tailwindToken
 	pkgNames := map[string]string{}
 	for _, f := range files {
@@ -132,13 +133,13 @@ func tailwindTokens(repoPath string, files []string) []tailwindToken {
 			}
 			out = append(out, tailwindV4Tokens(string(src), rel)...)
 		case tailwindConfigRe.MatchString(rel):
-			out = append(out, withSource(readTailwindTheme(repoPath, rel), rel)...)
+			out = append(out, withSource(readTailwindTheme(repoPath, rel, read), rel)...)
 		case ext == ".ts" || ext == ".js" || ext == ".cjs" || ext == ".mjs":
 			src, err := os.ReadFile(filepath.Join(repoPath, f)) //factpath:host
 			if err != nil || !importsTailwind(string(src)) {
 				continue
 			}
-			out = append(out, withSource(readTailwindTheme(repoPath, rel), rel)...)
+			out = append(out, withSource(readTailwindTheme(repoPath, rel, read), rel)...)
 		}
 	}
 	return out
@@ -214,6 +215,7 @@ type themeReader struct {
 	repoPath string
 	kinds    *tsutil.KindTable
 	parsed   map[string]*themeFile
+	read     func(relPath string) // records each file read, the walked ones included
 }
 
 type themeFile struct {
@@ -225,8 +227,8 @@ type themeFile struct {
 	consts  map[string]*sitter.Node
 }
 
-func readTailwindTheme(repoPath, rel string) []tailwindToken {
-	r := &themeReader{repoPath: repoPath, kinds: tsKindsFor(false), parsed: map[string]*themeFile{}}
+func readTailwindTheme(repoPath, rel string, read func(relPath string)) []tailwindToken {
+	r := &themeReader{repoPath: repoPath, kinds: tsKindsFor(false), parsed: map[string]*themeFile{}, read: read}
 	defer r.close()
 	tf := r.file(rel)
 	if tf == nil {
@@ -280,6 +282,9 @@ func (r *themeReader) file(rel string) *themeFile {
 	if !workspace.InCheckout(r.repoPath, abs) {
 		return nil
 	}
+	// Recorded before the read: an import is followed past the walk, where the cache
+	// key cannot see the file, and a candidate that is missing now may appear later.
+	r.read(rel)
 	src, err := os.ReadFile(abs)
 	if err != nil {
 		return nil

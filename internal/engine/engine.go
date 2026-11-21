@@ -915,7 +915,7 @@ func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allN
 		// Cache the raw (pre-tagging) facts before the engine mutates them.
 		if cache != nil {
 			if key, ok := keys[ext.Name()]; ok {
-				cache.putProbed(key, repoPath, probes.Paths(), extracted)
+				cache.putProbed(key, repoPath, probes.Paths(), probes.Reads(), extracted)
 			}
 		}
 

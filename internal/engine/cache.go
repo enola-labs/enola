@@ -3750,7 +3750,9 @@ import (
 // v672: OpenAPI, AsyncAPI and Tailwind read a file a reference or import points to
 // only when it is this checkout's: not out of the repository, and not inside a linked
 // worktree nested in it.
-const cacheVersion = "v672"
+// v673: Tailwind: a theme file the reader follows an import into is keyed by its
+// content, so editing or deleting a theme outside the walk re-extracts.
+const cacheVersion = "v673"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
@@ -4055,56 +4057,95 @@ func (c *extractorCache) peek(key string) ([]facts.Fact, bool) {
 
 // An extractor that looked for paths on disk outside its files (plugin.DiskProbes)
 // is cached in two entries. The probe list sits under probesKey(key); the facts sit
-// under probedKey, the key extended with whether each probed path exists. A path
-// that appears or disappears changes the facts' key, so they are extracted again;
-// an extractor that probed nothing is cached under its plain key, as before.
+// under probedKey, the key extended with whether each probed path exists and with
+// the content of each path it read. A path that appears or disappears, or a read
+// file that changes, changes the facts' key, so they are extracted again; an
+// extractor that probed nothing is cached under its plain key, as before.
 
 func probesKey(key string) string { return key + "\x00probes" }
 
-// probedKey folds the existence of each probed path into key.
-func probedKey(key, repoPath string, paths []string) string {
-	if len(paths) == 0 {
+// probeRead marks an entry of the probe list as a file whose content was read,
+// not only looked for.
+const probeRead = "read"
+
+// probe is one entry of the probe list: a path, and whether its content was read.
+type probe struct {
+	path string
+	read bool
+}
+
+func probeList(paths, reads []string) []probe {
+	out := make([]probe, 0, len(paths)+len(reads))
+	for _, p := range paths {
+		out = append(out, probe{path: p})
+	}
+	for _, p := range reads {
+		out = append(out, probe{path: p, read: true})
+	}
+	return out
+}
+
+// probedKey folds the existence of each probed path, and the content of each read
+// one, into key.
+func probedKey(key, repoPath string, probes []probe) string {
+	if len(probes) == 0 {
 		return key
 	}
 	h := sha256.New()
 	h.Write([]byte(key + "\x00probed\x00"))
-	for _, p := range paths {
-		_, err := os.Stat(filepath.Join(repoPath, filepath.FromSlash(p)))
-		_, _ = fmt.Fprintf(h, "%s\x00%t\x00", p, err == nil)
+	for _, p := range probes {
+		abs := filepath.Join(repoPath, filepath.FromSlash(p.path)) //factpath:host
+		if !p.read {
+			_, err := os.Stat(abs)
+			_, _ = fmt.Fprintf(h, "%s\x00%t\x00", p.path, err == nil)
+			continue
+		}
+		src, err := os.ReadFile(abs)
+		if err != nil {
+			_, _ = fmt.Fprintf(h, "%s\x00read\x00absent\x00", p.path)
+			continue
+		}
+		sum := sha256.Sum256(src)
+		_, _ = fmt.Fprintf(h, "%s\x00read\x00%x\x00", p.path, sum)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
 // getProbed returns the cached facts for key, re-checking the paths the extractor
-// probed when it produced them.
+// probed and the files it read when it produced them.
 func (c *extractorCache) getProbed(key, repoPath string) ([]facts.Fact, bool) {
-	probes, ok := c.peek(probesKey(key))
+	entries, ok := c.peek(probesKey(key))
 	if !ok {
 		return c.get(key)
 	}
-	paths := make([]string, len(probes))
-	for i, p := range probes {
-		paths[i] = p.Name
+	probes := make([]probe, len(entries))
+	for i, p := range entries {
+		probes[i] = probe{path: p.Name, read: p.Kind == probeRead}
 	}
-	ff, hit := c.get(probedKey(key, repoPath, paths))
+	ff, hit := c.get(probedKey(key, repoPath, probes))
 	if hit {
 		c.get(probesKey(key)) // carry the probe list forward with the facts
 	}
 	return ff, hit
 }
 
-// putProbed stores ff for key, with the paths the extractor probed on disk.
-func (c *extractorCache) putProbed(key, repoPath string, paths []string, ff []facts.Fact) {
-	if len(paths) == 0 {
+// putProbed stores ff for key, with the paths the extractor probed on disk and the
+// files outside its own it read.
+func (c *extractorCache) putProbed(key, repoPath string, paths, reads []string, ff []facts.Fact) {
+	probes := probeList(paths, reads)
+	if len(probes) == 0 {
 		c.put(key, ff)
 		return
 	}
-	probes := make([]facts.Fact, len(paths))
-	for i, p := range paths {
-		probes[i] = facts.Fact{Name: p}
+	entries := make([]facts.Fact, len(probes))
+	for i, p := range probes {
+		entries[i] = facts.Fact{Name: p.path}
+		if p.read {
+			entries[i].Kind = probeRead
+		}
 	}
-	c.put(probesKey(key), probes)
-	c.put(probedKey(key, repoPath, paths), ff)
+	c.put(probesKey(key), entries)
+	c.put(probedKey(key, repoPath, probes), ff)
 }
 
 // providerCache is the view of the extractor cache the provider seam receives:
