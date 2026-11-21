@@ -407,3 +407,52 @@ func TestSummaryCarefulOverWholeRepo(t *testing.T) {
 		t.Errorf("want z, reaching 21 modules, first in Careful; got %+v", got)
 	}
 }
+
+func TestSummary_StartHereCountsTheEntriesItLeavesOut(t *testing.T) {
+	r := &Report{ranked: []Hotspot{{Module: "internal/facts", FanIn: 345}}}
+	var entries []entryPoint
+	for _, n := range []string{"cmd/a.main", "cmd/b.main", "cmd/c.main", "cmd/d.main", "cmd/e.main"} {
+		entries = append(entries, entryPoint{name: n, mechanism: "main"})
+	}
+	s := summarize(r, entries)
+	if len(s.StartHere) != maxEntries+1 || s.StartHere[0].Subject != "cmd/a.main" || s.StartHere[1].Subject != "cmd/b.main" {
+		t.Fatalf("want the first %d entries and the core, got %+v", maxEntries, s.StartHere)
+	}
+	if s.MoreEntries != 3 {
+		t.Errorf("MoreEntries = %d, want 3", s.MoreEntries)
+	}
+	if out := s.Render(); !strings.Contains(out, "3 more ways into the program are listed by enola flows.") {
+		t.Errorf("the section must say how many entries it left out:\n%s", out)
+	}
+
+	if s := summarize(r, entries[:maxEntries]); s.MoreEntries != 0 || strings.Contains(s.Render(), "more way") {
+		t.Errorf("nothing left out, nothing to count: MoreEntries = %d", s.MoreEntries)
+	}
+}
+
+func TestSummary_CarefulCountsTheModulesItLeavesOut(t *testing.T) {
+	r := &Report{Modules: 100, ranked: []Hotspot{
+		{Module: "pkg/a", BlastRadius: 50},
+		{Module: "pkg/b", BlastRadius: 40},
+		{Module: "pkg/c", BlastRadius: 30},
+		{Module: "pkg/d", BlastRadius: 20},
+		{Module: "pkg/e", BlastRadius: 10},
+		{Module: "pkg/low", BlastRadius: 9},
+		{Module: "vendor/lib", BlastRadius: 90, Generated: true},
+	}}
+	s := summarize(r, nil)
+	if len(s.Careful) != plain.MaxItems || s.Careful[0].Subject != "pkg/a" || s.Careful[2].Subject != "pkg/c" {
+		t.Fatalf("want the three that reach furthest, got %+v", s.Careful)
+	}
+	if s.MoreCareful != 2 {
+		t.Errorf("MoreCareful = %d, want 2 (pkg/d and pkg/e clear the bar of 10)", s.MoreCareful)
+	}
+	if out := s.Render(); !strings.Contains(out, "2 more modules reach at least 10 other folders of code.") {
+		t.Errorf("the section must say how many modules over the bar it left out:\n%s", out)
+	}
+
+	r.ranked = r.ranked[:3]
+	if s := summarize(r, nil); s.MoreCareful != 0 || strings.Contains(s.Render(), "more module") {
+		t.Errorf("nothing left out, nothing to count: MoreCareful = %d", s.MoreCareful)
+	}
+}
