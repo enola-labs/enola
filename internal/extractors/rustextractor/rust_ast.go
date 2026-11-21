@@ -188,6 +188,9 @@ type astWalker struct {
 	// localTypes holds the stated types of the current function's parameters and
 	// lets (receivers.go).
 	localTypes map[string]rustTypeExpr
+	// bufferLocals holds the current function's parameters and lets that the
+	// source shows are in-memory buffers or generic parameters (iobuffer.go).
+	bufferLocals map[string]bool
 
 	// inTestMod is true while walking inside a #[cfg(test)] module's subtree.
 	// No symbol facts are emitted there (test functions/fixtures never become
@@ -842,9 +845,11 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
-	savedLocals := w.localTypes
+	savedLocals, savedBuffers := w.localTypes, w.bufferLocals
 	w.localTypes = make(map[string]rustTypeExpr)
+	w.bufferLocals = make(map[string]bool)
 	w.bindParameters(node.ChildByFieldName("parameters"))
+	w.bindBufferParameters(node.ChildByFieldName("parameters"))
 	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
 	w.scanTypeNames(node.ChildByFieldName("parameters"))
 	w.scanTypeNames(node.ChildByFieldName("return_type"))
@@ -911,7 +916,7 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	w.fnScalingCallDepth = savedCallDepth
 	w.fnIODirect, w.fnRecursive, w.fnSelfName = savedIO, savedRec, savedSelf
 	w.loopScopes = savedScopes
-	w.localTypes = savedLocals
+	w.localTypes, w.bufferLocals = savedLocals, savedBuffers
 
 	w.popOwner()
 }
@@ -1439,6 +1444,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 					delete(w.localTypes, name)
 				}
 			}
+			w.bindBufferLet(node)
 			return
 		}
 	case "if_expression", "match_arm", "try_expression":
@@ -1982,7 +1988,7 @@ func (w *astWalker) handleStructExpression(node *sitter.Node) {
 
 func (w *astWalker) handleCallExpression(node *sitter.Node) {
 	fn := node.ChildByFieldName("function")
-	if rustIsIODirectCall(fn, w.src) {
+	if rustIsIODirectCall(fn, w.src) && !w.ioOnBuffer(fn) {
 		w.fnIODirect = true
 	}
 	name, form := w.calleeTrailing(fn)
