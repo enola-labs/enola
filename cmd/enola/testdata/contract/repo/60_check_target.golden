@@ -44,7 +44,7 @@ Added (4):
   symbol     example.com/gosample/pkg/c.Gamma             pkg/c/c.go:4
   dependency …osample/pkg/b -> example.com/gosample/pkg/c pkg/b/gamma.go:3
 
-New coupling (4):
+New coupling (4: imports 1, calls 1, declares 2):
   example.com/gosample/pkg/b                   --imports--> example.com/gosample/pkg/c
   example.com/gosample/pkg/b.UsesGamma         --calls--> example.com/gosample/pkg/c.Gamma
   example.com/gosample/pkg/b.UsesGamma         --declares--> example.com/gosample/pkg/b
