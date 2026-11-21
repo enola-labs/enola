@@ -15,7 +15,7 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
-// fixture builds a store exercising every binder at once, and deliberately seeds the
+// fixture builds a store exercising all four binders at once, and deliberately seeds the
 // collision that makes order-independence non-trivial: a gRPC service method and an
 // HTTP handler that share the method name GetUser. If httphandler did not gate on
 // route type, the result would depend on whether grpcimpl had already written the
@@ -132,10 +132,14 @@ func TestBinders_RepeatedRunsAreStable(t *testing.T) {
 }
 
 // TestRegistry_StagePartitions asserts the registry hands each binder to exactly one
-// stage, and that the one binder with a real ordering constraint declares the earlier
-// one. grpc-client-fqn rewrites route NAMES, and the cross-repo linker matches routes
-// by name — so if it ever moved to post-link, gRPC client calls would be matched
-// against their unresolved short paths and silently link to nothing.
+// stage, and that of the four binders these tests run, grpc-client-fqn alone declares
+// the earlier one. It rewrites route NAMES, and the cross-repo linker matches routes by
+// name, so if it ever moved to post-link, gRPC client calls would be matched against
+// their unresolved short paths and silently link to nothing.
+//
+// The four are the registry's original set, not the production one: pkg/bootstrap
+// registers more binders, several of them pre-link, and none of the tests in this file
+// runs them.
 func TestRegistry_StagePartitions(t *testing.T) {
 	reg := binders.NewRegistry()
 	for _, b := range []binders.Binder{
@@ -154,6 +158,6 @@ func TestRegistry_StagePartitions(t *testing.T) {
 		for _, b := range pre {
 			names = append(names, b.Name())
 		}
-		t.Errorf("pre-link stage = %v, want exactly [grpc-client-fqn]", names)
+		t.Errorf("pre-link stage of the four = %v, want exactly [grpc-client-fqn]", names)
 	}
 }
