@@ -3,14 +3,18 @@ package binders_test
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/linkers/binders"
+	"github.com/enola-labs/enola/internal/linkers/binders/generatedclients"
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcclientfqn"
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/httphandler"
+	"github.com/enola-labs/enola/internal/linkers/binders/openapiimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
+	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
 	"github.com/enola-labs/enola/internal/linkers/vocab"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
@@ -159,5 +163,147 @@ func TestRegistry_StagePartitions(t *testing.T) {
 			names = append(names, b.Name())
 		}
 		t.Errorf("pre-link stage of the four = %v, want exactly [grpc-client-fqn]", names)
+	}
+}
+
+// openAPIFixture exercises the three pre-link binders that settle OpenAPI roles, each
+// reading what another writes: vendored-specs demotes the specs of a native app,
+// openapi-impl binds a spec-first service's operations and demotes the spec it
+// implements none of, and generated-clients finds the calls through clients generated
+// from the specs the other two left as client specs.
+func openAPIFixture() *facts.Store {
+	spec := func(repo, file, path, id string) facts.Fact {
+		return facts.Fact{
+			Kind: facts.KindRoute, Name: path, File: file, Repo: repo,
+			Props: map[string]any{
+				facts.PropSource: facts.RouteSourceOpenAPI, facts.PropRole: facts.RoleServer,
+				"method": "GET", "operationId": id, "spec_file": file,
+			},
+		}
+	}
+	method := func(repo, name, file string, rels ...facts.Relation) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, File: file, Repo: repo, Line: 3,
+			Props: map[string]any{"symbol_kind": facts.SymbolMethod}, Relations: rels}
+	}
+	dep := func(repo, file, target string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: "mod -> " + target, File: file, Repo: repo}
+	}
+	calls := func(target string) facts.Relation { return facts.Relation{Kind: facts.RelCalls, Target: target} }
+
+	store := facts.NewStore()
+	store.Add(
+		// A spec-first service: one spec it implements, one it calls.
+		spec("svc", "api/openapi/service.yml", "/items", "items"),
+		spec("svc", "api/openapi/service.yml", "/healthz", "isLive"),
+		spec("svc", "api/openapi/feature_store.yml", "/v1/features", "getFeatures"),
+		spec("svc", "api/openapi/feature_store.yml", "/healthz", "isReady"),
+		method("svc", "server.S.Items", "server/s.go"),
+		method("svc", "server.S.IsLive", "server/s.go"),
+		facts.Fact{Kind: facts.KindRoute, Name: "/metrics", Repo: "svc", Props: map[string]any{"method": "GET"}},
+		dep("svc", "client/fs.go", "featurestore.api.FeatureStoreApi"),
+		method("svc", "client.FS.Load", "client/fs.go", calls("getFeatures")),
+		// A native app vendoring the spec of a service it calls.
+		facts.Fact{Kind: facts.KindRoute, Name: "/sessions", Repo: "app",
+			Props: map[string]any{facts.PropSource: facts.RouteSourceRetrofit, facts.PropRole: facts.RoleClient, "method": "GET"}},
+		spec("app", "openapi/orders.yml", "/orders/{id}", "getOrder"),
+		dep("app", "feature/Repo.kt", "com.app.orders.apis.OrdersApi"),
+		method("app", "feature.Repo.load", "feature/Repo.kt", calls("getOrder")),
+	)
+	return store
+}
+
+func runOn(t *testing.T, store *facts.Store, order []binders.Binder) []byte {
+	t.Helper()
+	reg := binders.NewRegistry()
+	for _, b := range order {
+		reg.Register(b)
+	}
+	for _, b := range reg.Stage(plugin.StagePreLink) {
+		if err := b.Bind(context.Background(), store); err != nil {
+			t.Fatalf("%s.Bind: %v", b.Name(), err)
+		}
+	}
+	var buf bytes.Buffer
+	if err := store.WriteJSONL(&buf); err != nil {
+		t.Fatalf("WriteJSONL: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// TestBinders_OpenAPIChainIsIndependentOfRegistrationOrder registers the three
+// OpenAPI binders in every order and asserts one output. They read each other's
+// roles, so only the order they declare (RunsAfter) can make this hold.
+func TestBinders_OpenAPIChainIsIndependentOfRegistrationOrder(t *testing.T) {
+	mk := []func() binders.Binder{
+		func() binders.Binder { return vendoredspecs.New() },
+		func() binders.Binder { return openapiimpl.New() },
+		func() binders.Binder { return generatedclients.New() },
+	}
+	perms := [][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
+	var want []byte
+	for _, p := range perms {
+		order := []binders.Binder{mk[p[0]](), mk[p[1]](), mk[p[2]]()}
+		got := runOn(t, openAPIFixture(), order)
+		if want == nil {
+			want = got
+			// The fixture must exercise every link of the chain, or agreeing proves nothing.
+			for _, needle := range []string{`"vendored_spec":true`, `"handler_binding":"operation"`, `"source":"generated-client"`} {
+				if !bytes.Contains(got, []byte(needle)) {
+					t.Fatalf("fixture does not exercise %s:\n%s", needle, got)
+				}
+			}
+			continue
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("order %v: output differs from order %v\n--- want ---\n%s\n--- got ---\n%s", p, perms[0], want, got)
+		}
+	}
+	// Repeated: a second pass over the settled store changes nothing.
+	store := openAPIFixture()
+	once := runOn(t, store, []binders.Binder{generatedclients.New(), openapiimpl.New(), vendoredspecs.New()})
+	if again := runOn(t, store, []binders.Binder{vendoredspecs.New(), generatedclients.New(), openapiimpl.New()}); !bytes.Equal(once, again) {
+		t.Errorf("a second pass changed the store\n--- once ---\n%s\n--- again ---\n%s", once, again)
+	}
+}
+
+type fakeBinder struct {
+	name  string
+	stage plugin.BindStage
+	after []string
+}
+
+func (f fakeBinder) Name() string                             { return f.name }
+func (f fakeBinder) Stage() plugin.BindStage                  { return f.stage }
+func (f fakeBinder) Bind(context.Context, *facts.Store) error { return nil }
+func (f fakeBinder) RunsAfter() []string                      { return f.after }
+
+// TestRegistry_StageRunsDeclaredDependenciesFirst pins the ordering rule: a binder
+// runs after the stage-mates it names, everything else keeps registration order, a
+// name outside the stage is ignored, and a cycle still returns every binder once.
+func TestRegistry_StageRunsDeclaredDependenciesFirst(t *testing.T) {
+	names := func(bs []binders.Binder) string {
+		var out []string
+		for _, b := range bs {
+			out = append(out, b.Name())
+		}
+		return strings.Join(out, ",")
+	}
+	cases := []struct {
+		reg  []fakeBinder
+		want string
+	}{
+		{[]fakeBinder{{"a", plugin.StagePreLink, nil}, {"b", plugin.StagePreLink, nil}, {"c", plugin.StagePreLink, nil}}, "a,b,c"},
+		{[]fakeBinder{{"c", plugin.StagePreLink, []string{"b"}}, {"b", plugin.StagePreLink, []string{"a"}}, {"x", plugin.StagePreLink, nil}, {"a", plugin.StagePreLink, nil}}, "x,a,b,c"},
+		{[]fakeBinder{{"b", plugin.StagePreLink, []string{"post", "missing"}}, {"a", plugin.StagePreLink, nil}, {"post", plugin.StagePostLink, nil}}, "b,a"},
+		{[]fakeBinder{{"a", plugin.StagePreLink, []string{"b"}}, {"b", plugin.StagePreLink, []string{"a"}}, {"c", plugin.StagePreLink, nil}}, "c,a,b"},
+	}
+	for i, c := range cases {
+		reg := binders.NewRegistry()
+		for _, b := range c.reg {
+			reg.Register(b)
+		}
+		if got := names(reg.Stage(plugin.StagePreLink)); got != c.want {
+			t.Errorf("case %d: Stage = %s, want %s", i, got, c.want)
+		}
 	}
 }
