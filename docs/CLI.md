@@ -473,8 +473,8 @@ It is derived from the report by fixed rules, with no model involved, so the sam
 
 - **What this is** - languages, size, endpoints, data stores, and how the folders are organised
 - **Structure** - a verdict, `healthy`, `needs attention` or `unknown`, with the cycles and layer violations behind it. `unknown` means enola could not follow the imports, which is not the same as finding nothing
-- **Start reading here** - the program's main entry points, from the same ranking as `enola flows`, and the module most of the code imports
-- **Careful when changing** - modules a change travels furthest from, with the `enola impact` command for each. The bar scales with the size of the repository
+- **Start reading here** - the program's first two entry points, from the same ranking as `enola flows`, and the module most of the code imports. A count says how many more entry points `enola flows` lists
+- **Careful when changing** - the three modules over the bar a change travels furthest from, with the `enola impact` command for each, and a count of the others over it. The bar scales with the size of the repository
 - **Worth a look** - at most three findings, the most certain first
 - **Take with a grain of salt** - what the summary left out (generated and vendored code is never ranked) and what enola cannot see
 - **Next** - the commands that show the detail

@@ -26,8 +26,14 @@ type Summary struct {
 	Health   Health       `json:"health"`
 	// StartHere is where the program begins and what most of it builds on.
 	StartHere []plain.Item `json:"start_here"`
+	// MoreEntries counts the entry points StartHere had no room for.
+	MoreEntries int `json:"more_entries,omitempty"`
 	// Careful names the modules a change travels furthest from.
 	Careful []plain.Item `json:"careful"`
+	// CarefulBar is how many other folders a module must reach to count as
+	// risky to change, and MoreCareful how many over it Careful had no room for.
+	CarefulBar  int `json:"careful_bar"`
+	MoreCareful int `json:"more_careful,omitempty"`
 	// WorthALook is the most certain findings first, at most plain.MaxItems of them.
 	WorthALook []plain.Item `json:"worth_a_look"`
 	// MoreFindings counts the kinds of finding WorthALook had no room for.
@@ -77,7 +83,8 @@ type entryPoint struct {
 
 // entryPoints keeps the flows that are the program itself: not a side entry such
 // as an example or a build script, and not one nested inside a larger flow,
-// which would name the same code twice.
+// which would name the same code twice. It keeps every one, in the flows'
+// order: StartHere names the first and counts the rest.
 func entryPoints(a *flows.Analysis) []entryPoint {
 	var out []entryPoint
 	for _, f := range a.Flows {
@@ -94,9 +101,6 @@ func entryPoints(a *flows.Analysis) []entryPoint {
 			e.route = f.Name
 		}
 		out = append(out, e)
-		if len(out) == maxEntries {
-			break
-		}
 	}
 	return out
 }
@@ -105,8 +109,12 @@ func summarize(r *Report, entries []entryPoint) *Summary {
 	s := &Summary{RepoPath: r.RepoPath}
 	s.About = about(r)
 	s.Health = health(r)
+	if len(entries) > maxEntries {
+		entries, s.MoreEntries = entries[:maxEntries], len(entries)-maxEntries
+	}
 	s.StartHere = startHere(r, entries)
-	s.Careful = careful(r)
+	s.CarefulBar = careBar(r)
+	s.Careful, s.MoreCareful = careful(r, s.CarefulBar)
 	s.WorthALook, s.MoreFindings = worthALook(r)
 	s.Caveats = caveats(r)
 	s.Next = next(r)
@@ -311,11 +319,18 @@ func entryText(e entryPoint) string {
 		what, plain.Plural(e.reach, "function", "functions"), plain.Plural(e.modules, "module", "modules"))
 }
 
-func careful(r *Report) []plain.Item {
+// careBar is the reach that makes a module risky to change in this repository.
+func careBar(r *Report) int {
 	bar := int(float64(r.Modules) * careShare)
 	if bar < careFloor {
 		bar = careFloor
 	}
+	return bar
+}
+
+// careful names the modules over the bar that reach furthest, and returns how
+// many more over it did not fit.
+func careful(r *Report, bar int) ([]plain.Item, int) {
 	var risky []Hotspot
 	for _, h := range r.ranked {
 		if !h.Generated && h.BlastRadius >= bar {
@@ -328,11 +343,12 @@ func careful(r *Report) []plain.Item {
 		}
 		return risky[i].Module < risky[j].Module
 	})
+	more := 0
+	if len(risky) > plain.MaxItems {
+		risky, more = risky[:plain.MaxItems], len(risky)-plain.MaxItems
+	}
 	var out []plain.Item
 	for _, h := range risky {
-		if len(out) == plain.MaxItems {
-			break
-		}
 		// No "of N modules": the reach counts every folder an import comes from,
 		// and not every such folder is a module, so the two are not one set.
 		out = append(out, plain.Item{
@@ -346,7 +362,7 @@ func careful(r *Report) []plain.Item {
 	if len(out) == 0 {
 		out = append(out, plain.Item{Text: "No module stands out: a change in one part of the code stays fairly local.", Certainty: plain.Likely})
 	}
-	return out
+	return out, more
 }
 
 // worthALook ranks the findings a newcomer can act on, most certain first, and
