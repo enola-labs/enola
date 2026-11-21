@@ -1,0 +1,15 @@
+# The billing release: its destination namespace names the billing-api repository.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: billing
+  namespace: argocd
+spec:
+  destination:
+    name: eu1
+    namespace: billing-api
+  project: default
+  source:
+    repoURL: https://git.example.com/platform/billing-api.git
+    path: deploy
+    targetRevision: HEAD
