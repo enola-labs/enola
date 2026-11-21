@@ -398,6 +398,7 @@ HTTP client call sites:
 | `dart-http-client` | Dart package:http / dio / chopper call site or annotated interface |
 | `configured-http-client` | call site through an in-house client declared under `clients:` in the config; carries `client_spec` (the declaring spec's name) and, when the call names a service, `target_hint` |
 | `generated-client` | call through a client generated from an OpenAPI spec, at the code making it; carries the operation's `operationId` and `spec_file`, and the spec's operations then carry `spec_declaration=true` |
+| `go-client-seam` | Go call site passing a literal path to a project-local helper that reaches net/http (`api.Get("/me/tasks")`), written by the client-seam binder; `framework` is `client-seam` and `seam` names the helper. Links as `via=http`, not `http-client` |
 
 gRPC client call sites: `go-grpc-client`, `ts-grpc-client`,
 `python-grpc-client`.
