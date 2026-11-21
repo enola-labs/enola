@@ -2119,8 +2119,9 @@ func isReferenceOnlyKind(kind string) bool {
 
 // ArchitecturalReverse returns a reverse adjacency map restricted to edges that
 // represent architectural coupling — excluding reference-only SOURCE kinds
-// (test_ref/file_ref/route) and RelInstantiates edges (struct construction /
-// field-type usage). The outlier explainers (god-class, hotspots) use this
+// (test_ref/file_ref/route), RelInstantiates edges (struct construction /
+// field-type usage) and the structural kinds (isStructuralRel: a method's owner
+// declares it, it does not depend on it). The outlier explainers (god-class, hotspots) use this
 // instead of Reverse() so their fan-in/centrality and the distribution they
 // threshold over count only real symbol coupling. orphans, impact_analysis,
 // traverse and find_path keep using the unfiltered Reverse() index — they
@@ -2165,8 +2166,9 @@ func (g *Graph) ArchitecturalFanIn(name string) int {
 // the symbol reaches OUT to — the forward counterpart of ArchitecturalReverseEdges,
 // and what an explainer wants when it means "the things this symbol depends on".
 //
-// It drops RelHasMethod, because containment in either direction is not outgoing
-// coupling: a type does not depend on its methods, it contains them, and their
+// It drops the structural kinds (isStructuralRel). A declares edge is the symbol's
+// package, not something it reaches out to. RelHasMethod is containment, and
+// containment in either direction is not outgoing coupling: a type does not depend on its methods, it contains them, and their
 // outgoing calls are already counted as the methods' own fan-out. Orientation is
 // not something this filter may assume. NewGraph synthesizes the edge owner -> method,
 // but grpcextractor emits it the other way, from an RPC method OUT to its service
@@ -2213,17 +2215,33 @@ func (g *Graph) ArchitecturalFanOut(name string) int {
 	return n
 }
 
+// isStructuralRel reports whether a relation kind records where a symbol lives rather
+// than what it uses: declares (a symbol to its package, a document to its sections)
+// and has_method (an owner and its method, in either orientation). Both coupling
+// filters drop these in both directions. A symbol does not depend on its package, and
+// a type is not a caller of the method it declares, so counting them adds one edge of
+// size to every fan-in and fan-out and names the package as something the symbol calls.
+func isStructuralRel(rk string) bool {
+	return rk == RelDeclares || rk == RelHasMethod
+}
+
 // isArchitecturalForwardEdge applies the coupling filter to one outgoing edge, given
 // its relation kind. Callers hold the lock.
 func (g *Graph) isArchitecturalForwardEdge(relID uint16) bool {
 	rk := g.relName(relID)
-	return rk != RelHasMethod && rk != RelNames && rk != RelExercises && rk != RelPublishes && rk != RelSubscribes
+	if isStructuralRel(rk) {
+		return false
+	}
+	return rk != RelNames && rk != RelExercises && rk != RelPublishes && rk != RelSubscribes
 }
 
 // isArchitecturalEdge applies the coupling filter to one incoming edge, given its
 // SOURCE node and relation kind. Callers hold the lock.
 func (g *Graph) isArchitecturalEdge(srcID uint32, relID uint16) bool {
 	rk := g.relName(relID)
+	if isStructuralRel(rk) {
+		return false
+	}
 	// RelNames describes a read, not an invocation; it belongs in traversal and
 	// dead-code evidence, not call coupling.
 	// RelInstantiates keeps ubiquitous DATA structs out of the dead-code report, but

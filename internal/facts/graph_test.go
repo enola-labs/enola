@@ -1905,3 +1905,77 @@ func TestImpactTallyCountsByType(t *testing.T) {
 		t.Errorf("lookml view names = %v", got)
 	}
 }
+
+// TestArchitecturalFanOut_ExcludesDeclares: a symbol's declares edge names the package
+// it lives in. That is membership, not a dependency the symbol reaches out to, so it
+// must not count as fan-out or appear among the "called by" neighbours.
+func TestArchitecturalFanOut_ExcludesDeclares(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindModule, Name: "app/db"},
+		Fact{Kind: KindSymbol, Name: "app/db.Repo.WithTx", File: "db/repo.go",
+			Props: map[string]any{"symbol_kind": SymbolMethod},
+			Relations: []Relation{
+				{Kind: RelDeclares, Target: "app/db"},
+				{Kind: RelCalls, Target: "database/sql.DB.BeginTx"},
+				{Kind: RelInstantiates, Target: "app/db.txFunc"},
+			}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+
+	if got, want := g.FanOut("app/db.Repo.WithTx"), 3; got != want {
+		t.Fatalf("precondition: FanOut = %d, want %d (declares, calls, instantiates)", got, want)
+	}
+	for _, e := range g.ArchitecturalForwardEdges("app/db.Repo.WithTx") {
+		if e.RelKind == RelDeclares {
+			t.Errorf("ArchitecturalForwardEdges keeps the declares edge to %q; membership is not coupling", e.Target)
+		}
+	}
+	if got, want := g.ArchitecturalFanOut("app/db.Repo.WithTx"), 2; got != want {
+		t.Errorf("ArchitecturalFanOut = %d, want %d (the call and the construction)", got, want)
+	}
+}
+
+// TestArchitecturalFanIn_ExcludesHasMethod: NewGraph synthesizes owner -> method for
+// every method. The owner declares the method; it does not depend on it, so the edge
+// must not count among the method's dependents. A gRPC-style method -> service edge is
+// the same containment the other way round and must not count as the service's fan-in.
+func TestArchitecturalFanIn_ExcludesHasMethod(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "Repo", File: "repo.go",
+			Props: map[string]any{"symbol_kind": SymbolStruct}},
+		Fact{Kind: KindSymbol, Name: "Repo.WithTx", File: "repo.go",
+			Props: map[string]any{"symbol_kind": SymbolMethod, "receiver": "Repo"}},
+		Fact{Kind: KindSymbol, Name: "Caller", File: "caller.go",
+			Props:     map[string]any{"symbol_kind": SymbolFunc},
+			Relations: []Relation{{Kind: RelCalls, Target: "Repo.WithTx"}}},
+		Fact{Kind: KindSymbol, Name: "Svc", File: "svc.proto",
+			Props: map[string]any{"symbol_kind": SymbolInterface}},
+		Fact{Kind: KindSymbol, Name: "Svc.Get", File: "svc.proto",
+			Props:     map[string]any{"symbol_kind": SymbolMethod},
+			Relations: []Relation{{Kind: RelHasMethod, Target: "Svc"}}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+
+	hasOwner := false
+	for _, e := range g.ReverseEdges("Repo.WithTx") {
+		hasOwner = hasOwner || (e.RelKind == RelHasMethod && e.Target == "Repo")
+	}
+	if !hasOwner {
+		t.Fatalf("precondition: no synthesized has_method Repo -> Repo.WithTx; reverse edges %v", g.ReverseEdges("Repo.WithTx"))
+	}
+	if got, want := g.ArchitecturalFanIn("Repo.WithTx"), 1; got != want {
+		t.Errorf("ArchitecturalFanIn(Repo.WithTx) = %d, want %d (the one caller, not the owner)", got, want)
+	}
+	for _, e := range g.ArchitecturalReverseEdges("Repo.WithTx") {
+		if e.RelKind == RelHasMethod {
+			t.Errorf("ArchitecturalReverseEdges keeps the has_method edge from %q", e.Target)
+		}
+	}
+	if got := g.ArchitecturalFanIn("Svc"); got != 0 {
+		t.Errorf("ArchitecturalFanIn(Svc) = %d, want 0 (a method -> service has_method is containment)", got)
+	}
+}
