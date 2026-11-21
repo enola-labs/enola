@@ -37,8 +37,8 @@ const maxIndividualInsights = common.MaxIndividualInsights
 
 // Explain produces one insight per medium-or-higher-severity finding, capped.
 func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
-	funcs, storage, routeHandlers, assoc := collect(store)
-	findings := analyze(funcs, storage, routeHandlers, assoc)
+	funcs, routeHandlers, assoc := collect(store)
+	findings := analyze(funcs, routeHandlers, assoc)
 	attachRoutes(store, findings)
 	sortFindings(findings)
 	return findingsToInsights(findings), nil

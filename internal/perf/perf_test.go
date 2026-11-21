@@ -28,10 +28,9 @@ func TestBigOForDepth(t *testing.T) {
 }
 
 func TestIsExpensiveCall(t *testing.T) {
-	storage := map[string]bool{"app/data.users": true}
 	expensive := []string{
-		// storage fact + Go idioms
-		"app/data.users", "db.Query", "repo.FindByID", "client.Request", "http.Get",
+		// Go idioms
+		"db.Query", "repo.FindByID", "client.Request", "http.Get",
 		// Python SQLAlchemy / DBAPI (resolve to <type>.method)
 		"sqlalchemy.orm.Session.execute", "models.DagRun.scalars", "conn.Connection.fetchall",
 		"orm.Session.commit", "models.Dag.bulk_create",
@@ -49,7 +48,7 @@ func TestIsExpensiveCall(t *testing.T) {
 		"userRepo.findAll", "repo.findById", "jdbcTemplate.queryForObject", "restTemplate.getForObject",
 	}
 	for _, c := range expensive {
-		if !isExpensiveCall(c, storage, nil) {
+		if !isExpensiveCall(c, nil) {
 			t.Errorf("isExpensiveCall(%q) = false, want true", c)
 		}
 	}
@@ -68,7 +67,7 @@ func TestIsExpensiveCall(t *testing.T) {
 		"node.insertedAt", // "insert" is a prefix of "insertedAt"
 	}
 	for _, c := range cheap {
-		if isExpensiveCall(c, storage, nil) {
+		if isExpensiveCall(c, nil) {
 			t.Errorf("isExpensiveCall(%q) = true, want false", c)
 		}
 	}
@@ -76,12 +75,12 @@ func TestIsExpensiveCall(t *testing.T) {
 	// Ruby association reads: flagged only when the method name is a known association.
 	assoc := map[string]bool{"posts": true, "account": true}
 	for _, c := range []string{"posts", "u.posts", "account", "u.account"} {
-		if !isExpensiveCall(c, storage, assoc) {
+		if !isExpensiveCall(c, assoc) {
 			t.Errorf("isExpensiveCall(%q, assoc) = false, want true (association read)", c)
 		}
 	}
 	for _, c := range []string{"name", "u.name", "title"} {
-		if isExpensiveCall(c, storage, assoc) {
+		if isExpensiveCall(c, assoc) {
 			t.Errorf("isExpensiveCall(%q, assoc) = true, want false (not an association)", c)
 		}
 	}
@@ -92,7 +91,7 @@ func TestAnalyze_NestedLoopSeverity(t *testing.T) {
 		{Name: "p.Quad", File: "p/q.go", Line: 3, LoopDepth: 2, LoopCount: 2, Cyclomatic: 3},
 		{Name: "p.Cubic", File: "p/c.go", Line: 9, LoopDepth: 3, LoopCount: 3, Cyclomatic: 4},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 
 	q, ok := findFinding(got, "p.Quad", "nested-loop")
 	if !ok {
@@ -123,7 +122,7 @@ func TestAnalyze_CompoundedAcrossCallGraph(t *testing.T) {
 		{Name: "p.f", File: "p/f.go", Line: 1, LoopDepth: 1, LoopCount: 1, Calls: []string{"p.g"}, CallsInLoop: []string{"p.g"}},
 		{Name: "p.g", File: "p/g.go", Line: 1, LoopDepth: 1, LoopCount: 1},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 
 	c, ok := findFinding(got, "p.f", "compounded")
 	if !ok {
@@ -145,7 +144,7 @@ func TestAnalyze_CompoundedAcrossCallGraph(t *testing.T) {
 func TestAnalyze_DirectRecursion(t *testing.T) {
 	// Flagged via the extractor's recursive_self prop.
 	funcs := []funcInfo{{Name: "p.Fib", File: "p/f.go", Line: 1, Recursive: true, Calls: []string{"p.Fib"}}}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	r, ok := findFinding(got, "p.Fib", "recursion")
 	if !ok {
 		t.Fatalf("no recursion finding for p.Fib; got %+v", got)
@@ -160,7 +159,7 @@ func TestAnalyze_RecursionWithLoopIsMediumNotExponential(t *testing.T) {
 	// (each level consumes a disjoint subset), NOT a combinatorial blow-up — so it
 	// is medium and must not claim "exponential".
 	funcs := []funcInfo{{Name: "p.Walk", File: "p/w.go", Line: 1, LoopDepth: 1, Recursive: true, Calls: []string{"p.Walk"}}}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	r, ok := findFinding(got, "p.Walk", "recursion")
 	if !ok {
 		t.Fatalf("no recursion finding for p.Walk")
@@ -184,7 +183,7 @@ func TestAnalyze_OverloadDelegationNotRecursion(t *testing.T) {
 			Calls: []string{"p.M.f"}, CallsInLoop: []string{"p.M.g"}},
 		{Name: "p.M.f", File: "p/m.go", Line: 8},
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "p.M.f", "recursion"); ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "p.M.f", "recursion"); ok {
 		t.Errorf("overloaded p.M.f must not be reported as recursion")
 	}
 }
@@ -192,7 +191,7 @@ func TestAnalyze_OverloadDelegationNotRecursion(t *testing.T) {
 func TestAnalyze_GenuineRecursionStillFlagged(t *testing.T) {
 	// A single (non-overloaded) self-recursive function is still flagged.
 	funcs := []funcInfo{{Name: "p.fib", File: "p/f.go", Line: 1, Recursive: true, Calls: []string{"p.fib"}}}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "p.fib", "recursion"); !ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "p.fib", "recursion"); !ok {
 		t.Errorf("genuine direct recursion should still be flagged")
 	}
 }
@@ -205,7 +204,7 @@ func TestAnalyze_NoCompoundedOnLoopFreeOverload(t *testing.T) {
 		{Name: "p.M.toOffers", File: "p/m.go", Line: 9, LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"p.M.helper"}},
 		{Name: "p.M.helper", File: "p/m.go", Line: 20, LoopDepth: 1, LoopCount: 1},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	// The loop-free overload (Line 1) must have no compounded finding; assert that
 	// NO compounded finding cites loop_depth=0 evidence and that a loop-free fact
 	// can't be compounded by checking the only compounded finding (if any) is high-depth.
@@ -225,7 +224,7 @@ func TestAnalyze_MutualRecursionNotFlagged(t *testing.T) {
 		{Name: "p.A", File: "p/a.go", Line: 1, Calls: []string{"p.B"}},
 		{Name: "p.B", File: "p/b.go", Line: 1, Calls: []string{"p.A"}},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if _, ok := findFinding(got, "p.A", "recursion"); ok {
 		t.Errorf("mutual recursion (SCC) must no longer be flagged for p.A")
 	}
@@ -235,16 +234,16 @@ func TestAnalyze_MutualRecursionNotFlagged(t *testing.T) {
 }
 
 func TestAnalyze_ExpensiveCallInLoop_N1(t *testing.T) {
-	storage := map[string]bool{"app/data.LoadUser": true}
 	funcs := []funcInfo{
-		// confirmed I/O (storage fact) → high, regardless of export status
+		// confirmed I/O (a resolved callee flagged performs_io) → high, regardless of export status
 		{Name: "app.Handler", File: "app/h.go", Line: 5, Exported: true, LoopDepth: 1, LoopCount: 1,
 			Calls: []string{"app/data.LoadUser"}, CallsInLoop: []string{"app/data.LoadUser"}},
-		// heuristic-only match (generic verb name, no storage/prefix) → medium
+		{Name: "app/data.LoadUser", File: "app/data/d.go", Line: 1, PerformsIO: true},
+		// heuristic-only match (generic verb name, no performs_io/prefix) → medium
 		{Name: "app.worker", File: "app/w.go", Line: 9, Exported: false, LoopDepth: 1, LoopCount: 1,
 			Calls: []string{"repo.FindByID"}, CallsInLoop: []string{"repo.FindByID"}},
 	}
-	got := analyze(funcs, storage, nil, nil)
+	got := analyze(funcs, nil, nil)
 
 	h, ok := findFinding(got, "app.Handler", "call-in-loop")
 	if !ok {
@@ -270,7 +269,7 @@ func TestAnalyze_CallInLoopAggregatesCallees(t *testing.T) {
 		Name: "app.Handler", File: "app/h.go", Line: 5, Exported: true, LoopDepth: 1, LoopCount: 1,
 		CallsInLoop: []string{"db.Query", "db.Exec"},
 	}}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 
 	var n int
 	var f Finding
@@ -297,7 +296,6 @@ func TestAnalyze_CallInLoopAggregatesCallees(t *testing.T) {
 }
 
 func TestIsExpensiveTSCall(t *testing.T) {
-	storage := map[string]bool{"app/data.users": true}
 	byName := map[string]funcInfo{
 		"api.loadFeed": {Name: "api.loadFeed", PerformsIO: true},
 	}
@@ -305,7 +303,6 @@ func TestIsExpensiveTSCall(t *testing.T) {
 	// wrapper the extractor tagged performs_io whose method segment is "updateChannels".
 	ioMethods := map[string]bool{"updateChannels": true}
 	expensive := []string{
-		"app/data.users",       // storage fact
 		"api.loadFeed",         // resolved callee flagged performs_io (exact byName)
 		"svc.updateChannels",   // performs_io wrapper matched by short-name index
 		"fetch",                // global fetch
@@ -317,7 +314,7 @@ func TestIsExpensiveTSCall(t *testing.T) {
 		"prisma.$queryRaw",     // prisma. prefix
 	}
 	for _, c := range expensive {
-		if !isExpensiveTSCall(c, storage, byName, ioMethods) {
+		if !isExpensiveTSCall(c, byName, ioMethods) {
 			t.Errorf("isExpensiveTSCall(%q) = false, want true", c)
 		}
 	}
@@ -330,7 +327,7 @@ func TestIsExpensiveTSCall(t *testing.T) {
 		"utils.formatName",
 	}
 	for _, c := range cheap {
-		if isExpensiveTSCall(c, storage, byName, ioMethods) {
+		if isExpensiveTSCall(c, byName, ioMethods) {
 			t.Errorf("isExpensiveTSCall(%q) = true, want false", c)
 		}
 	}
@@ -347,7 +344,7 @@ func TestAnalyze_TSCallInLoop_LocalHelperNotExpensive(t *testing.T) {
 			CallsInLoop: []string{"getFetchAllUpdate"}},
 		{Name: "getFetchAllUpdate", File: "client/search/state/utils.jsx", Line: 3},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if f, ok := findFinding(got, "search/state.Reducer", "call-in-loop"); ok {
 		t.Errorf("unexpected call-in-loop finding on in-memory helper: %+v", f)
 	}
@@ -362,7 +359,7 @@ func TestAnalyze_TSCallInLoop_RealN1Flagged(t *testing.T) {
 			Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"prisma.user.findMany", "fetch"}},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "feed.load", "call-in-loop")
 	if !ok {
 		t.Fatalf("expected a call-in-loop finding for a real TS N+1; got %+v", got)
@@ -391,7 +388,7 @@ func TestAnalyze_TSCallInLoop_PerformsIOWrapperFlagged(t *testing.T) {
 		{Name: "client/notif/api.updateChannels", File: "client/notif/api.ts", Line: 4,
 			Exported: true, PerformsIO: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "notif.Subcategory", "call-in-loop")
 	if !ok {
 		t.Fatalf("expected a call-in-loop finding for a performs_io wrapper N+1; got %+v", got)
@@ -418,7 +415,7 @@ func TestAnalyze_PyDottedLocalHelperNotN1(t *testing.T) {
 		// The helper's canonical name is slash-form; its dotted form is the callee above.
 		{Name: "app/helpers.merge_config", File: "app/helpers.py", Line: 3},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if f, ok := findFinding(got, "app/svc.Processor.run", "call-in-loop"); ok {
 		t.Errorf("unexpected call-in-loop finding on a dotted-form in-memory helper: %+v", f)
 	}
@@ -435,7 +432,7 @@ func TestAnalyze_PyDottedPerformsIOStillN1(t *testing.T) {
 		{Name: "app/daos/user.UserDAO.save", File: "app/daos/user.py", Line: 3,
 			PerformsIO: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if _, ok := findFinding(got, "app/svc.Processor.run", "call-in-loop"); !ok {
 		t.Fatalf("expected a call-in-loop finding for a dotted performs_io N+1; got %+v", got)
 	}
@@ -453,7 +450,7 @@ func TestAnalyze_AssociationReadIsNotACallInLoop(t *testing.T) {
 	}
 	assoc := map[string]bool{"posts": true, "tag": true, "account": true, "author": true}
 
-	got := analyze(funcs, nil, nil, assoc)
+	got := analyze(funcs, nil, assoc)
 	if f, ok := findFinding(got, "Report#run", "call-in-loop"); ok {
 		t.Errorf("association names alone produced a call-in-loop finding: %+v", f)
 	}
@@ -474,7 +471,7 @@ func TestAnalyze_RubyInMemoryNotN1(t *testing.T) {
 		{Name: "Q#run", File: "app/q.rb", Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"cache.fetch", "Model.insert_all"}},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if _, ok := findFinding(got, "P#render", "call-in-loop"); ok {
 		t.Errorf("in-memory Hash/Array/dirty-tracking ops must not be flagged as N+1")
 	}
@@ -492,7 +489,7 @@ func TestAnalyze_BoundedFanoutDoesNotCompound(t *testing.T) {
 		{Name: "SystemEventService.trigger", File: "app/s.rb", LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"inline", "klass.perform_now", "klass.perform_later"}},
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "Caller#perform", "compounded"); ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "Caller#perform", "compounded"); ok {
 		t.Errorf("compounding through a bounded job fan-out must not produce O(n²)")
 	}
 
@@ -503,7 +500,7 @@ func TestAnalyze_BoundedFanoutDoesNotCompound(t *testing.T) {
 		{Name: "Looper#each_thing", File: "app/l.rb", LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"record.save"}},
 	}
-	if _, ok := findFinding(analyze(funcs2, nil, nil, nil), "Caller2#perform", "compounded"); !ok {
+	if _, ok := findFinding(analyze(funcs2, nil, nil), "Caller2#perform", "compounded"); !ok {
 		t.Errorf("compounding through a genuinely-looping function should still be flagged")
 	}
 }
@@ -512,7 +509,8 @@ func TestSortFindings_SeverityFirst(t *testing.T) {
 	got := analyze([]funcInfo{
 		{Name: "p.Med", LoopDepth: 3},                                          // nested-loop, held at medium
 		{Name: "p.High", LoopDepth: 1, CallsInLoop: []string{"app/data.Load"}}, // confirmed I/O in a loop
-	}, map[string]bool{"app/data.Load": true}, nil, nil)
+		{Name: "app/data.Load", PerformsIO: true},
+	}, nil, nil)
 	if len(got) < 2 {
 		t.Fatalf("expected >=2 findings, got %d", len(got))
 	}
@@ -540,7 +538,7 @@ func TestAnalyze_SwiftInMemoryCallInLoopNotFlagged(t *testing.T) {
 		{Name: "A.refresh", File: "a.swift", Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"badge.updateCenter", "self.updateValue", "stack.insertArrangedSubview", "$0.refresh"}},
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "A.refresh", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "A.refresh", "call-in-loop"); ok {
 		t.Errorf("Swift in-memory verb callees must not produce a call-in-loop finding")
 	}
 }
@@ -551,7 +549,7 @@ func TestAnalyze_SwiftIOPrimitiveCallInLoop(t *testing.T) {
 		{Name: "A.load", File: "a.swift", Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"URLSession.shared.dataTask"}},
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "A.load", "call-in-loop"); !ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "A.load", "call-in-loop"); !ok {
 		t.Errorf("Swift URLSession.dataTask in a loop should be a call-in-loop finding")
 	}
 }
@@ -565,7 +563,7 @@ func TestAnalyze_SwiftPerformsIOCallInLoop(t *testing.T) {
 			CallsInLoop: []string{"A.bar"}, Calls: []string{"A.bar"}},
 		{Name: "A.bar", File: "a.swift", PerformsIO: true},
 	}
-	if _, ok := findFinding(analyze(ioFuncs, nil, nil, nil), "A.foo", "call-in-loop"); !ok {
+	if _, ok := findFinding(analyze(ioFuncs, nil, nil), "A.foo", "call-in-loop"); !ok {
 		t.Errorf("in-loop call to a performs_io method should be flagged")
 	}
 
@@ -574,7 +572,7 @@ func TestAnalyze_SwiftPerformsIOCallInLoop(t *testing.T) {
 			CallsInLoop: []string{"A.bar"}, Calls: []string{"A.bar"}},
 		{Name: "A.bar", File: "a.swift"}, // performs_io=false
 	}
-	if _, ok := findFinding(analyze(memFuncs, nil, nil, nil), "A.foo", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze(memFuncs, nil, nil), "A.foo", "call-in-loop"); ok {
 		t.Errorf("in-loop call to a non-I/O resolved method must not be flagged")
 	}
 }
@@ -586,7 +584,7 @@ func TestAnalyze_NonSwiftUpdateInLoopStillFlagged(t *testing.T) {
 		{Name: "app.sync", File: "app/sync.rb", Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"record.update"}},
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "app.sync", "call-in-loop"); !ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "app.sync", "call-in-loop"); !ok {
 		t.Errorf("Ruby record.update in a loop should still be flagged (generic path unchanged)")
 	}
 }
@@ -603,7 +601,7 @@ func TestAnalyze_RustCallInLoop_PerformsIOWrapperFlagged(t *testing.T) {
 			CallsInLoop: []string{"crates/feed/src/db.load_row"}, CallsInScalingLoop: []string{"crates/feed/src/db.load_row"}, HasScalingLoopCalls: true},
 		{Name: "crates/feed/src/db.load_row", File: "crates/feed/src/db.rs", Line: 4, PerformsIO: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "svc/feed.load_all", "call-in-loop")
 	if !ok {
 		t.Fatalf("expected a call-in-loop finding for a Rust performs_io wrapper N+1; got %+v", got)
@@ -614,7 +612,7 @@ func TestAnalyze_RustCallInLoop_PerformsIOWrapperFlagged(t *testing.T) {
 }
 
 func TestAnalyze_RustCallInLoop_InMemoryHelperNotFlagged(t *testing.T) {
-	// A Rust loop calling a pure in-memory helper (no performs_io, no storage,
+	// A Rust loop calling a pure in-memory helper (no performs_io,
 	// no DB/HTTP method) must NOT produce a call-in-loop finding — the .rs branch
 	// fires only on a confirmed-I/O callee, so ordinary per-element computation
 	// (the common case) is never a false N+1.
@@ -624,7 +622,7 @@ func TestAnalyze_RustCallInLoop_InMemoryHelperNotFlagged(t *testing.T) {
 			CallsInLoop: []string{"crates/feed/src/math.combine"}, CallsInScalingLoop: []string{"crates/feed/src/math.combine"}, HasScalingLoopCalls: true},
 		{Name: "crates/feed/src/math.combine", File: "crates/feed/src/math.rs", Line: 3}, // performs_io=false
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "svc/feed.total", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "svc/feed.total", "call-in-loop"); ok {
 		t.Errorf("Rust in-loop call to a non-I/O resolved helper must not be flagged")
 	}
 }
@@ -640,7 +638,7 @@ func TestAnalyze_PhpCallInLoop_PerformsIOWrapperFlagged(t *testing.T) {
 			CallsInLoop: []string{"wp_stress_load_row"}, CallsInScalingLoop: []string{"wp_stress_load_row"}, HasScalingLoopCalls: true},
 		{Name: "wp_stress_load_row", File: "src/wp-includes/blocks/db.php", Line: 4, Exported: true, PerformsIO: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "wp_render_all", "call-in-loop")
 	if !ok {
 		t.Fatalf("expected a call-in-loop finding for a PHP performs_io wrapper N+1; got %+v", got)
@@ -660,7 +658,7 @@ func TestAnalyze_PhpCallInLoop_InMemoryGetHelperNotFlagged(t *testing.T) {
 			CallsInLoop: []string{"wp_get_cached_label"}, CallsInScalingLoop: []string{"wp_get_cached_label"}, HasScalingLoopCalls: true},
 		{Name: "wp_get_cached_label", File: "src/wp-includes/blocks/util.php", Line: 3, Exported: true}, // performs_io=false
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "wp_build_list", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "wp_build_list", "call-in-loop"); ok {
 		t.Errorf("PHP in-loop call to a resolved non-I/O helper must not be flagged despite the get* name")
 	}
 }
@@ -675,7 +673,7 @@ func TestAnalyze_CppCallInLoop_PerformsIOWrapperFlagged(t *testing.T) {
 			CallsInLoop: []string{"Post.enola_load_row"}, CallsInScalingLoop: []string{"Post.enola_load_row"}, HasScalingLoopCalls: true},
 		{Name: "Post.enola_load_row", File: "Post/PViewFactory.cpp", Line: 8, Exported: true, PerformsIO: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "Post.PViewFactory::buildAll", "call-in-loop")
 	if !ok {
 		t.Fatalf("expected a call-in-loop finding for a C++ performs_io wrapper N+1; got %+v", got)
@@ -695,7 +693,7 @@ func TestAnalyze_CppCallInLoop_InMemoryHelperNotFlagged(t *testing.T) {
 			CallsInLoop: []string{"Numeric.evalBasis"}, CallsInScalingLoop: []string{"Numeric.evalBasis"}, HasScalingLoopCalls: true},
 		{Name: "Numeric.evalBasis", File: "Numeric/gauss.cpp", Line: 3, Exported: true}, // performs_io=false
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "Numeric.integrate", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "Numeric.integrate", "call-in-loop"); ok {
 		t.Errorf("C++ in-loop call to a non-I/O resolved helper must not be flagged")
 	}
 }
@@ -736,12 +734,10 @@ func TestIsTestPath(t *testing.T) {
 // --- Kotlin/Java (JVM) precision: cross-language keyword bleed, severity, depth ---
 
 func TestIsExpensiveJvmCall(t *testing.T) {
-	storage := map[string]bool{"app/data.RoomDb.loadUser": true}
 	byName := map[string]funcInfo{}
 
 	// Genuine Room / Retrofit / JPA / JDBC calls — must stay expensive.
 	expensive := []string{
-		"app/data.RoomDb.loadUser",        // storage fact
 		"db.postCategoryDao().insert",     // Room insert (method + db. prefix)
 		"dao.upsert", "api.awaitResponse", // Room upsert / Retrofit coroutine adapter
 		"userRepo.findById", "userRepo.findAll", "repo.getAll",
@@ -752,14 +748,14 @@ func TestIsExpensiveJvmCall(t *testing.T) {
 	// NOT in the keyword list and would otherwise be missed.
 	ioMethods := map[string]bool{"fetchFurly": true, "getNeighboursRx": true}
 	for _, c := range expensive {
-		if !isExpensiveJvmCall(c, storage, byName, ioMethods) {
+		if !isExpensiveJvmCall(c, byName, ioMethods) {
 			t.Errorf("isExpensiveJvmCall(%q) = false, want true", c)
 		}
 	}
 	// A per-iteration call to a Retrofit/Room method is expensive via its I/O identity,
 	// even though its name is in no keyword list.
 	for _, c := range []string{"service.fetchFurly", "api.getNeighboursRx"} {
-		if !isExpensiveJvmCall(c, storage, byName, ioMethods) {
+		if !isExpensiveJvmCall(c, byName, ioMethods) {
 			t.Errorf("isExpensiveJvmCall(%q) = false, want true (performs_io leaf)", c)
 		}
 	}
@@ -779,7 +775,7 @@ func TestIsExpensiveJvmCall(t *testing.T) {
 		"presenter.save", "repo.find", "x.fetch", // bare verbs excluded
 	}
 	for _, c := range cheap {
-		if isExpensiveJvmCall(c, storage, byName, nil) {
+		if isExpensiveJvmCall(c, byName, nil) {
 			t.Errorf("isExpensiveJvmCall(%q) = true, want false", c)
 		}
 	}
@@ -794,7 +790,7 @@ func TestAnalyze_JvmPerformsIOAccessorNameNoCollision(t *testing.T) {
 			LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"participants.get"}},
 		{Name: "api.Furly.get", File: "api/F.kt", Line: 9, PerformsIO: true},
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "ui.View.draw", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "ui.View.draw", "call-in-loop"); ok {
 		t.Errorf("a collection .get() must not be an N+1 via a Retrofit method named get")
 	}
 }
@@ -811,7 +807,7 @@ func TestAnalyze_JvmPerformsIOLeafIsN1(t *testing.T) {
 			LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"api.Service.fetchFurly"}},
 		{Name: "api.Service.fetchFurly", File: "api/S.kt", Line: 9, PerformsIO: true, IODirect: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "biz.UseCase.getEmbeddedUrls", "call-in-loop")
 	if !ok {
 		t.Fatalf("no call-in-loop for a per-iteration Retrofit call; got %+v", got)
@@ -831,22 +827,22 @@ func TestAnalyze_JvmKeywordBleedCleared(t *testing.T) {
 		Name: "ui.VM.onRetryImageLoad", File: "ui/VM.kt", Line: 5, Exported: true,
 		LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"_basicState.update", "image.isError"},
 	}}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "ui.VM.onRetryImageLoad", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "ui.VM.onRetryImageLoad", "call-in-loop"); ok {
 		t.Errorf("Kotlin _basicState.update in a loop must not be an N+1 finding")
 	}
 }
 
 func TestAnalyze_JvmPublicNotHot(t *testing.T) {
-	storage := map[string]bool{"data.Db.loadUser": true}
 	funcs := []funcInfo{
 		// public Kotlin method, keyword-only expensive call → medium (public != hot on JVM)
 		{Name: "ui.A.f", File: "ui/A.kt", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"dao.insert"}},
-		// public Kotlin method, storage-backed call → high
+		// public Kotlin method, call to a resolved performs_io callee → high
 		{Name: "ui.B.g", File: "ui/B.kt", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"data.Db.loadUser"}},
+		{Name: "data.Db.loadUser", File: "data/Db.kt", Line: 1, PerformsIO: true},
 	}
-	got := analyze(funcs, storage, nil, nil)
+	got := analyze(funcs, nil, nil)
 	a, ok := findFinding(got, "ui.A.f", "call-in-loop")
 	if !ok {
 		t.Fatalf("no call-in-loop for ui.A.f")
@@ -859,7 +855,7 @@ func TestAnalyze_JvmPublicNotHot(t *testing.T) {
 		t.Fatalf("no call-in-loop for ui.B.g")
 	}
 	if b.Severity != "high" {
-		t.Errorf("storage-backed JVM N+1 severity = %q, want high", b.Severity)
+		t.Errorf("performs_io-backed JVM N+1 severity = %q, want high", b.Severity)
 	}
 }
 
@@ -872,7 +868,7 @@ func TestAnalyze_RecursiveNotCompoundedToN3(t *testing.T) {
 		LoopDepth: 1, LoopCount: 1, Recursive: true,
 		Calls: []string{"ui.hideKeyboardOnTouch"}, CallsInLoop: []string{"ui.hideKeyboardOnTouch"},
 	}}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if _, ok := findFinding(got, "ui.hideKeyboardOnTouch", "recursion"); !ok {
 		t.Errorf("recursive tree walk should still be flagged as recursion")
 	}
@@ -897,7 +893,7 @@ func TestAnalyze_ComposeEventLoopSuppressed(t *testing.T) {
 		LoopDepth: 2, LoopCount: 2,
 		CallsInLoop: []string{"m.awaitPointerEvent", "m.pressFunc"},
 	}}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	for _, kind := range []string{"nested-loop", "call-in-loop", "compounded"} {
 		if f, ok := findFinding(got, "ui.interceptGestures", kind); ok {
 			t.Errorf("Compose event loop must not produce a %s finding: %+v", kind, f)
@@ -913,7 +909,7 @@ func TestAnalyze_ScalingDepthDeflatesBigO(t *testing.T) {
 	funcs := []funcInfo{
 		{Name: "p.merge", File: "p/m.ts", Line: 1, LoopDepth: 3, ScalingLoopDepth: 1, HasScalingDepth: true, LoopCount: 3, Cyclomatic: 4},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if f, ok := findFinding(got, "p.merge", "nested-loop"); ok {
 		t.Errorf("scaling depth 1 must not emit a nested-loop finding, got %+v", f)
 	}
@@ -924,7 +920,7 @@ func TestAnalyze_FullyBoundedLoopsNoFinding(t *testing.T) {
 	funcs := []funcInfo{
 		{Name: "p.headers", File: "p/h.ts", Line: 1, LoopDepth: 3, ScalingLoopDepth: 0, HasScalingDepth: true, LoopCount: 3},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if f, ok := findFinding(got, "p.headers", "nested-loop"); ok {
 		t.Errorf("fully-bounded loops must not emit a finding, got %+v", f)
 	}
@@ -935,7 +931,7 @@ func TestAnalyze_ScalingDepthKeepsGenuineNesting(t *testing.T) {
 	funcs := []funcInfo{
 		{Name: "p.Cubic", File: "p/c.go", Line: 1, LoopDepth: 3, LoopCount: 3},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "p.Cubic", "nested-loop")
 	if !ok || f.Depth != 3 || f.Severity != "medium" {
 		t.Fatalf("fallback to loop_depth failed: ok=%v %+v", ok, f)
@@ -948,7 +944,7 @@ func TestAnalyze_ColdPathDownrankedToLow(t *testing.T) {
 		{Name: "m.upgrade", File: "airflow/migrations/versions/0101_x.py", Line: 1, LoopDepth: 3, ScalingLoopDepth: 3, HasScalingDepth: true, LoopCount: 3},
 		{Name: "s.hot", File: "airflow/jobs/scheduler.py", Line: 1, LoopDepth: 3, ScalingLoopDepth: 3, HasScalingDepth: true, LoopCount: 3},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	m, ok := findFinding(got, "m.upgrade", "nested-loop")
 	if !ok || m.Severity != "low" {
 		t.Errorf("migration finding severity = %q (ok=%v), want low (cold path)", m.Severity, ok)
@@ -966,7 +962,7 @@ func TestAnalyze_PythonPureHelperNotExpensive(t *testing.T) {
 		{Name: "u.merge_dicts", File: "airflow/utils/helpers.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			Calls: []string{"u.merge_dicts"}, CallsInLoop: []string{"u.merge_dicts"}},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if f, ok := findFinding(got, "u.merge_dicts", "call-in-loop"); ok {
 		t.Errorf("pure recursive dict merge must not be an N+1: %+v", f)
 	}
@@ -979,7 +975,7 @@ func TestAnalyze_PythonExportedNotAutoHigh(t *testing.T) {
 		{Name: "s.is_safe_url", File: "airflow/api/security.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			Calls: []string{"x.where"}, CallsInLoop: []string{"x.where"}},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "s.is_safe_url", "call-in-loop")
 	if !ok || f.Severity != "medium" {
 		t.Errorf("exported Python non-IO call-in-loop severity = %q (ok=%v), want medium", f.Severity, ok)
@@ -993,7 +989,7 @@ func TestAnalyze_PythonRealDBCallInLoopIsReported(t *testing.T) {
 		{Name: "d.delete_dag", File: "airflow/api/delete_dag.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			Calls: []string{"session.execute"}, CallsInLoop: []string{"session.execute"}},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "d.delete_dag", "call-in-loop")
 	if !ok || f.Severity != "medium" {
 		t.Errorf("Python DB call-in-loop severity = %q (ok=%v), want medium", f.Severity, ok)
@@ -1008,7 +1004,7 @@ func TestAnalyze_PythonIOWrapperInLoopStaysExpensive(t *testing.T) {
 			Calls: []string{"svc.load_row"}, CallsInLoop: []string{"svc.load_row"}},
 		{Name: "svc.load_row", File: "svc/run.py", Line: 9, PerformsIO: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	f, ok := findFinding(got, "svc.run", "call-in-loop")
 	if !ok || f.Severity != "high" {
 		t.Errorf("Python performs_io wrapper in loop = %q (ok=%v), want high", f.Severity, ok)
@@ -1046,14 +1042,14 @@ func TestConfidenceFor_ByKindAndDecay(t *testing.T) {
 
 func TestRiskRanking_WorstFirst(t *testing.T) {
 	// Within the high tier, the deeper/more-confident finding must sort first.
-	storage := map[string]bool{"s.exec": true}
 	funcs := []funcInfo{
 		{Name: "app.shallow", File: "app/a.py", Line: 1, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"s.exec"}}, // O(n) confirmed N+1
 		{Name: "app.deep", File: "app/z.py", Line: 1, LoopDepth: 2, LoopCount: 2,
 			CallsInLoop: []string{"s.exec"}}, // O(n²) confirmed N+1 — higher risk
+		{Name: "s.exec", File: "s/s.py", Line: 1, PerformsIO: true},
 	}
-	got := analyze(funcs, storage, nil, nil)
+	got := analyze(funcs, nil, nil)
 	// app.deep (later alphabetically) must come before app.shallow purely on risk.
 	var iDeep, iShallow = -1, -1
 	for i, f := range got {
@@ -1074,13 +1070,13 @@ func TestRiskRanking_WorstFirst(t *testing.T) {
 
 func TestRiskRanking_RouteHotPathBonus(t *testing.T) {
 	// Two equal-complexity confirmed N+1s; the route handler outranks the internal helper.
-	storage := map[string]bool{"s.exec": true}
 	routes := map[string]bool{"app.handler": true}
 	funcs := []funcInfo{
 		{Name: "app.internal", File: "app/a.py", Line: 1, LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"s.exec"}},
 		{Name: "app.handler", File: "app/z.py", Line: 1, LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"s.exec"}},
+		{Name: "s.exec", File: "s/s.py", Line: 1, PerformsIO: true},
 	}
-	got := analyze(funcs, storage, routes, nil)
+	got := analyze(funcs, routes, nil)
 	h, _ := findFinding(got, "app.handler", "call-in-loop")
 	in, _ := findFinding(got, "app.internal", "call-in-loop")
 	if h.RiskScore <= in.RiskScore {
@@ -1090,14 +1086,14 @@ func TestRiskRanking_RouteHotPathBonus(t *testing.T) {
 
 func TestRiskRanking_CompoundedDeemphasised(t *testing.T) {
 	// An O(n²) confirmed call-in-loop N+1 outranks an O(n²) compounded estimate.
-	storage := map[string]bool{"s.exec": true}
 	funcs := []funcInfo{
 		{Name: "p.n1", File: "p/a.py", Line: 1, LoopDepth: 2, LoopCount: 2, CallsInLoop: []string{"s.exec"}},
 		// compounded O(n²): loops once, calls a looping function.
 		{Name: "p.comp", File: "p/b.py", Line: 1, LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"p.g"}},
 		{Name: "p.g", File: "p/g.py", Line: 1, LoopDepth: 1, LoopCount: 1},
+		{Name: "s.exec", File: "s/s.py", Line: 1, PerformsIO: true},
 	}
-	got := analyze(funcs, storage, nil, nil)
+	got := analyze(funcs, nil, nil)
 	n1, _ := findFinding(got, "p.n1", "call-in-loop")
 	comp, ok := findFinding(got, "p.comp", "compounded")
 	if !ok {
@@ -1137,7 +1133,7 @@ func TestAnalyze_PythonUrllibParseNotIO(t *testing.T) {
 			Calls:       []string{"urllib.parse.urlparse", "urllib.parse.urljoin", "urllib.parse.unquote"},
 			CallsInLoop: []string{"urllib.parse.urlparse", "urllib.parse.urljoin", "urllib.parse.unquote"}},
 	}
-	if f, ok := findFinding(analyze(funcs, nil, nil, nil), "s.is_safe_url", "call-in-loop"); ok {
+	if f, ok := findFinding(analyze(funcs, nil, nil), "s.is_safe_url", "call-in-loop"); ok {
 		t.Errorf("urllib.parse loop must not be an N+1: %+v", f)
 	}
 }
@@ -1148,7 +1144,7 @@ func TestAnalyze_PythonUrllibRequestIsIO(t *testing.T) {
 		{Name: "s.fetch_all", File: "airflow/api/x.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			Calls: []string{"urllib.request.urlopen"}, CallsInLoop: []string{"urllib.request.urlopen"}},
 	}
-	f, ok := findFinding(analyze(funcs, nil, map[string]bool{"s.fetch_all": true}, nil), "s.fetch_all", "call-in-loop")
+	f, ok := findFinding(analyze(funcs, map[string]bool{"s.fetch_all": true}, nil), "s.fetch_all", "call-in-loop")
 	if !ok || f.Severity != "high" {
 		t.Errorf("urllib.request.urlopen loop = %q (ok=%v), want high", f.Severity, ok)
 	}
@@ -1163,7 +1159,7 @@ func TestAnalyze_BoundedLoopCallNotN1(t *testing.T) {
 		{Name: "app.realN1", File: "app/r.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"session.execute"}, CallsInScalingLoop: []string{"session.execute"}, HasScalingLoopCalls: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if f, ok := findFinding(got, "app.boundedSetup", "call-in-loop"); ok {
 		t.Errorf("call only in a bounded loop must not be an N+1: %+v", f)
 	}
@@ -1178,7 +1174,7 @@ func TestAnalyze_ScalingLoopCallsFallback(t *testing.T) {
 		{Name: "app.f", File: "app/f.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"session.execute"}}, // HasScalingLoopCalls == false
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "app.f", "call-in-loop"); !ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "app.f", "call-in-loop"); !ok {
 		t.Errorf("fallback to calls_in_loop failed: not reported")
 	}
 }
@@ -1192,7 +1188,7 @@ func TestAnalyze_DeepCompoundedRelabeledAndCapped(t *testing.T) {
 		{Name: "p.h", File: "p/h.go", Line: 1, LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"p.i"}},
 		{Name: "p.i", File: "p/i.go", Line: 1, LoopDepth: 1, LoopCount: 1},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	c, ok := findFinding(got, "p.f", "compounded")
 	if !ok {
 		t.Fatalf("no compounded finding for p.f; got %+v", got)
@@ -1207,20 +1203,20 @@ func TestAnalyze_DeepCompoundedRelabeledAndCapped(t *testing.T) {
 
 func TestAnalyze_HeuristicN1IsMedium_ConfirmedIsHigh(t *testing.T) {
 	// A JVM curated-method match (Room insert) is probable, not fact-confirmed → medium.
-	// A storage-backed call → high.
-	storage := map[string]bool{"data.Db.loadUser": true}
+	// A call to a resolved performs_io callee → high.
 	funcs := []funcInfo{
 		{Name: "ui.A.f", File: "ui/A.kt", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"dao.insert"}},
 		{Name: "ui.B.g", File: "ui/B.kt", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"data.Db.loadUser"}},
+		{Name: "data.Db.loadUser", File: "data/Db.kt", Line: 1, PerformsIO: true},
 	}
-	got := analyze(funcs, storage, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if a, ok := findFinding(got, "ui.A.f", "call-in-loop"); !ok || a.Severity != "medium" {
 		t.Errorf("curated-method N+1 = %q (ok=%v), want medium", a.Severity, ok)
 	}
 	if b, ok := findFinding(got, "ui.B.g", "call-in-loop"); !ok || b.Severity != "high" {
-		t.Errorf("storage-backed N+1 = %q (ok=%v), want high", b.Severity, ok)
+		t.Errorf("performs_io-backed N+1 = %q (ok=%v), want high", b.Severity, ok)
 	}
 }
 
@@ -1242,7 +1238,7 @@ func TestBoundedFanout_RubyInMemoryCallKeepsDiscount(t *testing.T) {
 			CallsInLoop: []string{"Notifier#fanout"},
 		},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if c, ok := findFinding(got, "Caller#run", "compounded"); ok {
 		t.Errorf("caller of a bounded Ruby fan-out must not be compounded: %+v", c)
 	}
@@ -1260,7 +1256,7 @@ func TestEffectiveDepthOf_BoundedFanoutIsZero(t *testing.T) {
 	}
 	funcs := []funcInfo{fanout}
 	byName := map[string]funcInfo{fanout.Name: fanout}
-	markNonScaling(funcs, byName, nil, nil)
+	markNonScaling(funcs, byName, nil)
 
 	eff := computeEffectiveDepths(byName)
 	if eff[fanout.Name] != 0 {
@@ -1289,7 +1285,7 @@ func TestBoundedFanout_JvmExecutorSubmitIsDispatch(t *testing.T) {
 			CallsInLoop: []string{"svc.processPack"},
 		},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if c, ok := findFinding(got, "svc.upgradeAll", "compounded"); ok {
 		t.Errorf("caller of a JVM executor fan-out must not be compounded: %+v", c)
 	}
@@ -1307,7 +1303,7 @@ func TestBoundedFanout_JdbcExecuteIsNotDispatch(t *testing.T) {
 	}}
 	f := funcs[0]
 	byName := map[string]funcInfo{f.Name: f}
-	markNonScaling(funcs, byName, nil, nil)
+	markNonScaling(funcs, byName, nil)
 	if funcs[0].BoundedFanout {
 		t.Error("a loop containing a JDBC stmt.execute is per-iteration I/O, not a bounded fan-out")
 	}
@@ -1324,7 +1320,7 @@ func TestBoundedFanout_SubmitOutsideJvmIsNotDispatch(t *testing.T) {
 	}}
 	f := funcs[0]
 	byName := map[string]funcInfo{f.Name: f}
-	markNonScaling(funcs, byName, nil, nil)
+	markNonScaling(funcs, byName, nil)
 	if funcs[0].BoundedFanout {
 		t.Error("`submit` outside a JVM file must not be read as a job dispatch")
 	}
@@ -1713,13 +1709,11 @@ func TestCollectRouteHandlers_FromResolvedEdge(t *testing.T) {
 // AppFlowy's Flutter half, the generic gate produced 58 call-in-loop findings dominated
 // by `children.where` inside a loop, which is list processing and not I/O.
 func TestIsExpensiveDartCall(t *testing.T) {
-	storage := map[string]bool{"mobile/lib/db.assets": true}
 	byName := map[string]funcInfo{
 		"repo.loadPage": {Name: "repo.loadPage", PerformsIO: true},
 	}
 
 	expensive := []string{
-		"mobile/lib/db.assets",       // storage fact
 		"repo.loadPage",              // resolved callee flagged performs_io
 		"_db.select",                 // drift receiver — immich's real N+1 shape
 		"_db.insertOnConflictUpdate", // drift round-trip method
@@ -1730,7 +1724,7 @@ func TestIsExpensiveDartCall(t *testing.T) {
 		"rootBundle.loadString",      // asset I/O
 	}
 	for _, c := range expensive {
-		if !isExpensiveDartCall(c, storage, byName) {
+		if !isExpensiveDartCall(c, byName) {
 			t.Errorf("isExpensiveDartCall(%q) = false, want true", c)
 		}
 	}
@@ -1751,7 +1745,7 @@ func TestIsExpensiveDartCall(t *testing.T) {
 		"utils.formatDuration",
 	}
 	for _, c := range cheap {
-		if isExpensiveDartCall(c, storage, byName) {
+		if isExpensiveDartCall(c, byName) {
 			t.Errorf("isExpensiveDartCall(%q) = true, want false", c)
 		}
 	}
@@ -1768,7 +1762,7 @@ func TestAnalyze_ContinuedWalkDoesNotCompound(t *testing.T) {
 			HasScalingLoopCalls: true, CallsOnLoopElement: []string{"p.inner"}},
 		{Name: "p.inner", File: "p/i.go", LoopDepth: 1, LoopCount: 1, LoopsOverParam: true},
 	}
-	if f, ok := findFinding(analyze(continued, nil, nil, nil), "p.Outer", "compounded"); ok {
+	if f, ok := findFinding(analyze(continued, nil, nil), "p.Outer", "compounded"); ok {
 		t.Errorf("a continued walk must not compound; got %s", f.BigO)
 	}
 
@@ -1782,7 +1776,7 @@ func TestAnalyze_ContinuedWalkDoesNotCompound(t *testing.T) {
 			HasScalingLoopCalls: true},
 		{Name: "p.inner", File: "p/i.go", LoopDepth: 1, LoopCount: 1, LoopsOverParam: true},
 	}
-	if _, ok := findFinding(analyze(notPassed, nil, nil, nil), "p.Outer", "compounded"); !ok {
+	if _, ok := findFinding(analyze(notPassed, nil, nil), "p.Outer", "compounded"); !ok {
 		t.Errorf("a callee that is not handed the element must still compound")
 	}
 
@@ -1794,7 +1788,7 @@ func TestAnalyze_ContinuedWalkDoesNotCompound(t *testing.T) {
 			HasScalingLoopCalls: true, CallsOnLoopElement: []string{"p.inner"}},
 		{Name: "p.inner", File: "p/i.go", LoopDepth: 1, LoopCount: 1},
 	}
-	if _, ok := findFinding(analyze(ownState, nil, nil, nil), "p.Outer", "compounded"); !ok {
+	if _, ok := findFinding(analyze(ownState, nil, nil), "p.Outer", "compounded"); !ok {
 		t.Errorf("a callee looping over its own state must still compound")
 	}
 }
@@ -1811,7 +1805,7 @@ func TestCallInLoopExponentIsItsOwnNestingNotTheCallGraphs(t *testing.T) {
 		// caller's effective depth 3, which is not the number of round-trips.
 		{Name: "db.Delete", File: "db/delete.go", LoopDepth: 2, LoopCount: 2},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 
 	c, ok := findFinding(got, "app.DeleteAll", "call-in-loop")
 	if !ok {
@@ -1832,7 +1826,7 @@ func TestCallInLoopCountsItsOwnNest(t *testing.T) {
 		Name: "app.Sync", File: "app/sync.go", LoopDepth: 2, LoopCount: 2,
 		CallsInLoop: []string{"db.Query"}, Calls: []string{"db.Query"},
 	}}
-	c, ok := findFinding(analyze(funcs, nil, nil, nil), "app.Sync", "call-in-loop")
+	c, ok := findFinding(analyze(funcs, nil, nil), "app.Sync", "call-in-loop")
 	if !ok || c.Depth != 2 || c.BigO != "" {
 		t.Errorf("call-in-loop = %+v (ok=%v), want depth 2 from the function's own two-deep nest and no Big-O", c, ok)
 	}
@@ -1851,7 +1845,7 @@ func TestGoCallGateUsesGoVerbsAndPartOfSpeech(t *testing.T) {
 		"pkg/tracker.Issue.Labels",       // `Issue` is not `Is` + `sue`: no verb either
 	}
 	for _, c := range notIO {
-		if isExpensiveGoCall(c, nil, nil) {
+		if isExpensiveGoCall(c, nil) {
 			t.Errorf("%s read as I/O", c)
 		}
 	}
@@ -1862,12 +1856,9 @@ func TestGoCallGateUsesGoVerbsAndPartOfSpeech(t *testing.T) {
 		"pkg/infra/db.DB.WithTransactionalDbSession", // runs its closure in a transaction
 	}
 	for _, c := range isIO {
-		if !isExpensiveGoCall(c, nil, nil) {
+		if !isExpensiveGoCall(c, nil) {
 			t.Errorf("%s not read as I/O", c)
 		}
-	}
-	if !isExpensiveGoCall("pkg/x.NewThing", map[string]bool{"pkg/x.NewThing": true}, nil) {
-		t.Errorf("a storage fact is I/O whatever its name")
 	}
 }
 
@@ -1900,7 +1891,7 @@ func TestTSShortNameIsIOOnlyWhenEveryBearerIs(t *testing.T) {
 		{Name: "data/dao.Dao.insertAll", File: "data/base.ts", PerformsIO: true}, // the interface's declaration, flagged through its implementer
 		render,
 	}
-	c, ok := findFinding(analyze(base, nil, nil, nil), "ui/page.render", "call-in-loop")
+	c, ok := findFinding(analyze(base, nil, nil), "ui/page.render", "call-in-loop")
 	if !ok || len(c.Calls) != 1 || c.Calls[0].Callee != "dao.insertAll" {
 		t.Fatalf("render = %+v (ok=%v), want one call, dao.insertAll: every insertAll does I/O and one init does not", c, ok)
 	}
@@ -1909,7 +1900,7 @@ func TestTSShortNameIsIOOnlyWhenEveryBearerIs(t *testing.T) {
 	}
 
 	withNamesake := append([]funcInfo{{Name: "data/mem.Buffer.insertAll", File: "data/mem.ts"}}, base...)
-	if c, ok := findFinding(analyze(withNamesake, nil, nil, nil), "ui/page.render", "call-in-loop"); ok {
+	if c, ok := findFinding(analyze(withNamesake, nil, nil), "ui/page.render", "call-in-loop"); ok {
 		t.Errorf("an in-memory insertAll exists, and dao.insertAll was still read as the other one: %+v", c)
 	}
 }
@@ -1926,7 +1917,7 @@ func TestResolvedCalleeIsNotReadThroughTheShortNameIndex(t *testing.T) {
 			CallsInLoop: []string{"src/mesh.Recombinator.execute"},
 		},
 	}
-	if c, ok := findFinding(analyze(funcs, nil, nil, nil), "src/run.all", "call-in-loop"); ok {
+	if c, ok := findFinding(analyze(funcs, nil, nil), "src/run.all", "call-in-loop"); ok {
 		t.Errorf("a resolved callee with no I/O was reported for sharing a name with one that has: %+v", c)
 	}
 }
@@ -1942,7 +1933,7 @@ func TestPythonKeepsTheWiderShortNameIndex(t *testing.T) {
 			CallsInLoop: []string{"s3_hook.get_key"},
 		},
 	}
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "ops/copy.run", "call-in-loop"); !ok {
+	if _, ok := findFinding(analyze(funcs, nil, nil), "ops/copy.run", "call-in-loop"); !ok {
 		t.Errorf("s3_hook.get_key in a loop is not reported")
 	}
 }
@@ -1956,7 +1947,7 @@ func TestCSharpCollectionMethodsAreNotIO(t *testing.T) {
 			CallsInLoop: []string{"Lib.Provider.DeleteEpisode", "_cache.AddOrUpdate", "videos.InsertRange"},
 		},
 	}
-	c, ok := findFinding(analyze(funcs, nil, nil, nil), "Lib.Provider.Run", "call-in-loop")
+	c, ok := findFinding(analyze(funcs, nil, nil), "Lib.Provider.Run", "call-in-loop")
 	if !ok {
 		t.Fatalf("DeleteEpisode in a loop must still be reported")
 	}
@@ -1969,10 +1960,10 @@ func TestCSharpCollectionMethodsAreNotIO(t *testing.T) {
 // an ORM method.
 func TestResolvedTSCalleeIsJudgedByItsOwnIO(t *testing.T) {
 	byName := map[string]funcInfo{"src/chart.aggregate": {Name: "src/chart.aggregate"}}
-	if isExpensiveTSCall("src/chart.aggregate", nil, byName, nil) {
+	if isExpensiveTSCall("src/chart.aggregate", byName, nil) {
 		t.Errorf("a local aggregate() that does no I/O read as a Prisma aggregate")
 	}
-	if !isExpensiveTSCall("prisma.user.aggregate", nil, byName, nil) {
+	if !isExpensiveTSCall("prisma.user.aggregate", byName, nil) {
 		t.Errorf("an unresolved ORM aggregate must still be I/O")
 	}
 }
@@ -1988,7 +1979,7 @@ func TestBranchFreeFunctionIsNotRecursive(t *testing.T) {
 		// No cyclomatic reported: nothing is proven, so the finding stays.
 		{Name: "legacy.descend", File: "legacy/x.rb", Recursive: true},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	if _, ok := findFinding(got, "net.TcpListener.local_addr", "recursion"); ok {
 		t.Errorf("a branch-free forwarding method reported as recursive")
 	}
@@ -2048,7 +2039,7 @@ func TestCallInLoopExponentIsTheNestingAroundTheCall(t *testing.T) {
 
 	// One query per row at depth 1; the depth-2 nest is a matrix built further down.
 	sync.CallDepth = map[string]int{"session.execute": 1}
-	c, ok := findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	c, ok := findFinding(analyze([]funcInfo{sync}, nil, nil), "app.Sync", "call-in-loop")
 	if !ok || c.BigO != "O(n)" {
 		t.Errorf("call at depth 1 in a depth-2 function: %+v (ok=%v), want O(n)", c, ok)
 	}
@@ -2057,7 +2048,7 @@ func TestCallInLoopExponentIsTheNestingAroundTheCall(t *testing.T) {
 	// two loops multiply is not something the count says, so no Big-O is stated,
 	// and the finding says why.
 	sync.CallDepth = map[string]int{"session.execute": 2}
-	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil), "app.Sync", "call-in-loop")
 	if !ok || c.Depth != 2 || c.BigO != "" || c.Label() != "depth 2" {
 		t.Errorf("call at depth 2: %+v (ok=%v), want depth 2 and no Big-O", c, ok)
 	}
@@ -2067,7 +2058,7 @@ func TestCallInLoopExponentIsTheNestingAroundTheCall(t *testing.T) {
 
 	// An extractor that reports no per-call depth keeps the function-wide bound.
 	sync.CallDepth = nil
-	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil), "app.Sync", "call-in-loop")
 	if !ok || c.Depth != 2 || c.BigO != "" {
 		t.Errorf("no per-call depth: %+v (ok=%v), want the function's depth of 2", c, ok)
 	}
@@ -2114,20 +2105,20 @@ func TestCompoundingUsesTheDepthTheCalleeIsCalledAt(t *testing.T) {
 	// bounds() is called from a depth-1 map; the depth-2 pair loop is a sibling.
 	// 1 + 1 does not exceed the function's own 2, so nothing compounds.
 	caller.CallDepth = map[string]int{"app.bounds": 1}
-	if c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded"); ok {
+	if c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil), "app.snap", "compounded"); ok {
 		t.Errorf("callee at depth 1 beside a depth-2 nest reported as compounding: %+v", c)
 	}
 
 	// Called from inside the pair loop it really is one level deeper.
 	caller.CallDepth = map[string]int{"app.bounds": 2}
-	c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded")
+	c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil), "app.snap", "compounded")
 	if !ok || c.Depth != 3 {
 		t.Errorf("callee at depth 2: %+v (ok=%v), want depth 3", c, ok)
 	}
 
 	// No per-call depth: the old upper bound.
 	caller.CallDepth = nil
-	c, ok = findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded")
+	c, ok = findFinding(analyze([]funcInfo{caller, helper}, nil, nil), "app.snap", "compounded")
 	if !ok || c.Depth != 3 {
 		t.Errorf("no per-call depth: %+v (ok=%v), want the upper bound, depth 3", c, ok)
 	}
@@ -2154,12 +2145,12 @@ func TestCrossCallNeedsTheParameterTheElementArrivesIn(t *testing.T) {
 	// render(frame) loops over frame: no compounding.
 	only := caller
 	only.CallsInLoop, only.CallsInScalingLoop = []string{"app.render"}, []string{"app.render"}
-	if c, ok := findFinding(analyze([]funcInfo{only, loops("app.render", 0)}, nil, nil, nil), "app.r", "compounded"); ok {
+	if c, ok := findFinding(analyze([]funcInfo{only, loops("app.render", 0)}, nil, nil), "app.r", "compounded"); ok {
 		t.Errorf("a callee continuing the walk reported as compounding: %+v", c)
 	}
 
 	// hasQuery(frame, words) loops over words, parameter 1: it multiplies.
-	c, ok := findFinding(analyze([]funcInfo{caller, loops("app.render", 0), loops("app.hasQuery", 1)}, nil, nil, nil), "app.r", "compounded")
+	c, ok := findFinding(analyze([]funcInfo{caller, loops("app.render", 0), loops("app.hasQuery", 1)}, nil, nil), "app.r", "compounded")
 	if !ok || c.Depth != 2 {
 		t.Errorf("a callee looping over a different parameter: %+v (ok=%v), want compounded at depth 2", c, ok)
 	}
@@ -2169,7 +2160,7 @@ func TestCrossCallNeedsTheParameterTheElementArrivesIn(t *testing.T) {
 	legacy.ElementArg = nil
 	g := loops("app.render", 0)
 	g.LoopParams = nil
-	if c, ok := findFinding(analyze([]funcInfo{legacy, g}, nil, nil, nil), "app.r", "compounded"); ok {
+	if c, ok := findFinding(analyze([]funcInfo{legacy, g}, nil, nil), "app.r", "compounded"); ok {
 		t.Errorf("the boolean pair alone must still discount: %+v", c)
 	}
 }
@@ -2185,7 +2176,7 @@ func TestOnlyCallInLoopAndRecursionClaimABigO(t *testing.T) {
 		{Name: "p.nplus1", File: "p/q.go", LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"db.Query"}},
 		{Name: "p.walk", File: "p/w.go", Recursive: true, Cyclomatic: 2},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	want := map[string]bool{"nested-loop": false, "compounded": false, "call-in-loop": true, "recursion": true}
 	seen := map[string]bool{}
 	for _, f := range got {
@@ -2245,7 +2236,7 @@ func TestGoInRepoHTTPPackageAndORMNamesAreNotConfirmedIO(t *testing.T) {
 			CallsInLoop: []string{"pkg/lokihttp.client.sendBatch"},
 		},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	for _, name := range []string{"internal/signals/http.Contribute", "internal/ast.findFirstIdentifier"} {
 		if f, ok := findFinding(got, name, "call-in-loop"); ok {
 			t.Errorf("%s reported as a call-in-loop: %+v", name, f)
@@ -2269,16 +2260,16 @@ func TestCallInLoopStatesTheBasisOfEachCall(t *testing.T) {
 		{Name: "data/other.Thing.refresh", File: "data/other.py", PerformsIO: true},
 		{
 			Name: "app/job.run", File: "app/job.py", LoopDepth: 1, LoopCount: 1,
-			CallsInLoop: []string{"orders", "data/repo.Repo.loadAll", "cache.refresh", "requests.get", "merge_rows"},
+			CallsInLoop: []string{"open", "data/repo.Repo.loadAll", "cache.refresh", "requests.get", "merge_rows"},
+			IOCalls:     []string{"open"},
 		},
 	}
-	storage := map[string]bool{"orders": true}
-	c, ok := findFinding(analyze(funcs, storage, nil, nil), "app/job.run", "call-in-loop")
+	c, ok := findFinding(analyze(funcs, nil, nil), "app/job.run", "call-in-loop")
 	if !ok {
 		t.Fatalf("no call-in-loop finding")
 	}
 	want := map[string]string{
-		"orders":                 basisStorage,
+		"open":                   basisPrimitive,
 		"data/repo.Repo.loadAll": basisResolvedIO,
 		"cache.refresh":          basisIOIndex, // Thing.refresh does I/O; nothing says this is it
 		"requests.get":           basisIOReceiver,
@@ -2309,7 +2300,7 @@ func TestCallBasisReadsGoByPackage(t *testing.T) {
 		"ast.findFirst":        basisName,
 		"internal/db.Tx.Query": basisIOReceiver,
 	} {
-		if got := callBasis(funcInfo{}, callee, true, nil, byName, byName, ioMethods); got != want {
+		if got := callBasis(funcInfo{}, callee, true, byName, byName, ioMethods); got != want {
 			t.Errorf("callBasis(%s) = %q, want %q", callee, got, want)
 		}
 	}
@@ -2338,7 +2329,7 @@ func TestResolvedPerformsIOCalleeIsReportedInAnyLanguage(t *testing.T) {
 			CallsInLoop: []string{"pkg/store.load"},
 		},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 
 	walk, ok := findFinding(got, "Lib/IO.Helper.Walk", "call-in-loop")
 	if !ok || walk.Severity != "high" || len(walk.Calls) != 1 ||
@@ -2368,7 +2359,7 @@ func TestCallTheExtractorIdentifiedAsIOIsConfirmed(t *testing.T) {
 			CallsInLoop: []string{"net/http.ResponseWriter.Header"},
 		},
 	}
-	got := analyze(funcs, nil, nil, nil)
+	got := analyze(funcs, nil, nil)
 	c, ok := findFinding(got, "models/token.Convert", "call-in-loop")
 	if !ok || c.Severity != "high" {
 		t.Fatalf("Convert = %+v (ok=%v), want a high call-in-loop", c, ok)
@@ -2398,7 +2389,7 @@ func TestGoFunctionsDoNotFeedTheIOMethodIndex(t *testing.T) {
 			CallsInLoop: []string{"builder.preparePlot"},
 		},
 	}
-	if f, ok := findFinding(analyze(funcs, nil, nil, nil), "ui/chart.build", "call-in-loop"); ok {
+	if f, ok := findFinding(analyze(funcs, nil, nil), "ui/chart.build", "call-in-loop"); ok {
 		t.Errorf("a TypeScript call matched a Go function's name: %+v", f)
 	}
 }
@@ -2548,14 +2539,14 @@ func TestAnalyze_PureCallIsNotReadByItsName(t *testing.T) {
 	other := funcInfo{Name: "app/dao.Dao.update", File: "app/dao.py", PerformsIO: true}
 
 	named := loop
-	if _, ok := findFinding(analyze([]funcInfo{named, other}, nil, nil, nil), "app/store.rename", "call-in-loop"); !ok {
+	if _, ok := findFinding(analyze([]funcInfo{named, other}, nil, nil), "app/store.rename", "call-in-loop"); !ok {
 		t.Fatal("without the extractor's reading the loop is reported by name: the fixture is wrong")
 	}
 
 	classed := loop
 	classed.PureCalls = []string{"sqlalchemy.update"}
 	classed.IOCalls = []string{"sqlalchemy.orm.Session.execute"}
-	f, ok := findFinding(analyze([]funcInfo{classed, other}, nil, nil, nil), "app/store.rename", "call-in-loop")
+	f, ok := findFinding(analyze([]funcInfo{classed, other}, nil, nil), "app/store.rename", "call-in-loop")
 	if !ok {
 		t.Fatal("Session.execute in a loop must be reported")
 	}
@@ -2566,7 +2557,7 @@ func TestAnalyze_PureCallIsNotReadByItsName(t *testing.T) {
 	onlyPure := loop
 	onlyPure.CallsInLoop = []string{"sqlalchemy.update"}
 	onlyPure.PureCalls = []string{"sqlalchemy.update"}
-	if _, ok := findFinding(analyze([]funcInfo{onlyPure, other}, nil, nil, nil), "app/store.rename", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze([]funcInfo{onlyPure, other}, nil, nil), "app/store.rename", "call-in-loop"); ok {
 		t.Error("a loop whose only named call is a statement builder must not be reported")
 	}
 }
@@ -2579,7 +2570,7 @@ func TestAnalyze_ReceiverTokenInAResolvedCalleesOwnPath(t *testing.T) {
 			LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{callee}}
 	}
 	reported := func(funcs ...funcInfo) bool {
-		_, ok := findFinding(analyze(funcs, nil, nil, nil), "Lib/Movies.Provider.Fill", "call-in-loop")
+		_, ok := findFinding(analyze(funcs, nil, nil), "Lib/Movies.Provider.Fill", "call-in-loop")
 		return ok
 	}
 
@@ -2614,10 +2605,10 @@ func TestAnalyze_JavaAccessorIsNotReadByTheIndex(t *testing.T) {
 		return funcInfo{Name: "app/Sync.run", File: "app/Sync.java", Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{callee}}
 	}
-	if _, ok := findFinding(analyze([]funcInfo{loop("dto.getDevice"), client, load}, nil, nil, nil), "app/Sync.run", "call-in-loop"); ok {
+	if _, ok := findFinding(analyze([]funcInfo{loop("dto.getDevice"), client, load}, nil, nil), "app/Sync.run", "call-in-loop"); ok {
 		t.Error("dto.getDevice() must not be reported because a client has a getDevice that makes a request")
 	}
-	if _, ok := findFinding(analyze([]funcInfo{loop("gateway.loadDevice"), client, load}, nil, nil, nil), "app/Sync.run", "call-in-loop"); !ok {
+	if _, ok := findFinding(analyze([]funcInfo{loop("gateway.loadDevice"), client, load}, nil, nil), "app/Sync.run", "call-in-loop"); !ok {
 		t.Error("a non-accessor name every bearer of which performs I/O is still read through the index")
 	}
 }
@@ -2637,21 +2628,5 @@ func TestGoIOPackage_NameNotSubstring(t *testing.T) {
 		if got := goIOPackage(target, nil); got != want {
 			t.Errorf("goIOPackage(%q) = %v, want %v", target, got, want)
 		}
-	}
-}
-
-// A table named like a method is not that method: only storage a call can target
-// (a model class) is matched against callees.
-func TestCollect_TableNamesAreNotCallees(t *testing.T) {
-	s := facts.NewStore()
-	s.Add(facts.Fact{Kind: facts.KindStorage, Name: "attributes", Props: map[string]any{"storage_kind": "table"}},
-		facts.Fact{Kind: facts.KindStorage, Name: "events", Props: map[string]any{"storage_kind": "topic"}},
-		facts.Fact{Kind: facts.KindStorage, Name: "Account", Props: map[string]any{"storage_kind": "model"}})
-	_, storage, _, _ := collect(s)
-	if storage["attributes"] || storage["events"] {
-		t.Errorf("a table or topic name is matched against callees: %v", storage)
-	}
-	if !storage["Account"] {
-		t.Errorf("a model class is no longer matched: %v", storage)
 	}
 }

@@ -39,7 +39,7 @@ func TestBuiltinMethodIsNotReadThroughTheIndex(t *testing.T) {
 			CallsInLoop: []string{"sp.append", "node:path.join"},
 		},
 	}
-	if c, ok := findFinding(analyze(funcs, nil, nil, nil), "src/ui.toParams", "call-in-loop"); ok {
+	if c, ok := findFinding(analyze(funcs, nil, nil), "src/ui.toParams", "call-in-loop"); ok {
 		t.Errorf("URLSearchParams.append / path.join read as I/O by name: %+v", c)
 	}
 }
@@ -53,7 +53,7 @@ func TestFileIOAndClientVerbsStayOnTheIndex(t *testing.T) {
 			CallsInLoop: []string{"client.delete", "node:fs/promises.writeFile", "node:path.join"},
 		},
 	}
-	c, ok := findFinding(analyze(funcs, nil, nil, nil), "src/run.all", "call-in-loop")
+	c, ok := findFinding(analyze(funcs, nil, nil), "src/run.all", "call-in-loop")
 	if !ok || len(c.Calls) != 2 {
 		t.Fatalf("run.all = %+v (ok=%v), want client.delete and writeFile, not path.join", c, ok)
 	}
