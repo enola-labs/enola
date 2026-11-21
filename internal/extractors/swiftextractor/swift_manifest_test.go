@@ -176,38 +176,44 @@ func fileDir(p string) string {
 	return p
 }
 
-// TestManifestDependencyOfAnEmptyTargetNamesTheManifest pins where the dependency
-// fact of a target with no indexed source file points. Test targets are ignored by
-// default, so this is every SPM test target, and the old fallback invented a
-// `<target dir>/Package.swift` that exists nowhere. The fact now names the manifest
-// that declared the dependency, a file that is really there.
-func TestManifestDependencyOfAnEmptyTargetNamesTheManifest(t *testing.T) {
+// TestManifestSkipsDependenciesOfAnUnindexedTestTarget pins what happens to a test
+// target none of whose files was indexed, which since test trees are ignored by
+// default is every SPM test target. Its dependency facts are not emitted: an
+// invented `<dir>/Package.swift` names a file that does not exist, and the manifest's
+// path files the edge under the manifest's directory, a module that does not exist
+// (it headed a "Deep dependency chain: ." finding). A production target keeps its
+// edges, and so does a test target whose source is indexed.
+func TestManifestSkipsDependenciesOfAnUnindexedTestTarget(t *testing.T) {
 	const manifestRel = "Packages/Mods/Package.swift"
-	dirToFile := map[string]string{
-		"Packages/Mods/Sources/AppShell": "Packages/Mods/Sources/AppShell/AppShellPlaceholder.swift",
-	}
-	var sawTest, sawProd bool
-	for _, f := range parsePackageManifest([]byte(sampleManifest), manifestRel, dirToFile) {
-		if f.Kind != facts.KindDependency {
-			continue
-		}
-		switch f.Name {
-		case "Packages/Mods/Sources/AppShellTests -> Packages/Mods/Sources/AppShell":
-			sawTest = true
-			if f.File != manifestRel {
-				t.Errorf("empty test target's dependency file = %q, want the manifest %q", f.File, manifestRel)
-			}
-		case "Packages/Mods/Sources/AppShell -> Packages/Mods/Sources/AppComposition":
-			sawProd = true
-			if f.File != dirToFile["Packages/Mods/Sources/AppShell"] {
-				t.Errorf("a target with a source file keeps it: got %q", f.File)
+	run := func(dirToFile map[string]string) map[string]string {
+		got := map[string]string{}
+		for _, f := range parsePackageManifest([]byte(sampleManifest), manifestRel, dirToFile) {
+			if f.Kind == facts.KindDependency {
+				got[f.Name] = f.File
 			}
 		}
-		if strings.HasSuffix(f.File, "/Package.swift") && f.File != manifestRel {
-			t.Errorf("%s: file %q is a manifest path that does not exist", f.Name, f.File)
+		return got
+	}
+	const testDep = "Packages/Mods/Sources/AppShellTests -> Packages/Mods/Sources/AppShell"
+	const prodDep = "Packages/Mods/Sources/AppShell -> Packages/Mods/Sources/AppComposition"
+	prodFile := "Packages/Mods/Sources/AppShell/AppShellPlaceholder.swift"
+
+	got := run(map[string]string{"Packages/Mods/Sources/AppShell": prodFile})
+	if f, ok := got[testDep]; ok {
+		t.Errorf("unindexed test target still emits %s (file %q)", testDep, f)
+	}
+	if got[prodDep] != prodFile {
+		t.Errorf("production dependency file = %q, want %q", got[prodDep], prodFile)
+	}
+	for name, f := range got {
+		if strings.HasPrefix(fileDir(f), "Packages/Mods/Sources/AppShellTests") || f == manifestRel {
+			t.Errorf("%s: file %q", name, f)
 		}
 	}
-	if !sawTest || !sawProd {
-		t.Fatalf("expected dependency facts not emitted (test=%v prod=%v)", sawTest, sawProd)
+
+	testFile := "Packages/Mods/Sources/AppShellTests/AppShellTests.swift"
+	got = run(map[string]string{"Packages/Mods/Sources/AppShell": prodFile, "Packages/Mods/Sources/AppShellTests": testFile})
+	if got[testDep] != testFile {
+		t.Errorf("indexed test target's dependency file = %q, want %q", got[testDep], testFile)
 	}
 }

@@ -3756,8 +3756,7 @@ import (
 // v675: Kotlin, Swift and PHP tests are ignored and listed as test globs by default
 // (Gradle src/test and src/<target>Test, SPM and Xcode *Tests/, PHP tests/ and test/),
 // and a CamelCase directory ending in Tests (MyAppTests, MyAppUITests) is test code.
-// The SPM dependency fact of a target with no indexed source file names its manifest,
-// not an invented <target dir>/Package.swift.
+// An SPM test target with no indexed source file emits no dependency facts.
 const cacheVersion = "v675"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
