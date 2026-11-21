@@ -115,8 +115,9 @@ func (v Verdict) result() Result {
 }
 
 // blockingReasons says, per comparability kind that stops the gate grading,
-// what differed between the two snapshots. A kind not listed is given in the
-// verdict's own words.
+// what differed between the two snapshots. A kind not listed (the unclassified
+// caveat, whose meaning is only in its own text) is given in the verdict's own
+// words when it is the only reason, and is counted among the rest otherwise.
 var blockingReasons = map[diff.WarningKind]string{
 	diff.WarnDifferentRepo:   "the \"before\" was taken of a different repository",
 	diff.WarnRepoLabel:       "the before and after name the repository differently, so nothing in them lines up",
@@ -131,20 +132,26 @@ var blockingReasons = map[diff.WarningKind]string{
 // how many more there are.
 func (v Verdict) declinedBecause() string {
 	var reasons []string
+	unworded := 0
 	for _, k := range v.BlockingKinds {
 		if r, ok := blockingReasons[k]; ok {
 			reasons = append(reasons, r)
+		} else {
+			unworded++
 		}
 	}
 	if len(reasons) == 0 && len(v.ComparabilityWarnings) > 0 {
 		reasons = append(reasons, v.ComparabilityWarnings[0])
+		if unworded > 0 {
+			unworded--
+		}
 	}
 	if len(reasons) == 0 {
 		return ""
 	}
 	r := reasons[0]
 	text := "Why: " + strings.ToUpper(r[:1]) + r[1:] + "."
-	if n := len(reasons) - 1; n > 0 {
+	if n := len(reasons) - 1 + unworded; n > 0 {
 		text += " " + plain.Plural(n, "more reason is", "more reasons are") + " in the full verdict."
 	}
 	return text
