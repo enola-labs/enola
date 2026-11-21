@@ -132,7 +132,7 @@ func parsePackageManifest(src []byte, manifestRel string, dirToFile map[string]s
 			out = append(out, facts.Fact{
 				Kind: facts.KindDependency,
 				Name: t.dir + " -> " + targetDir,
-				File: representativeFile(t.dir, dirToFile),
+				File: representativeFile(t.dir, dirToFile, manifestRel),
 				Line: t.line,
 				Props: map[string]any{
 					"language": "swift",
@@ -231,15 +231,17 @@ func parseManifestDeps(arr *sitter.Node, src []byte) []manifestDep {
 	return deps
 }
 
-// representativeFile returns a file path inside dir so that the graph's
-// dependency→module bridge (fileDirectory(File) == dir) fires. It prefers a real
-// source file discovered in the walk; otherwise it falls back to a synthetic
-// Package.swift path inside the directory (used only for module derivation).
-func representativeFile(dir string, dirToFile map[string]string) string {
+// representativeFile returns the file a target's dependency fact is attributed to:
+// a real source file discovered in the target's directory, so the graph's
+// dependency→module bridge (fileDirectory(File) == dir) fires, or, for a target with
+// no indexed source file, the manifest that declared the dependency. It used to
+// invent `<dir>/Package.swift` instead, a file that exists nowhere; with test
+// targets ignored by default, that was every SPM test target.
+func representativeFile(dir string, dirToFile map[string]string, manifestRel string) string {
 	if f, ok := dirToFile[dir]; ok {
 		return f
 	}
-	return dir + "/Package.swift"
+	return manifestRel
 }
 
 // --- manifest tree-sitter helpers ---

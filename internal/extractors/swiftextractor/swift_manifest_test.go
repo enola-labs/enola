@@ -175,3 +175,39 @@ func fileDir(p string) string {
 	}
 	return p
 }
+
+// TestManifestDependencyOfAnEmptyTargetNamesTheManifest pins where the dependency
+// fact of a target with no indexed source file points. Test targets are ignored by
+// default, so this is every SPM test target, and the old fallback invented a
+// `<target dir>/Package.swift` that exists nowhere. The fact now names the manifest
+// that declared the dependency, a file that is really there.
+func TestManifestDependencyOfAnEmptyTargetNamesTheManifest(t *testing.T) {
+	const manifestRel = "Packages/Mods/Package.swift"
+	dirToFile := map[string]string{
+		"Packages/Mods/Sources/AppShell": "Packages/Mods/Sources/AppShell/AppShellPlaceholder.swift",
+	}
+	var sawTest, sawProd bool
+	for _, f := range parsePackageManifest([]byte(sampleManifest), manifestRel, dirToFile) {
+		if f.Kind != facts.KindDependency {
+			continue
+		}
+		switch f.Name {
+		case "Packages/Mods/Sources/AppShellTests -> Packages/Mods/Sources/AppShell":
+			sawTest = true
+			if f.File != manifestRel {
+				t.Errorf("empty test target's dependency file = %q, want the manifest %q", f.File, manifestRel)
+			}
+		case "Packages/Mods/Sources/AppShell -> Packages/Mods/Sources/AppComposition":
+			sawProd = true
+			if f.File != dirToFile["Packages/Mods/Sources/AppShell"] {
+				t.Errorf("a target with a source file keeps it: got %q", f.File)
+			}
+		}
+		if strings.HasSuffix(f.File, "/Package.swift") && f.File != manifestRel {
+			t.Errorf("%s: file %q is a manifest path that does not exist", f.Name, f.File)
+		}
+	}
+	if !sawTest || !sawProd {
+		t.Fatalf("expected dependency facts not emitted (test=%v prod=%v)", sawTest, sawProd)
+	}
+}
