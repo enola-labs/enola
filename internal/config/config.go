@@ -657,13 +657,15 @@ func Default() *Config {
 			"**/src/test/**/*.scala",
 			"**/src/it/**/*.scala",
 			"**/src/multi-jvm/**/*.scala",
-			// Kotlin, Swift and PHP have no TestRefExtractor yet, so these are the same
+			// Kotlin. Live: KotlinExtractor implements TestRefExtractor, so a
+			// production symbol whose only caller is its test reads as test-only.
+			"**/src/test/**/*.kt",
+			"**/src/[a-z]*Test/**/*.kt",
+			// Swift and PHP have no TestRefExtractor yet, so these are the same
 			// deliberate no-op as Scala's: listed because Ignore above requires the two
 			// lists to agree, and so that implementing ExtractTestRefs for one of them
 			// switches the signal on without a second config change. Until then, a
 			// symbol called only from a test reads as dead, not test-only.
-			"**/src/test/**/*.kt",
-			"**/src/[a-z]*Test/**/*.kt",
 			"**/*Tests/**/*.swift",
 			"**/tests/**/*.php",
 			"**/test/**/*.php",
