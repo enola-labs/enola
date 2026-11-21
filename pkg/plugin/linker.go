@@ -42,13 +42,22 @@ const (
 // CONTRACT. Bind runs after extraction, in the stage the binder declares, before the
 // graph index is built. Implementations:
 //
-//   - may only ADD OR UPDATE relations and props on facts already in the store.
-//     Adding or removing FACTS would make the graph depend on which binders were
-//     enabled, and two snapshots taken with different sets would no longer be
-//     comparable — the same rule Annotator carries, one step wider because a Binder
-//     may also add relations. (The one binder that rewrites a fact's Name does so via
-//     remove-and-re-add to keep the store's name index consistent; that is a rewrite
-//     of an existing fact, not a new one.)
+//   - may ADD OR UPDATE relations and props on facts already in the store, and may
+//     ADD facts of its own: a route a call site implies (client-seam,
+//     generated-clients), a module dependency rolled up from symbols (module-edges,
+//     workload-source), a synthetic storage fact (storage-clients), a coverage fact
+//     (ember-resolver, stimulus-resolver). It removes no fact it did not write, with
+//     one exception: grpc-client-fqn rewrites a route's Name by remove-and-re-add,
+//     because the store's name index is keyed on it. Every binder is registered
+//     unconditionally, so a fact a binder adds is part of the graph the same way an
+//     extracted one is; a change to what a binder adds or rewrites changes the graph
+//     like an extractor change does (see internal/engine.cacheVersion).
+//     A binder that adds facts has to satisfy the next clause by construction: it
+//     drops what it added on the previous run before adding again (module-edges,
+//     workload-source, storage-clients, ember-resolver, stimulus-resolver), skips a
+//     fact already present (generated-clients, keyed by call site), or consumes the
+//     input that made it add them (client-seam deletes the candidate calls it read),
+//     so a second run adds nothing.
 //   - MUST be idempotent. Every binder re-runs on every snapshot and every append, so
 //     a second run over its own output must be a no-op — check for the relation
 //     before appending it.

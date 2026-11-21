@@ -59,19 +59,30 @@ type Binder interface {
 
 ### The contract
 
-- **Add only.** You may add or update relations and props on facts that already exist. You
-  may not add or remove facts: that would make the graph depend on which binders were
-  enabled, and two snapshots taken with different sets would stop being comparable.
+- **What you may write.** Add or update relations and props on facts that already exist,
+  and add facts of your own when the edge needs one: a client route a call site implies,
+  a module dependency rolled up from symbols, a coverage fact. Remove no fact you did not
+  write; `grpc-client-fqn`, which rewrites a route's name by remove-and-re-add because the
+  store's name index is keyed on it, is the one exception. Every binder is registered unconditionally, so what yours adds is part of the
+  graph like an extracted fact, and a later change to it changes the graph like an
+  extractor change does (see `cacheVersion` below).
 - **Idempotent.** Every binder re-runs on every snapshot and every append. Check for the
-  relation before appending it — `fact.HasRelation(kind, target)` exists for this.
+  relation before appending it — `fact.HasRelation(kind, target)` exists for this. A binder
+  that adds facts drops what it added on the previous run before adding again (`RemoveWhere`
+  on a marker only its facts carry), or skips a fact already present.
 - **Deterministic, and independent of registration order.** Binders in the same stage run
   in an unspecified order and must not observe each other. `facts.jsonl` is hashed into the
   snapshot ID, so a binder whose output depended on ordering would make an unchanged tree
   produce a different snapshot from run to run.
 
-That last one is enforced, not merely requested:
-`TestBinders_OutputIsIndependentOfRegistrationOrder` serializes the whole store after
-running every binder forward and reversed, and requires the bytes to match.
+The registry tests in `internal/linkers/binders/registry_test.go` check the last two over
+a fixed set of four binders (`grpc-client-fqn`, `grpc-impl`, `http-handler`,
+`unmatched-routes`) and one small fixture of gRPC and HTTP routes:
+`TestBinders_OutputIsIndependentOfRegistrationOrder` serializes the store after running
+them forward and reversed and requires the bytes to match, and
+`TestBinders_RepeatedRunsAreStable` requires a second pass to change nothing. They do not
+run the binders `pkg/bootstrap` registers, so a new binder is not covered until you add it
+to them with input it acts on, or test the same two properties in its own package.
 
 ### Choosing a stage
 
@@ -84,7 +95,9 @@ StagePostLink  // after it, before the graph index is built
 right for anything that resolves references inside one repository — which is most binders.
 
 Use `StagePreLink` only when your binder changes *what the cross-repo linker will match
-on*. Exactly one does today: the Python gRPC extractor can only see a short service name
+on*: a route's name, a client route it adds, a route's role. Several do today
+(`grep -rn StagePreLink internal/linkers/binders` lists them). The case that forced the
+stage is `grpc-client-fqn`: the Python gRPC extractor can only see a short service name
 (`SttService`), while the wire path is `/vosk.stt.v1.SttService/StreamingRecognize`. The
 fully qualified name lives in the `.proto`, which a different extractor read. If that
 rewrite happened after linking, the linker would match the un-rewritten name and the whole
@@ -539,9 +552,17 @@ naming a generated directory, is the shape of a contract that was never met.
 - **Make your guard fail.** Break the thing your test protects and watch it report the
   failure. A test that has never failed is not a guard — two of the tests in this area were
   written, passed, and turned out to assert nothing.
-- **Determinism.** Same input, same bytes. If you added a signal or binder, the
-  order-independence tests already cover you; if you added a map iteration anywhere near
-  output, sort it.
+- **Determinism.** Same input, same bytes. A new binder is not in the registry's
+  order-independence and repeated-run tests until you add it (see the binder contract
+  above); if you added a map iteration anywhere near output, sort it.
 - **`cacheVersion`.** An *extractor* change needs a bump in `internal/engine/cache.go` plus
   an entry in `internal/cachecov`. Binders, signals and linkers sit outside the extractor
-  cache and need neither.
+  cache, so nothing cached goes stale when they change. The constant is also the graph's
+  behaviour stamp, though (`extractor_version` in the receipt, see
+  `facts.SnapshotMeta.ExtractorVersion`): `enola --generate` without `--force` skips an
+  unedited tree whose graph was written under the same one, the append guard keeps a prior
+  union written under it, and a local build's version is always `dev`, so nothing else
+  says the graph moved. A binder change that moves `facts.jsonl` on an unedited tree
+  therefore bumps it with a cachecov entry, as the mixin-owner (v224),
+  framework-roots (v225) and module-edges (v232, v249) binders did. A change that moves no
+  output needs neither.
