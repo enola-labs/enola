@@ -17,10 +17,19 @@ func (s *Summary) Render() string {
 	if s.MoreFindings > 0 {
 		more = plain.Plural(s.MoreFindings, "more kind of finding is", "more kinds of finding are") + " in the full report."
 	}
+	moreEntries := ""
+	if s.MoreEntries > 0 {
+		moreEntries = plain.Plural(s.MoreEntries, "more way into the program is", "more ways into the program are") + " listed by enola flows."
+	}
+	moreCareful := ""
+	if s.MoreCareful > 0 {
+		moreCareful = plain.Plural(s.MoreCareful, "more module reaches", "more modules reach") + " at least " +
+			plain.Plural(s.CarefulBar, "other folder of code.", "other folders of code.")
+	}
 	plain.Section(&b, "What this is", s.About, "")
 	plain.Section(&b, "Structure: "+s.Health.Verdict, s.Health.Items, "")
-	plain.Section(&b, "Start reading here", s.StartHere, "")
-	plain.Section(&b, "Careful when changing", s.Careful, "")
+	plain.Section(&b, "Start reading here", s.StartHere, moreEntries)
+	plain.Section(&b, "Careful when changing", s.Careful, moreCareful)
 	plain.Section(&b, "Worth a look (most certain first)", s.WorthALook, more)
 	plain.Section(&b, "Take with a grain of salt", s.Caveats, "")
 	plain.Section(&b, "Next", s.Next, "")

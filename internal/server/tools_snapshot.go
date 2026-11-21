@@ -17,6 +17,7 @@ import (
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/workspace"
+	"github.com/enola-labs/enola/pkg/coverage"
 	"github.com/enola-labs/enola/pkg/status"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -627,8 +628,12 @@ func renderReceipt(r facts.Receipt) string {
 	fmt.Fprintf(&sb, "- **Parse errors:** %d\n", q.ParseErrors)
 	fmt.Fprintf(&sb, "- **Heuristic insights:** %d of %d (confidence < 1.0; the rest are structural facts)\n", q.HeuristicInsights, r.InsightCount)
 	if q.Coverage != nil {
-		fmt.Fprintf(&sb, "- **Cross-repo coverage:** %d service(s), %d coverage gap(s), %d unresolved edge(s)\n",
-			q.Coverage.ServicesTotal, q.Coverage.CoverageGaps, q.Coverage.UnresolvedEdges)
+		reasons := ""
+		if len(q.Coverage.UnresolvedReasons) > 0 {
+			reasons = " (by reason: " + coverage.FormatReasons(q.Coverage.UnresolvedReasons) + ")"
+		}
+		fmt.Fprintf(&sb, "- **Cross-repo coverage:** %d service(s), %d coverage gap(s), %d unresolved edge(s)%s\n",
+			q.Coverage.ServicesTotal, q.Coverage.CoverageGaps, q.Coverage.UnresolvedEdges, reasons)
 	}
 	if len(q.ParseErrorSample) > 0 {
 		sb.WriteString("\n**Parse-error sample:**\n")

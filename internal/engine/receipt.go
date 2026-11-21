@@ -216,6 +216,7 @@ func coverageSummary(store *facts.Store) *facts.CoverageSummary {
 			sum.CoverageGaps++
 		}
 	}
+	sum.UnresolvedReasons = facts.SortedReasons(facts.UnresolvedReasons(store, ""))
 	return sum
 }
 

@@ -1,0 +1,7 @@
+$ enola gc .
+exit: 0
+--- stdout
+<TMP>/.enola/graphs/go_sample-<KEY>/history
+
+No revisions left: every revision this history recorded has been removed (gc --prune-working removes snapshots of uncommitted trees).
+--- stderr

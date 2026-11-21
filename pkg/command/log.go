@@ -93,10 +93,9 @@ func (r *Runner) Log(args []string) {
 	}
 
 	repoPath, root, cfg := r.historyRootOf("log", arg)
-	entries, err := history.Read(root)
+	entries, err := history.ReadRecorded(root)
 	if err != nil {
-		if errors.Is(err, history.ErrNoHistory) {
-			r.reportNoHistory(repoPath, root, cfg)
+		if r.reportEmptyHistory(err, repoPath, root, cfg) {
 			return
 		}
 		r.logFatal("%v", err)
@@ -175,6 +174,23 @@ func (r *Runner) Log(args []string) {
 func (r *Runner) logTarget(arg string) (string, *config.Config) {
 	scope := r.historyTargetOf("log", arg)
 	return scope.repos[0], scope.cfg
+}
+
+// reportEmptyHistory explains the two states in which a history has nothing to show, and
+// reports whether err was one of them: none recorded (ErrNoHistory), or every revision
+// recorded since removed (ErrEmptied). Every reader of a local history branches on this
+// one rule, so none of them can call an emptied history one that was never recorded.
+func (r *Runner) reportEmptyHistory(err error, repoPath, root string, cfg *config.Config) bool {
+	switch {
+	case errors.Is(err, history.ErrEmptied):
+		fmt.Fprintf(os.Stderr, "No revisions left in the architecture history for %s:\n%v.\n\n"+
+			"Run `%s --generate` and the next revision lands in\n%s\n", repoPath, err, r.name(), root)
+		return true
+	case errors.Is(err, history.ErrNoHistory):
+		r.reportNoHistory(repoPath, root, cfg)
+		return true
+	}
+	return false
 }
 
 // reportNoHistory explains an empty history in terms of what to do about it, and

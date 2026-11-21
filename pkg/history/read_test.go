@@ -51,6 +51,34 @@ func TestRead_MissingLogIsNotAFailure(t *testing.T) {
 	}
 }
 
+// A log that exists and holds nothing is a history whose every revision was removed,
+// which gc --prune-working does to a store of uncommitted-tree snapshots. Read keeps
+// returning it as empty, since that is what lets the next append start cleanly;
+// ReadRecorded is the rule every reader that reports on the history uses, and it must not
+// call that store one that was never recorded.
+func TestReadRecorded_EmptiedLogIsNotNeverRecorded(t *testing.T) {
+	never := t.TempDir()
+	if _, err := ReadRecorded(never); !errors.Is(err, ErrNoHistory) || errors.Is(err, ErrEmptied) {
+		t.Fatalf("missing log: want ErrNoHistory, got %v", err)
+	}
+
+	emptied := t.TempDir()
+	writeLog(t, emptied, true)
+	if entries, err := Read(emptied); err != nil || len(entries) != 0 {
+		t.Fatalf("Read of an emptied log: want no entries and no error, got %v, %v", entries, err)
+	}
+	_, err := ReadRecorded(emptied)
+	if !errors.Is(err, ErrEmptied) || errors.Is(err, ErrNoHistory) {
+		t.Fatalf("emptied log: want ErrEmptied and not ErrNoHistory, got %v", err)
+	}
+
+	kept := t.TempDir()
+	writeLog(t, kept, true, entry("aaa1", "2026-08-01T10:00:00Z", "c0ffee1"))
+	if entries, err := ReadRecorded(kept); err != nil || len(entries) != 1 {
+		t.Fatalf("one entry: want it back, got %v, %v", entries, err)
+	}
+}
+
 func TestRead_RoundTrip(t *testing.T) {
 	root := t.TempDir()
 	want := []Entry{

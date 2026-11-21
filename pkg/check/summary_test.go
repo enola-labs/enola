@@ -380,3 +380,29 @@ func TestSummary_EveryBlockingKindHasAReason(t *testing.T) {
 		}
 	}
 }
+
+// The summary's remainder is import pairs; the verdict's list holds every new
+// edge. The footer says where in that list its uses are, and the list's
+// heading counts each kind, so the two numbers can be matched up.
+func TestSummary_MoreUsesNameTheVerdictsImports(t *testing.T) {
+	var deps []facts.Fact
+	var edges []diff.Edge
+	for _, m := range []string{"a", "b", "d", "e", "f"} {
+		name := "pkg/c -> example.com/app/pkg/" + m
+		deps = append(deps, facts.Fact{Kind: facts.KindDependency, Name: name, Props: map[string]any{"source": "internal"}})
+		edges = append(edges,
+			diff.Edge{Source: name, Kind: facts.RelImports, Target: "pkg/" + m},
+			diff.Edge{Source: "pkg/c.F", Kind: facts.RelCalls, Target: "pkg/" + m + ".G"})
+	}
+	edges = append(edges, diff.Edge{Source: "pkg/c.F", Kind: facts.RelDeclares, Target: "pkg/c"})
+	d := &diff.SnapshotDiff{Comparability: diff.Comparability{Comparable: true}, FactsAdded: deps, EdgesAdded: edges}
+	v := Evaluate(d, legacyDefault())
+
+	want := "2 more new uses between modules: the full verdict lists them with the imports under New coupling."
+	if !containsText(v.Summarize().Changed, want) {
+		t.Errorf("footer: want %q in %+v", want, v.Summarize().Changed)
+	}
+	if out := v.Render(); !strings.Contains(out, "New coupling (11: imports 5, calls 5, declares 1):") {
+		t.Errorf("verdict heading does not count each kind:\n%s", out)
+	}
+}

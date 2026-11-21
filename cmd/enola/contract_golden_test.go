@@ -563,6 +563,35 @@ func TestCLIContract_GitHistory(t *testing.T) {
 	})
 }
 
+// TestCLIContract_EmptiedHistory pins every history reader over a history that recorded
+// revisions and then lost them all: a tree that is not a git repository records only
+// snapshots of uncommitted trees, and gc --prune-working removes every one. Each reader
+// must say the history was emptied, never that nothing was recorded, and the next
+// snapshot starts it again.
+func TestCLIContract_EmptiedHistory(t *testing.T) {
+	s := newCLISession(t, "emptied")
+	repo := copyFixture(t, "go_sample", filepath.Join(s.dir, "go_sample"))
+	s.dir = repo
+
+	s.run(t, "--generate", ".")
+	writeFiles(t, repo, map[string]string{
+		"pkg/c/c.go": "package c\n\n// Gamma changes the architecture, so the snapshot is a new revision.\nfunc Gamma() string { return \"gamma\" }\n",
+	})
+	s.pin(t, []cliCase{
+		{"00_generate_second", []string{"--generate", "."}},
+		{"10_gc_prune_working", []string{"gc", "--prune-working", "."}},
+		{"20_log", []string{"log", "."}},
+		{"20_log_all", []string{"log", "--all", "."}},
+		{"20_show_head", []string{"show", "HEAD", "."}},
+		{"20_diff", []string{"diff", "HEAD~1..HEAD", "."}},
+		{"20_blame", []string{"blame", "pkg/c", "."}},
+		{"20_gc", []string{"gc", "."}},
+		{"20_locate_at", []string{"locate", "--at", "HEAD", "main.go:1", "."}},
+		{"30_generate", []string{"--generate", "--force", "."}},
+		{"30_log_all", []string{"log", "--all", "."}},
+	})
+}
+
 // TestCLIContract_Excused pins the ledger and the gate over a rule whose one
 // breach is signed away by an exemption, and over an exemption that excuses
 // nothing.

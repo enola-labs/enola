@@ -502,6 +502,13 @@ type SnapshotMeta struct {
 	FactCount    int        `json:"fact_count"`
 	InsightCount int        `json:"insight_count"`
 
+	// Binders names the binders that ran without error, pre-link stage first, in
+	// registration order. Every registered binder runs on every snapshot and a failing
+	// one is logged and skipped, so the one missing from this list is the one that
+	// failed. Empty on a snapshot written before it was recorded, and on a cluster
+	// turn that defers linking to the last one.
+	Binders []string `json:"binders,omitempty"`
+
 	// Providers is the external-provider census: one record per configured
 	// provider, whether it contributed facts or was skipped. It feeds the
 	// receipt and the provider-set comparability check.
@@ -814,6 +821,12 @@ type CoverageSummary struct {
 	UnresolvedEdges int `json:"unresolved_edges"`         // detected outbound edges that did not resolve to a loaded service (internal blind spots; excludes external)
 	ExternalEdges   int `json:"external_edges,omitempty"` // detected outbound edges to hardcoded external hosts (third-party APIs) — expected, not a blind spot
 
+	// UnresolvedReasons breaks the open HTTP client call sites (unresolved, plus
+	// those naming a service outside the snapshot) down by the unmatched_reason the
+	// linker recorded, most first. path_unknown and method_mismatch point at
+	// different fixes, which a bare count names neither of.
+	UnresolvedReasons []ReasonCount `json:"unresolved_reasons,omitempty"`
+
 	// ExtractorsReporting counts extractors that accounted for their own misses.
 	// It is deliberately separate from the service tallies above: an extraction
 	// blind spot ("this macro declares routes I cannot read") is a different
@@ -863,6 +876,7 @@ type Receipt struct {
 	Git              *GitInfo          `json:"git,omitempty"`
 	Extractors       []string          `json:"extractors"`
 	Explainers       []string          `json:"explainers"`
+	Binders          []string          `json:"binders,omitempty"`
 	Renderers        []string          `json:"renderers,omitempty"`
 	Providers        []ProviderRecord  `json:"providers,omitempty"`
 	ConfigHash       string            `json:"config_hash,omitempty"`
@@ -919,6 +933,7 @@ func (m SnapshotMeta) Receipt() Receipt {
 		Git:              m.Git,
 		Extractors:       m.Extractors,
 		Explainers:       m.Explainers,
+		Binders:          m.Binders,
 		Renderers:        m.Renderers,
 		Providers:        m.Providers,
 		ConfigHash:       m.ConfigHash,

@@ -10,6 +10,7 @@ import (
 	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/explainers/layers"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/pkg/coverage"
 )
 
 // maxLayerMappingLines caps how many module-to-layer lines the architecture
@@ -1176,6 +1177,13 @@ func (r *LLMContextRenderer) renderExtractionQuality(snapshot *facts.Snapshot) s
 		if m.Coverage.UnresolvedEdges > 0 {
 			fmt.Fprintf(&sb, "- ⚠️ Unresolved outbound edges: **%d** — call site(s) that did not resolve to a loaded repo (an unloaded repo, or an extractor blind spot)\n",
 				m.Coverage.UnresolvedEdges)
+		}
+		// The reasons tell those two causes apart: path_unknown is an unloaded repo or
+		// a server whose routes are not extracted, method_mismatch a caller and server
+		// that disagree. The coverage insight carries the action for each.
+		if len(m.Coverage.UnresolvedReasons) > 0 {
+			fmt.Fprintf(&sb, "  - HTTP call sites by reason: %s (`query_insights(explainer=\"coverage\")` says what to do about each)\n",
+				coverage.FormatReasons(m.Coverage.UnresolvedReasons))
 		}
 		if m.Coverage.ExternalEdges > 0 {
 			fmt.Fprintf(&sb, "- Outbound edges to external hosts: **%d** — third-party APIs, expected (not a coverage blind spot)\n",

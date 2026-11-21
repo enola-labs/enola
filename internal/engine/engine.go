@@ -184,6 +184,11 @@ func (e *Engine) RegisterBinder(b plugin.Binder) {
 	e.binders.Register(b)
 }
 
+// Binders returns every registered binder, in registration order.
+func (e *Engine) Binders() []plugin.Binder {
+	return append([]plugin.Binder(nil), e.binders.All()...)
+}
+
 // RegisterCrossRepoSignal adds a cross-repo signal to the engine. Signals only
 // contribute in multi-repo (append) mode, where there is more than one repo for an edge
 // to run between; see plugin.CrossRepoSignal.
@@ -597,12 +602,20 @@ func providerInput(files, testFiles []string, hashes, testHashes map[string]stri
 // handled: a binder resolves edges that enrich the graph, so losing one degrades the
 // snapshot but does not invalidate the facts already extracted. Failing the whole
 // snapshot would trade a partial graph for none at all.
-func (e *Engine) runBinders(ctx context.Context, stage plugin.BindStage) {
+//
+// It returns the names of the binders that ran without error, in the order they ran,
+// for the receipt: a failure stays a log line here, and the receipt is where a reader
+// can see it afterwards, by the name it lacks.
+func (e *Engine) runBinders(ctx context.Context, stage plugin.BindStage) []string {
+	var ran []string
 	for _, b := range e.binders.Stage(stage) {
 		if err := b.Bind(ctx, e.store); err != nil {
 			log.Printf("[engine] binder %s (%s) error: %v", b.Name(), stage, err)
+			continue
 		}
+		ran = append(ran, b.Name())
 	}
+	return ran
 }
 
 // sourceReaderFor builds the crossrepo.SourceReader used to verify shared type names

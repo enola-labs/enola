@@ -130,7 +130,8 @@ func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		// other means this is a third party and nothing is missing. Naming the
 		// components that make the unresolved calls answers it on sight —
 		// lib/opensearch is not a repository anyone forgot.
-		reasons := unresolvedReasons(store, svc.Repo)
+		// The same count the snapshot receipt and coverage_report print.
+		reasons := facts.UnresolvedReasons(store, svc.Repo)
 		evidence = append(evidence, reasonEvidence(svc.Name, reasons)...)
 		evidence = append(evidence, unresolvedCallers(store, svc.Repo)...)
 		actions := reasonActions(c.Unresolved, reasons, unextractedServers(store, svc.Repo))
@@ -178,26 +179,6 @@ var reasonOrder = []string{
 	httpsignal.ReasonNoMethod,
 	httpsignal.ReasonGenericPath,
 	httpsignal.ReasonThinPath,
-}
-
-// unresolvedReasons counts a repository's unresolved client calls by the reason the
-// linker recorded for each (unmatched_reason).
-func unresolvedReasons(store *facts.Store, repo string) map[string]int {
-	out := map[string]int{}
-	for _, fact := range store.ByKind(facts.KindRoute) {
-		if fact.Repo != repo {
-			continue
-		}
-		if unmatched, _ := fact.PropAny(facts.PropUnmatchedByServer).(bool); !unmatched {
-			continue
-		}
-		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
-			continue
-		}
-		reason, _ := fact.PropAny("unmatched_reason").(string)
-		out[reason]++
-	}
-	return out
 }
 
 func reasonEvidence(service string, reasons map[string]int) []facts.Evidence {

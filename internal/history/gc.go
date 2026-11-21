@@ -1,6 +1,7 @@
 package history
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,6 +58,10 @@ type GCReport struct {
 	ThinnedSegments []int // dropped because every member is older than ThinOlderThan
 	PrunedEntries   int   // log lines removed
 
+	// Emptied is a log that exists and holds no revision: every one recorded was removed
+	// by an earlier pass. Revisions is 0 either way; this tells it from never recorded.
+	Emptied bool
+
 	BytesBefore int64
 	BytesFreed  int64
 }
@@ -76,11 +81,14 @@ type GCReport struct {
 func GC(root string, opts GCOptions) (GCReport, error) {
 	var rep GCReport
 
-	entries, err := pkghistory.Read(root)
-	if err != nil {
-		if isNoHistory(err) {
-			return rep, nil
-		}
+	entries, err := pkghistory.ReadRecorded(root)
+	switch {
+	case errors.Is(err, pkghistory.ErrEmptied):
+		// Still collected: a segment the emptied log no longer refers to is garbage.
+		rep.Emptied = true
+	case isNoHistory(err):
+		return rep, nil
+	case err != nil:
 		return rep, err
 	}
 	segments, err := pkghistory.Segments(root)

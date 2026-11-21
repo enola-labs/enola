@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -38,15 +39,10 @@ type insightGroup struct {
 	Hidden        int          // len(Items) - len(Shown)
 }
 
-// insightLabels maps an explainer Source id to a human-friendly label, one entry
-// per explainer bootstrap.NewEngine registers. The engine has no display-name
-// registry, so this mirror lives here.
-//
-// It doubles as the ADMISSION LIST: insightDetails renders only sources found
-// here. Both binaries share a repo's .enola/insights.json, so a file written by
-// a build with extra explainers must not leak findings this engine cannot
-// produce into this engine's dashboard.
-var insightLabels = map[string]string{
+// explainerDisplayNames maps an explainer Source id to a human-friendly label. The
+// engine has no display-name registry, so the names live here;
+// TestExplainerDisplayNamesMatchRegistry holds them to config.KnownExplainers.
+var explainerDisplayNames = map[string]string{
 	"hotspots":            "Hotspots",
 	"god-class":           "God classes",
 	"exported-surface":    "Exported surface",
@@ -67,6 +63,35 @@ var insightLabels = map[string]string{
 	"dead-code":           "Dead code",
 	"performance":         "Performance",
 	"packwerk":            "Packwerk dependencies",
+	"dead-methods":        "Dead methods",
+	"vendored-candidates": "Vendored code candidates",
+	"import-closure":      "Import closure",
+	"final-inheritance":   "Final inheritance",
+}
+
+// insightLabels is both the display-name map and the ADMISSION LIST: insightDetails
+// renders only sources found here. Both binaries share a repo's .enola/insights.json,
+// so a file written by a build with extra explainers must not leak findings this
+// engine cannot produce into this engine's dashboard.
+//
+// It is derived from config.KnownExplainers, the one list of explainers this build
+// ships, so a new explainer is admitted in the same edit that registers it. A
+// hand-kept admission list here once lagged the registry by four explainers and
+// dropped their findings from the Findings total.
+var insightLabels = admittedLabels(config.KnownExplainers, explainerDisplayNames)
+
+// admittedLabels returns one entry per name in known, labelled from names or, when
+// a name has none, by its bare id.
+func admittedLabels(known []string, names map[string]string) map[string]string {
+	out := make(map[string]string, len(known))
+	for _, name := range known {
+		label := names[name]
+		if label == "" {
+			label = name
+		}
+		out[name] = label
+	}
+	return out
 }
 
 // firstEvidence returns the most locating evidence string for an insight: the first

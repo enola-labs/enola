@@ -44,6 +44,7 @@ exit: 0
       "certainty": "likely"
     }
   ],
+  "careful_bar": 5,
   "worth_a_look": [
     {
       "text": "2 functions look unused. Check each one before deleting it: code outside this repository, or code called by name at runtime, may still use it.",

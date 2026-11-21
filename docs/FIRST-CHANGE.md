@@ -102,7 +102,7 @@ Added (2):
   symbol     storage.LoadPrice                            storage/storage.go:11
   dependency storage -> layersgate/notify                 storage/storage.go:3
 
-New coupling (4):
+New coupling (4: imports 1, calls 2, declares 1):
   storage                                      --imports--> notify
   storage.LoadPrice                            --calls--> notify.SendReceipt
   storage.LoadPrice                            --calls--> storage.ReadPrice

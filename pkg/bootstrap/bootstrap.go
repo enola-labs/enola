@@ -125,6 +125,19 @@ func (e *Engine) Store() *facts.Store {
 	return e.eng.Store()
 }
 
+// BindersByStage names every binder the engine runs on each snapshot, split by the
+// stage it declares, each in registration order.
+func (e *Engine) BindersByStage() (preLink, postLink []string) {
+	for _, b := range e.eng.Binders() {
+		if b.Stage() == plugin.StagePreLink {
+			preLink = append(preLink, b.Name())
+		} else {
+			postLink = append(postLink, b.Name())
+		}
+	}
+	return preLink, postLink
+}
+
 // Snapshot returns the last generated snapshot, or nil.
 func (e *Engine) Snapshot() *facts.Snapshot {
 	return e.eng.Snapshot()

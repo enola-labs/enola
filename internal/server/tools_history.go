@@ -152,8 +152,15 @@ func (s *Server) readHistory(repoPath string) (entries []history.Entry, root, no
 	if err != nil {
 		return nil, "", "", fmt.Errorf("cannot locate the history: %w", err)
 	}
-	entries, err = history.Read(root)
+	entries, err = history.ReadRecorded(root)
 	if err != nil {
+		if errors.Is(err, history.ErrEmptied) {
+			what := "the architecture history for " + repoPath
+			if len(members) > 0 {
+				what = note + "the cluster's history"
+			}
+			return nil, "", "", fmt.Errorf("no revisions left in %s: %w. The next generate_snapshot records one", what, err)
+		}
 		if errors.Is(err, history.ErrNoHistory) {
 			if len(members) > 0 {
 				return nil, "", "", fmt.Errorf("%sno cluster history recorded yet — it accumulates as generate_snapshot runs over the cluster. "+

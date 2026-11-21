@@ -278,6 +278,13 @@ const (
 	// OpenAPI spec, at the code making it: a call site, unlike the spec's operations.
 	RouteSourceGeneratedClient = "generated-client"
 
+	// RouteSourceGoClientSeam is a Go call site that reaches net/http only through a
+	// project-local helper taking the path (`api.Get("/me/tasks")`), written by the
+	// client-seam binder at the caller rather than by an extractor. It is not in
+	// HandWrittenClientSources, so such a route links as via="http"; moving it there
+	// would relabel every edge it makes.
+	RouteSourceGoClientSeam = "go-client-seam"
+
 	// GraphQL contract sources: the graphql-ruby field DSL (server), a
 	// schema-first Node server SDL (server), gql-tagged template
 	// literals (hand-written client operations), standalone .graphql operation
@@ -435,6 +442,7 @@ var AllRouteSources = map[string]bool{
 	RouteSourceOpenAPI:           true,
 	RouteSourceOpenAPITypeScript: true,
 	RouteSourceGeneratedClient:   true,
+	RouteSourceGoClientSeam:      true,
 	RouteSourceSymfonyConfig:     true,
 	RouteSourcePlayRoutes:        true,
 	RouteSourcePekkoHTTP:         true,

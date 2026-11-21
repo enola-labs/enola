@@ -269,10 +269,16 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 	declared := map[string]bool{}
 	// nonMethods are the symbols that are not methods, for the model hop below.
 	nonMethods := map[string]bool{}
+	// functions are the declared functions, which serve a route with no class around
+	// them: a Go package function, a FastAPI or Flask view, an Express handler.
+	functions := map[string]bool{}
 	for _, fact := range s.ByKind(facts.KindSymbol) {
 		kind, _ := fact.PropAny("symbol_kind").(string)
 		if kind != facts.SymbolMethod {
 			nonMethods[fact.Name] = true
+		}
+		if kind == facts.SymbolFunc {
+			functions[fact.Name] = true
 		}
 		if kind != facts.SymbolClass {
 			continue
@@ -327,6 +333,12 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 				if !declared[named] {
 					controllers[class] = true
 				}
+				continue
+			}
+			// A function no class owns still names what it calls, so the walk starts
+			// from it. It is not a controller: Controllers lists types.
+			if functions[rel.Target] {
+				handlers[rel.Target] = true
 			}
 		}
 		if declared[named] {
@@ -337,7 +349,7 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 		}
 	}
 	out.Controllers = sortedKeys(controllers)
-	if len(out.Controllers) == 0 {
+	if len(out.Controllers) == 0 && len(handlers) == 0 {
 		out.StoppedAt = "controller"
 		out.Summary = summarize(out, truncated)
 		return out
@@ -591,7 +603,11 @@ func summarize(out Impact, truncated bool) string {
 	if out.OtherMatches > 0 {
 		fmt.Fprintf(&b, " named exactly; %d other route(s) contain the query, end it with * to follow them too,", out.OtherMatches)
 	}
-	fmt.Fprintf(&b, " -> %d controller(s) -> %d model(s)", len(out.Controllers), len(out.Models))
+	fmt.Fprintf(&b, " -> %d controller(s)", len(out.Controllers))
+	if len(out.Controllers) == 0 && out.StoppedAt != "controller" && out.StoppedAt != "route" {
+		b.WriteString(" (the handlers are functions, walked directly)")
+	}
+	fmt.Fprintf(&b, " -> %d model(s)", len(out.Models))
 	if out.AssociatedTotal > 0 {
 		fmt.Fprintf(&b, " -> %d associated model(s)", out.AssociatedTotal)
 		if out.AssociatedTotal > len(out.Associated) {
@@ -683,7 +699,11 @@ func summarize(out Impact, truncated bool) string {
 		b.WriteString(" The chain stops at the controller: no class in this repository answers to the" +
 			" handler these routes name, so what they reach is unknown rather than nothing.")
 	case "model":
-		b.WriteString(" The chain stops at the controller's dependencies: it reaches no class carrying a" +
+		hop := "the controller's dependencies"
+		if len(out.Controllers) == 0 {
+			hop = "the handler functions' dependencies"
+		}
+		b.WriteString(" The chain stops at " + hop + ": it reaches no class carrying a" +
 			" storage fact, so either it touches no model directly or the call is one this extractor" +
 			" does not resolve.")
 	}

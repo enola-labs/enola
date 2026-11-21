@@ -19,13 +19,7 @@ type CallSite struct {
 func (r Report) AttachUnresolvedSites(store *facts.Store) {
 	byRepo := make(map[string][]CallSite)
 	for _, f := range store.ByKind(facts.KindRoute) {
-		if f.PropString(facts.PropRole) != facts.RoleClient {
-			continue
-		}
-		if b, _ := f.PropAny(facts.PropUnmatchedByServer).(bool); !b {
-			continue
-		}
-		if b, _ := f.PropAny("test_double").(bool); b {
+		if !facts.IsOpenClientCall(f) {
 			continue
 		}
 		byRepo[f.Repo] = append(byRepo[f.Repo], CallSite{

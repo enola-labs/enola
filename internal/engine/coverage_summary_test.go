@@ -6,6 +6,7 @@ package engine
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -109,5 +110,25 @@ func TestCoverageSummary_AllOutsideServiceIsAGap(t *testing.T) {
 	}
 	if sum.UnresolvedEdges != 0 {
 		t.Errorf("UnresolvedEdges = %d, want 0 (outside calls are not unresolved ones)", sum.UnresolvedEdges)
+	}
+}
+
+// The receipt carries the open call sites by unmatched_reason, so a reader of
+// llm_context.md or snapshot_receipt can tell an unloaded or unextracted server
+// (path_unknown) from a caller and server that disagree (method_mismatch) without
+// running the coverage insight.
+func TestCoverageSummary_UnresolvedReasons(t *testing.T) {
+	call := func(reason string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/" + reason, Repo: "web", Props: map[string]any{
+			facts.PropRole: facts.RoleClient, facts.PropUnmatchedByServer: true, facts.PropUnmatchedReason: reason,
+		}}
+	}
+	st := facts.NewStore()
+	st.Add(withDeps(svcCoverage("web", 5, 3, 0), 1), call("path_unknown"), call("path_unknown"), call("method_mismatch"))
+
+	sum := coverageSummary(st)
+	want := []facts.ReasonCount{{Reason: "path_unknown", Count: 2}, {Reason: "method_mismatch", Count: 1}}
+	if sum == nil || !reflect.DeepEqual(sum.UnresolvedReasons, want) {
+		t.Fatalf("UnresolvedReasons = %+v, want %+v", sum, want)
 	}
 }

@@ -82,7 +82,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 					"method":         verb,
 					"language":       "go",
 					"framework":      "client-seam",
-					facts.PropSource: "go-client-seam",
+					facts.PropSource: facts.RouteSourceGoClientSeam,
 					// The helper is named on the fact, because a reader asking why
 					// this repo is said to call that endpoint should not have to
 					// rediscover the indirection that hid it in the first place.

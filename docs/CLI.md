@@ -245,7 +245,7 @@ to interpret the result:
 
 > **Very large repositories (e.g. the Linux kernel).** The first, cold index of a huge repo can take a minute or more and may exceed your MCP client's per-tool-call timeout, surfacing as `MCP error -32001: Request timed out`. The snapshot usually still finishes and is cached server-side - but to avoid the error, either:
 > - **Raise your MCP client's tool-call timeout.** In Claude Code, set the `MCP_TOOL_TIMEOUT` environment variable (milliseconds) before launching, e.g. `MCP_TOOL_TIMEOUT=600000`.
-> - **Pre-generate from the shell once**, then start the server: run `enola --generate <config-pointing-at-the-repo>` (writes `.enola/`), after which the MCP server auto-loads the cached snapshot on startup and later `generate_snapshot` calls reuse the extractor cache (only changed files are re-parsed), so they return quickly.
+> - **Pre-generate from the shell once**, then start the server: run `enola --generate <config-pointing-at-the-repo>` (writes `.enola/`), after which the MCP server auto-loads the cached snapshot on startup and later `generate_snapshot` calls reuse the extractor cache, so they return quickly. The cache is per language, not per file: a language none of whose files changed is not re-parsed, and one changed file re-parses every file of its language.
 
 ---
 
@@ -473,8 +473,8 @@ It is derived from the report by fixed rules, with no model involved, so the sam
 
 - **What this is** - languages, size, endpoints, data stores, and how the folders are organised
 - **Structure** - a verdict, `healthy`, `needs attention` or `unknown`, with the cycles and layer violations behind it. `unknown` means enola could not follow the imports, which is not the same as finding nothing
-- **Start reading here** - the program's main entry points, from the same ranking as `enola flows`, and the module most of the code imports
-- **Careful when changing** - modules a change travels furthest from, with the `enola impact` command for each. The bar scales with the size of the repository
+- **Start reading here** - the program's first two entry points, from the same ranking as `enola flows`, and the module most of the code imports. A count says how many more entry points `enola flows` lists
+- **Careful when changing** - the three modules over the bar a change travels furthest from, with the `enola impact` command for each, and a count of the others over it. The bar scales with the size of the repository
 - **Worth a look** - at most three findings, the most certain first
 - **Take with a grain of salt** - what the summary left out (generated and vendored code is never ranked) and what enola cannot see
 - **Next** - the commands that show the detail
@@ -932,7 +932,7 @@ Added (2):
   symbol     storage.LoadPrice                            storage/storage.go:11
   dependency storage -> layersgate/notify                 storage/storage.go:3
 
-New coupling (4):
+New coupling (4: imports 1, calls 2, declares 1):
   storage                                      --imports--> notify
   storage.LoadPrice                            --calls--> notify.SendReceipt
   storage.LoadPrice                            --calls--> storage.ReadPrice

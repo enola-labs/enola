@@ -1,6 +1,9 @@
 package facts
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestClassifyService(t *testing.T) {
 	tests := []struct {
@@ -121,5 +124,39 @@ func TestCoverageOf_SumsEveryEdgeType(t *testing.T) {
 	}
 	if got := c.Class(); got != ServiceConnected {
 		t.Errorf("Class() = %q, want %q", got, ServiceConnected)
+	}
+}
+
+// UnresolvedReasons is the one count of open client call sites by unmatched_reason
+// that the receipt, coverage_report and the coverage insight all read: test doubles,
+// resolved calls and served routes are not counted, and the order is most first.
+func TestUnresolvedReasons_CountsOpenClientCallsOnly(t *testing.T) {
+	call := func(repo, reason string, props map[string]any) Fact {
+		p := map[string]any{PropRole: RoleClient, PropUnmatchedByServer: true, PropUnmatchedReason: reason}
+		for k, v := range props {
+			p[k] = v
+		}
+		return Fact{Kind: KindRoute, Name: "/api/" + reason, Repo: repo, Props: p}
+	}
+	st := NewStore()
+	st.Add(
+		call("web", "path_unknown", nil),
+		call("web", "path_unknown", nil),
+		call("web", "method_mismatch", nil),
+		call("web", "path_unknown", map[string]any{"test_double": true}),
+		call("app", "outside_snapshot", nil),
+		Fact{Kind: KindRoute, Name: "/api/ok", Repo: "web", Props: map[string]any{PropRole: RoleClient}},
+		Fact{Kind: KindRoute, Name: "/api/served", Repo: "api", Props: map[string]any{PropRole: "server"}},
+	)
+
+	got := SortedReasons(UnresolvedReasons(st, "web"))
+	want := []ReasonCount{{Reason: "path_unknown", Count: 2}, {Reason: "method_mismatch", Count: 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("web reasons = %+v, want %+v", got, want)
+	}
+	all := SortedReasons(UnresolvedReasons(st, ""))
+	wantAll := []ReasonCount{{Reason: "path_unknown", Count: 2}, {Reason: "method_mismatch", Count: 1}, {Reason: "outside_snapshot", Count: 1}}
+	if !reflect.DeepEqual(all, wantAll) {
+		t.Errorf("all reasons = %+v, want %+v", all, wantAll)
 	}
 }

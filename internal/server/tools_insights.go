@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/config"
+	"github.com/enola-labs/enola/internal/explainers/importclosure"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/coverage"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -55,6 +56,102 @@ func crossRepoExplainer(name string) bool {
 	return false
 }
 
+// inputGate is what one explainer needs in the store before it has anything to look
+// at: has reports whether the input is there, and needs says what it is, finishing
+// "it ...".
+type inputGate struct {
+	has   func(*facts.Store) bool
+	needs string
+}
+
+// explainerInputs lists the explainers that return nothing, without looking at
+// anything, when the snapshot lacks one kind of input: a language, a framework
+// declaration or a specification. Each has is a necessary condition of its
+// explainer, read from the first filter that explainer applies, so an explainer
+// it calls empty cannot have reported a finding;
+// TestExplainerInputGatesAgreeWithExplainers runs each explainer to hold it so.
+// import-closure is asked through its own graph builder rather than a copy of it.
+var explainerInputs = map[string]inputGate{
+	"import-closure": {
+		has:   func(s *facts.Store) bool { return len(importclosure.Build(s).Edges) > 0 },
+		needs: "follows imports between the Python files of a repository, and this snapshot has none",
+	},
+	"dead-methods": {
+		has: func(s *facts.Store) bool {
+			return anyFact(s, facts.KindSymbol, func(f facts.Fact) bool {
+				return f.PropString("language") == "ruby" && f.PropString("symbol_kind") == facts.SymbolMethod
+			})
+		},
+		needs: "reads Ruby methods, and this snapshot has none",
+	},
+	"query-loops": {
+		has: func(s *facts.Store) bool {
+			return anyFact(s, facts.KindSymbol, func(f facts.Fact) bool {
+				return f.PropString("language") == "ruby" ||
+					(strings.HasSuffix(f.File, ".go") && !strings.HasSuffix(f.File, "_test.go"))
+			})
+		},
+		needs: "reads Ruby and Go code, and this snapshot has neither",
+	},
+	"entry-points": {
+		has: func(s *facts.Store) bool {
+			return anyFact(s, facts.KindSymbol, func(f facts.Fact) bool { return f.PropString(facts.PropFrameworkRoot) != "" })
+		},
+		needs: "counts the symbols a framework invokes, and no symbol in this snapshot was recognised as one",
+	},
+	"messaging-coverage": {
+		has: func(s *facts.Store) bool {
+			return anyFact(s, facts.KindStorage, func(f facts.Fact) bool {
+				return f.PropString(facts.PropMessagingContractStatus) != "" ||
+					f.PropString(facts.PropMessagingImplementationStatus) != "" ||
+					f.PropAny(facts.PropMessagingDuplicateOf) != nil
+			})
+		},
+		needs: "compares messaging call sites with AsyncAPI operations, and this snapshot has neither",
+	},
+	"final-inheritance": {
+		has: func(s *facts.Store) bool {
+			return anyFact(s, facts.KindSymbol, func(f facts.Fact) bool { return f.PropBool("final") })
+		},
+		needs: "checks inheritance from types marked final, and no type in this snapshot is marked final",
+	},
+	"packwerk": {
+		has: func(s *facts.Store) bool {
+			return anyFact(s, facts.KindModule, func(f facts.Fact) bool { return f.PropBool("packwerk") })
+		},
+		needs: "reads packwerk package.yml declarations, and this snapshot has none",
+	},
+}
+
+// anyFact reports whether a fact of kind satisfies ok.
+func anyFact(s *facts.Store, kind string, ok func(facts.Fact) bool) bool {
+	for f := range s.OfKind(kind) {
+		if ok(f) {
+			return true
+		}
+	}
+	return false
+}
+
+// missingInput returns what explainer needs and the snapshot lacks, or "" when it
+// had its input or is not input-gated. An explainer that produced any insight had
+// input, whatever the gate says, so its no-match stays a filter mismatch.
+func missingInput(explainer string, snap *facts.Snapshot, store *facts.Store) string {
+	gate, ok := explainerInputs[explainer]
+	if !ok {
+		return ""
+	}
+	for _, in := range snap.Insights {
+		if strings.EqualFold(in.Source, explainer) {
+			return ""
+		}
+	}
+	if gate.has(store) {
+		return ""
+	}
+	return gate.needs
+}
+
 // producingExplainers returns the sorted, de-duplicated set of explainer names
 // that actually produced at least one insight in snap, read from the Insight.Source
 // the engine stamps. Unlike SnapshotMeta.Explainers — the ran-without-error set,
@@ -77,9 +174,10 @@ func producingExplainers(snap *facts.Snapshot) []string {
 }
 
 // noMatchInsightsMessage builds the query_insights response for the case where no
-// insight matched the filter. It separates three situations the old single string
+// insight matched the filter. It separates four situations the old single string
 // conflated: nothing was produced at all; a cross-repo explainer could not run
-// because the snapshot is single-repo (no KindService nodes); and a genuine
+// because the snapshot is single-repo (no KindService nodes); an explainer whose
+// input the snapshot lacks (explainerInputs) had nothing to analyze; and a genuine
 // no-match. The middle wording mirrors coverage_report's, so the two surfaces read
 // the same for the same underlying cause.
 func noMatchInsightsMessage(explainer, repo string, minConfidence float64, snap *facts.Snapshot, store *facts.Store) string {
@@ -90,6 +188,11 @@ func noMatchInsightsMessage(explainer, repo string, minConfidence float64, snap 
 		return fmt.Sprintf(
 			"Explainer %q did not run: it needs a multi-repo (append-mode) snapshot. "+
 				"Snapshot the backend, then each client with append=true.", explainer)
+	}
+	if needs := missingInput(strings.ToLower(strings.TrimSpace(explainer)), snap, store); needs != "" {
+		return fmt.Sprintf(
+			"Explainer %q had nothing to analyze: it %s. Its empty answer says nothing about the code.",
+			explainer, needs)
 	}
 	return fmt.Sprintf(
 		"No insights matched (explainer=%q, repo=%q, min_confidence=%.2f). The snapshot has %d insight(s) produced by: %v. "+
