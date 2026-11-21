@@ -21,6 +21,6 @@
       ]
     }
   ],
-  "stopped_at": "controller",
-  "summary": "1 route(s) -\u003e 0 controller(s) -\u003e 0 model(s). Called from 1 file(s). Whether any of those calls runs is unknown: no extractor could judge the client code that makes them (a client whose reach enola does not trace, or a library its consumers call). The chain stops at the controller: no class in this repository answers to the handler these routes name, so what they reach is unknown rather than nothing."
+  "stopped_at": "model",
+  "summary": "1 route(s) -\u003e 0 controller(s) (the handlers are functions, walked directly) -\u003e 0 model(s). Called from 1 file(s). Whether any of those calls runs is unknown: no extractor could judge the client code that makes them (a client whose reach enola does not trace, or a library its consumers call). The chain stops at the handler functions' dependencies: it reaches no class carrying a storage fact, so either it touches no model directly or the call is one this extractor does not resolve."
 }

@@ -1,7 +1,7 @@
 $ enola endpoint GET /v1/things cluster.yaml
 exit: 0
 --- stdout
-1 route(s) -> 0 controller(s) -> 0 model(s). Called from 1 file(s). Whether any of those calls runs is unknown: no extractor could judge the client code that makes them (a client whose reach enola does not trace, or a library its consumers call). The chain stops at the controller: no class in this repository answers to the handler these routes name, so what they reach is unknown rather than nothing.
+1 route(s) -> 0 controller(s) (the handlers are functions, walked directly) -> 0 model(s). Called from 1 file(s). Whether any of those calls runs is unknown: no extractor could judge the client code that makes them (a client whose reach enola does not trace, or a library its consumers call). The chain stops at the handler functions' dependencies: it reaches no class carrying a storage fact, so either it touches no model directly or the call is one this extractor does not resolve.
 
 routes:
   GET /v1/things/{id}  -> getThing

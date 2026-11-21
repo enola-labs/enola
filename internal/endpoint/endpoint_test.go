@@ -393,8 +393,59 @@ func TestAnalyzeTakesAHandlerThatIsTheClass(t *testing.T) {
 		facts.Fact{Kind: facts.KindSymbol, Name: "api.getOrder", Props: map[string]any{"symbol_kind": facts.SymbolFunc}},
 	)
 	fn.BuildGraph()
-	if got := Analyze(fn, "/api/v2/orders", 25, nil); len(got.Controllers) != 0 || got.StoppedAt != "controller" {
-		t.Errorf("controllers = %v, stopped at %q; a function handler has no class", got.Controllers, got.StoppedAt)
+	// It is walked as a handler, though: it reaches nothing here, so the chain stops at
+	// the model hop, not at a controller nothing could have answered.
+	if got := Analyze(fn, "/api/v2/orders", 25, nil); len(got.Controllers) != 0 || got.StoppedAt != "model" {
+		t.Errorf("controllers = %v, stopped at %q; a function handler has no class and reaches no model", got.Controllers, got.StoppedAt)
+	}
+}
+
+// TestAnalyzeWalksFromAFunctionHandler: a FastAPI view, a Flask view or a Go package
+// function serves its route with no class around it. The walk starts from the function
+// itself, and Controllers still lists only types.
+func TestAnalyzeWalksFromAFunctionHandler(t *testing.T) {
+	st := facts.NewStore()
+	st.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/api/v1/datasets", Props: map[string]any{
+			"method": "GET", "handler": "routers.get_datasets"},
+			Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "routers.get_datasets"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "routers.get_datasets", Props: map[string]any{"symbol_kind": facts.SymbolFunc},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "datasets.list_datasets"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "datasets.list_datasets", Props: map[string]any{"symbol_kind": facts.SymbolFunc},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Dataset"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "Dataset", Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindStorage, Name: "Dataset", Props: map[string]any{
+			"storage_kind": "model", "table": "datasets"}},
+		// A sibling view in the same module reaches another model; it serves another
+		// route, so its model is not this endpoint's.
+		facts.Fact{Kind: facts.KindSymbol, Name: "routers.delete_all", Props: map[string]any{"symbol_kind": facts.SymbolFunc},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Data"}}},
+		facts.Fact{Kind: facts.KindStorage, Name: "Data", Props: map[string]any{
+			"storage_kind": "model", "table": "data"}},
+	)
+	st.BuildGraph()
+
+	got := Analyze(st, "/api/v1/datasets", 25, nil)
+	if len(got.Controllers) != 0 {
+		t.Errorf("controllers = %v; a function is not a controller", got.Controllers)
+	}
+	if len(got.Models) != 1 || got.Models[0] != "Dataset" {
+		t.Errorf("models = %v, stopped at %q; want the model the handler reaches through its service", got.Models, got.StoppedAt)
+	}
+	if got.StoppedAt != "" {
+		t.Errorf("the chain completed, so nothing stopped it: %q", got.StoppedAt)
+	}
+	if strings.Contains(got.Summary, "no class in this repository answers") {
+		t.Errorf("summary blames the controller hop for a walk that ran: %s", got.Summary)
+	}
+
+	// A handled_by target no symbol declares gives the walk nowhere to start.
+	undeclared := facts.NewStore()
+	undeclared.Add(facts.Fact{Kind: facts.KindRoute, Name: "/x", Props: map[string]any{"method": "GET"},
+		Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "somewhere.view"}}})
+	undeclared.BuildGraph()
+	if got := Analyze(undeclared, "/x", 25, nil); got.StoppedAt != "controller" {
+		t.Errorf("stopped at %q; an undeclared handler gives the walk nothing to start from", got.StoppedAt)
 	}
 }
 
