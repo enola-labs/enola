@@ -440,6 +440,71 @@ func TestAnalyzeMarksCallersThatNeverRun(t *testing.T) {
 	}
 }
 
+// A caller none of whose calls to the endpoint is known to run, and at least one of
+// which no extractor judged, is listed as running for all anyone knows, and marked
+// reach_unknown so it does not read as a caller known to run. One call known to run
+// clears it; calls that all never run are never_runs, not unknown. The summary says so.
+func TestAnalyzeMarksCallersNobodyJudged(t *testing.T) {
+	client := func(file string, reach any) facts.Fact {
+		p := map[string]any{"method": "GET", "role": "client"}
+		if reach != nil {
+			p[facts.PropClientReachable] = reach
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/items/{id}", File: file, Props: p}
+	}
+	server := facts.Fact{Kind: facts.KindRoute, Name: "/api/items/{id}", Props: map[string]any{"method": "GET", "handler": "items#show"}}
+	analyze := func(clients ...facts.Fact) Impact {
+		st := facts.NewStore()
+		st.Add(append([]facts.Fact{server}, clients...)...)
+		st.BuildGraph()
+		all := func([]facts.Fact) []facts.Fact {
+			var out []facts.Fact
+			for _, f := range st.ByKind(facts.KindRoute) {
+				if f.Props["role"] == "client" {
+					out = append(out, f)
+				}
+			}
+			return out
+		}
+		return Analyze(st, "GET /api/items/{id}", 25, all)
+	}
+
+	got := analyze(
+		client("app/Items.kt", nil),
+		client("web/mixed.ts", nil),
+		client("web/mixed.ts", false),
+		client("web/runs.ts", nil),
+		client("web/runs.ts", true),
+		client("web/dead.ts", false),
+	)
+	type state struct{ never, unknown bool }
+	have := map[string]state{}
+	for _, c := range got.Callers {
+		have[c.File] = state{c.NeverRuns, c.ReachUnknown}
+	}
+	for f, w := range map[string]state{
+		"app/Items.kt": {false, true},
+		"web/mixed.ts": {false, true},
+		"web/runs.ts":  {false, false},
+		"web/dead.ts":  {true, false},
+	} {
+		if v, ok := have[f]; !ok || v != w {
+			t.Errorf("%s: (never runs, reach unknown) = %+v (listed %v), want %+v", f, v, ok, w)
+		}
+	}
+	if !strings.Contains(got.Summary, "In 2 of those files nothing could judge whether the call runs") {
+		t.Errorf("summary should count the files nobody judged; got %q", got.Summary)
+	}
+
+	only := analyze(client("app/Items.kt", nil), client("ios/Items.swift", nil))
+	if !strings.Contains(only.Summary, "Whether any of those calls runs is unknown") {
+		t.Errorf("summary should say no caller could be judged; got %q", only.Summary)
+	}
+	if strings.Contains(only.Summary, "None of those calls runs") {
+		t.Errorf("unjudged callers must not read as never running; got %q", only.Summary)
+	}
+}
+
 // A query naming a route exactly follows that route, not every route containing it;
 // a trailing * follows them all.
 func TestAnalyzeFollowsTheRouteNamedExactly(t *testing.T) {

@@ -79,6 +79,11 @@ type Caller struct {
 	// the application cannot run (facts.PropClientReachable false): an API method no
 	// page reaches. The call is in the source and is never sent.
 	NeverRuns bool `json:"never_runs,omitempty"`
+	// ReachUnknown is set when no call this file makes to the endpoint is known to run
+	// and at least one is a call whose client could not tell (facts.ReachUnjudged): a
+	// client the reach pass does not read, or a library its consumers call. It may run;
+	// nothing could judge whether it does.
+	ReachUnknown bool `json:"reach_unknown,omitempty"`
 	// Repo is the repository of the calling file, in a multi-repo snapshot.
 	Repo string `json:"repo,omitempty"`
 	// Symbols are the functions in the file that make the call.
@@ -469,6 +474,7 @@ func callersFrom(s *facts.Store, clients []facts.Fact, reach EndpointReach, call
 	}
 
 	at := map[string]int{}
+	known, unjudged := map[string]bool{}, map[string]bool{}
 	var out []Caller
 	for _, fact := range clients {
 		if role, _ := fact.PropAny("role").(string); role != "client" {
@@ -477,7 +483,10 @@ func callersFrom(s *facts.Store, clients []facts.Fact, reach EndpointReach, call
 		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
 			continue
 		}
-		runs := facts.ClientReach(fact) != facts.ReachNeverRuns
+		reach := facts.ClientReach(fact)
+		runs := reach != facts.ReachNeverRuns
+		known[fact.File] = known[fact.File] || reach == facts.ReachRuns
+		unjudged[fact.File] = unjudged[fact.File] || reach == facts.ReachUnjudged
 		caller := fact.PropString(facts.PropCaller)
 		if caller == "" {
 			caller = enclosingSymbol(s, fact.File, fact.Line)
@@ -508,6 +517,7 @@ func callersFrom(s *facts.Store, clients []facts.Fact, reach EndpointReach, call
 	}
 	for i := range out {
 		sort.Strings(out[i].Calls)
+		out[i].ReachUnknown = unjudged[out[i].File] && !known[out[i].File]
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	if reach != nil {
@@ -651,6 +661,17 @@ func summarize(out Impact, truncated bool) string {
 			b.WriteString(" None of those calls runs: each sits in client code no page or component reaches.")
 		} else if never > 0 {
 			fmt.Fprintf(&b, " In %d of those files the call sits in client code no page or component reaches.", never)
+		}
+		unknown := 0
+		for _, caller := range out.Callers {
+			if caller.ReachUnknown {
+				unknown++
+			}
+		}
+		if unknown == len(out.Callers) {
+			b.WriteString(" Whether any of those calls runs is unknown: no extractor could judge the client code that makes them (a client whose reach enola does not trace, or a library its consumers call).")
+		} else if unknown > 0 {
+			fmt.Fprintf(&b, " In %d of those files nothing could judge whether the call runs (reach_unknown).", unknown)
 		}
 	}
 	if out.AssociatedTotal > maxAssociated {
