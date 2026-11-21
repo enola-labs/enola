@@ -45,18 +45,57 @@ func (r *Registry) All() []Binder {
 	return r.binders
 }
 
-// Stage returns the registered binders declaring the given stage, in registration
-// order.
+// Stage returns the registered binders declaring the given stage, in the order they
+// run.
 //
-// Order WITHIN a stage carries no meaning and must not: the Binder contract requires
-// each one to be independent of whether its stage-mates have run. The slice is ordered
-// only so that logs and any error report read the same way twice.
+// A binder that reads what a stage-mate writes declares it (plugin.OrderedBinder) and
+// runs after every binder of that name; the rest keep registration order, which then
+// carries no meaning: only the declared order changes what a stage writes, so the
+// registration block can be reordered without changing a snapshot. A name outside the
+// stage is ignored, and a cycle, which no binder should declare, runs what remains in
+// registration order rather than dropping a binder.
 func (r *Registry) Stage(s plugin.BindStage) []Binder {
-	var out []Binder
+	var in []Binder
+	pending := map[string]int{} // name -> binders of that name not yet placed
 	for _, b := range r.binders {
 		if b.Stage() == s {
-			out = append(out, b)
+			in = append(in, b)
+			pending[b.Name()]++
 		}
+	}
+	ready := func(b Binder) bool {
+		ob, ok := b.(plugin.OrderedBinder)
+		if !ok {
+			return true
+		}
+		for _, name := range ob.RunsAfter() {
+			if name != b.Name() && pending[name] > 0 {
+				return false
+			}
+		}
+		return true
+	}
+	out := make([]Binder, 0, len(in))
+	placed := make([]bool, len(in))
+	for len(out) < len(in) {
+		next := -1
+		for i, b := range in {
+			if !placed[i] && ready(b) {
+				next = i
+				break
+			}
+		}
+		if next < 0 { // a cycle: the first remaining binder breaks it
+			for i := range in {
+				if !placed[i] {
+					next = i
+					break
+				}
+			}
+		}
+		placed[next] = true
+		pending[in[next].Name()]--
+		out = append(out, in[next])
 	}
 	return out
 }

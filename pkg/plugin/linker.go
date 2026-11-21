@@ -62,9 +62,11 @@ const (
 //     a second run over its own output must be a no-op — check for the relation
 //     before appending it.
 //   - MUST be deterministic, and must not depend on the order binders were
-//     registered in. Two binders in the same stage may run in any order, so a binder
-//     that would behave differently depending on whether another has already run is
-//     using the wrong stage, or the wrong gate.
+//     registered in. A binder that reads what a stage-mate writes declares it
+//     (OrderedBinder) and always runs after it. Any other two binders in the same
+//     stage may run in either order, so one that would behave differently depending
+//     on whether an undeclared stage-mate has already run is using the wrong stage,
+//     the wrong gate, or is missing a declaration.
 //
 // Determinism is the load-bearing one: facts.jsonl is hashed into the snapshot ID, so
 // a binder whose output depends on registration order would make an unchanged tree
@@ -76,6 +78,18 @@ type Binder interface {
 	Stage() BindStage
 	// Bind resolves references over the assembled store, in place.
 	Bind(ctx context.Context, store *facts.Store) error
+}
+
+// OrderedBinder is a Binder that reads what named stage-mates write, and so runs after
+// every binder of those names in its stage. A stage whose binders decide one prop
+// between them (the OpenAPI role: vendored-specs, then openapi-impl, then
+// generated-clients) is one chain, and declaring it is what keeps the registration
+// order free of meaning. A name in another stage, or not registered, is ignored: the
+// stages already order themselves.
+type OrderedBinder interface {
+	Binder
+	// RunsAfter names the stage-mates whose output this binder reads.
+	RunsAfter() []string
 }
 
 // IndexBinder is a Binder whose Bind changes no fact: it only derives an index the

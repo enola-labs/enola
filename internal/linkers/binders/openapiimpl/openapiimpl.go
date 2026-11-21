@@ -58,6 +58,10 @@ func (b *Binder) Name() string { return "openapi-impl" }
 
 func (b *Binder) Stage() plugin.BindStage { return plugin.StagePreLink }
 
+// RunsAfter vendored-specs: the roles it binds and demotes are the ones vendored-specs
+// settled, and a spec vendored-specs would restore must not be judged first.
+func (b *Binder) RunsAfter() []string { return []string{"vendored-specs"} }
+
 type operation struct {
 	repo, spec, id string
 }

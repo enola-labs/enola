@@ -619,7 +619,8 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	}
 
 	// Register all OSS binders. Stage() decides when each runs relative to cross-repo
-	// linking, so the order here is presentation only — see plugin.Binder.
+	// linking, and a binder reading a stage-mate's output declares it
+	// (plugin.OrderedBinder), so the order here is presentation only — see plugin.Binder.
 	eng.RegisterBinder(clientseam.New())
 	eng.RegisterBinder(grpcclientfqn.New())
 	eng.RegisterBinder(emberresolver.New())
@@ -636,8 +637,6 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(deployedcode.New())
 	eng.RegisterBinder(stimulusresolver.New())
 	eng.RegisterBinder(vendoredspecs.New())
-	// After vendored-specs, before generated-clients: the specs it finds unimplemented
-	// are client specs whose calls generated-clients then looks for.
 	eng.RegisterBinder(openapiimpl.New())
 	eng.RegisterBinder(generatedclients.New())
 	eng.RegisterBinder(generatedreach.New())

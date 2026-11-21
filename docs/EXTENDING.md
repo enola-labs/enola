@@ -71,7 +71,10 @@ type Binder interface {
   that adds facts drops what it added on the previous run before adding again (`RemoveWhere`
   on a marker only its facts carry), or skips a fact already present.
 - **Deterministic, and independent of registration order.** Binders in the same stage run
-  in an unspecified order and must not observe each other. `facts.jsonl` is hashed into the
+  in registration order, which must carry no meaning, and must not observe each other. A
+  binder that has to read what a stage-mate writes declares it with `RunsAfter() []string`
+  (`plugin.OrderedBinder`) and always runs after it: `openapi-impl` runs after
+  `vendored-specs`, and `generated-clients` after both. `facts.jsonl` is hashed into the
   snapshot ID, so a binder whose output depended on ordering would make an unchanged tree
   produce a different snapshot from run to run.
 
@@ -80,7 +83,9 @@ a fixed set of four binders (`grpc-client-fqn`, `grpc-impl`, `http-handler`,
 `unmatched-routes`) and one small fixture of gRPC and HTTP routes:
 `TestBinders_OutputIsIndependentOfRegistrationOrder` serializes the store after running
 them forward and reversed and requires the bytes to match, and
-`TestBinders_RepeatedRunsAreStable` requires a second pass to change nothing. They do not
+`TestBinders_RepeatedRunsAreStable` requires a second pass to change nothing.
+`TestBinders_OpenAPIChainIsIndependentOfRegistrationOrder` registers the three OpenAPI
+binders in every order and requires one output. They do not
 run the binders `pkg/bootstrap` registers, so a new binder is not covered until you add it
 to them with input it acts on, or test the same two properties in its own package.
 

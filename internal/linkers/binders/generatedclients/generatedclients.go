@@ -57,6 +57,11 @@ func (b *Binder) Name() string { return "generated-clients" }
 // Pre-link: the routes this emits are what the cross-repo linker matches on.
 func (b *Binder) Stage() plugin.BindStage { return plugin.StagePreLink }
 
+// RunsAfter vendored-specs and openapi-impl: a spec either of them makes a client spec
+// is one whose generated client this binder looks for, and one it reads as served is
+// skipped.
+func (b *Binder) RunsAfter() []string { return []string{"vendored-specs", "openapi-impl"} }
+
 // spec is one client spec of a repo: its operations by operationId, and by the
 // PascalCase spelling generators give method names.
 type spec struct {

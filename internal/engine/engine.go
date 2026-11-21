@@ -593,10 +593,10 @@ func providerInput(files, testFiles []string, hashes, testHashes map[string]stri
 // runBinders runs every registered binder declaring the given stage, over the
 // build-scratch store.
 //
-// Order within a stage is registration order, but carries no meaning: the plugin.Binder
-// contract requires each binder to be independent of whether its stage-mates have run,
-// precisely so this loop can stay a loop. A binder that needs to observe another's output
-// is in the wrong stage.
+// Order within a stage is the one the binders declare (plugin.OrderedBinder), else
+// registration order, which carries no meaning: the plugin.Binder contract requires a
+// binder to be independent of every stage-mate it does not declare, precisely so this
+// loop can stay a loop.
 //
 // A binder error is logged and the run continues, matching how a failing explainer is
 // handled: a binder resolves edges that enrich the graph, so losing one degrades the
