@@ -3758,7 +3758,11 @@ import (
 // (Gradle src/test and src/<target>Test, SPM and Xcode *Tests/, PHP tests/ and test/),
 // and a CamelCase directory ending in Tests (MyAppTests, MyAppUITests) is test code.
 // An SPM test target with no indexed source file emits no dependency facts.
-const cacheVersion = "v675"
+// v676: reserved for a parallel branch.
+// v677: Swift: a reference from a production file binds only to declarations
+// outside test targets (a directory ending in Tests): a type, a member call's
+// unique method, a typed receiver's method or an inherited one.
+const cacheVersion = "v677"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

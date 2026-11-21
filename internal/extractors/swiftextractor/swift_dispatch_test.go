@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -26,6 +27,7 @@ func extractRepo(t *testing.T, files map[string]string) []facts.Fact {
 		}
 		names = append(names, rel)
 	}
+	sort.Strings(names) // the walk sees files in path order, as a snapshot does
 	ff, err := New().Extract(context.Background(), repo, names)
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +293,7 @@ func TestResolveMethodCalls(t *testing.T) {
 		},
 	}}
 
-	resolveMethodCalls(ff, methodIndex, funcIndex)
+	resolveMethodCalls(ff, &swiftIndexes{prod: swiftNameIndex{methods: methodIndex, funcs: funcIndex}})
 
 	got := ff[0].Relations
 	want := []facts.Relation{

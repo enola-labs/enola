@@ -164,9 +164,9 @@ func (w *astWalker) noteTypedCall(typ, method string) {
 
 // resolveTypedCalls binds each noted call to the method its receiver's type
 // declares, replacing the bare edge the walker wrote for it, or adding the edge
-// where the walker skipped the name.
-func resolveTypedCalls(allFacts []facts.Fact) {
-	var h *swiftHierarchy
+// where the walker skipped the name. A production caller sees production
+// declarations only (scope.go).
+func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies) {
 	for i := range allFacts {
 		f := &allFacts[i]
 		notes, ok := f.PropAny(propTypedCalls).([]swiftTypedCall)
@@ -174,9 +174,7 @@ func resolveTypedCalls(allFacts []facts.Fact) {
 			continue
 		}
 		f.DelProp(propTypedCalls)
-		if h == nil {
-			h = newSwiftHierarchy(allFacts)
-		}
+		h := hier.forFile(f.File)
 		for _, n := range notes {
 			target := h.resolve(n.typ, n.method, f.Name)
 			if target == "" || target == f.Name {
