@@ -50,7 +50,9 @@ var hubBudgets = map[string]int{
 	// 16: internal/workspace, so the engine walk prunes linked worktrees by the same test
 	// the extractors that walk the tree themselves use.
 	"internal/engine": 16,
-	"internal/server": 20,
+	// 21: internal/explainers/importclosure, so query_insights asks the explainer's own
+	// graph builder whether it had input, instead of a copy of its edge rules.
+	"internal/server": 21,
 	"pkg/command":     33,
 	"pkg/check":       11,
 	"internal/config": 4,
