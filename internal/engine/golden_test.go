@@ -238,6 +238,35 @@ var fixtures = []fixture{
 	// Go extractor left on the caller. The only golden carrying that source, so the
 	// route-source conformance test in internal/facts sees it.
 	{name: "go_client_seam", subRepos: []string{"."}},
+	// The fixtures below exist so that every registered binder writes into some golden:
+	// a binder whose Bind did nothing would otherwise pass the whole suite.
+	//
+	// stored-funcs and storage-clients: a fetch closure handed to a read-through
+	// constructor and called through the holder field (titlesCache.get calls the
+	// closure, marked stored_calls), and a go-redis call that depends on redis:<repo>.
+	{name: "go_cache_sample", subRepos: []string{"."}},
+	// openapi-impl and generated-clients: a hand-written Server implements petstore.yaml
+	// by operationId (handled_by, handler_binding=operation), and stock.Count calls the
+	// oapi-codegen client generated from inventory.yaml, which becomes a generated-client
+	// route at the call site while the spec's operations turn into declarations.
+	{name: "go_openapi_sample", subRepos: []string{"."}},
+	// vendored-specs and generated-reach: a Dart app that serves nothing vendors a spec
+	// (demoted to client, vendored_spec), and a generated client method nothing calls
+	// makes a call marked client_reachable=false.
+	{name: "dart_openapi_app", subRepos: []string{"."}},
+	// deployed-code: an Argo CD Application whose destination namespace names the other
+	// loaded repository carries deploys_repo, which the linker turns into a deployment
+	// edge.
+	{name: "argocd_deploy_multirepo", subRepos: []string{"gitops", "billing-api"}},
+	// stimulus-resolver: an ERB data-action grounds on the controller's toggle method,
+	// and the action naming a method the controller lacks stays unresolved.
+	{name: "stimulus_sample", subRepos: []string{"."}},
+	// warehouse-lineage: a dbt source table in one project is the model another
+	// project builds.
+	{name: "dbt_lineage_sample", subRepos: []string{"."}},
+	// test-exercises: a Cypress request exercises the Express route it reaches, with
+	// the literal id read as the parameter, and the request nothing serves is listed.
+	{name: "ts_test_exercises_sample", subRepos: []string{"."}},
 	// Two Go services coupled ONLY by Kafka topics — no import, no call, no HTTP
 	// route between them. Pins the async linking signal (v132) end-to-end, which the
 	// unit tests cannot: the topic name the extractor emits has to resolve against

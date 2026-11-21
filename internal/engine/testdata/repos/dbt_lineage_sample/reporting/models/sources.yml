@@ -1,0 +1,5 @@
+version: 2
+sources:
+  - name: warehouse
+    tables:
+      - name: orders_daily

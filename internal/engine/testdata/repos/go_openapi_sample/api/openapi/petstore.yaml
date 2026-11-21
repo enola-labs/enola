@@ -1,0 +1,17 @@
+openapi: 3.0.0
+info:
+  title: Petstore
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      responses:
+        "200":
+          description: OK
+  /pets/{id}:
+    get:
+      operationId: getPet
+      responses:
+        "200":
+          description: OK
