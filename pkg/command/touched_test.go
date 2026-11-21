@@ -109,6 +109,19 @@ func TestTouchedMaxSymbolsLeavesSweepsOutOfTheRanking(t *testing.T) {
 	}
 }
 
+// An empty selection is still the documented array, so a consumer that
+// iterates commits does not meet null on the walk that selected nothing.
+func TestTouchedJSONEmptySelectionIsAnArray(t *testing.T) {
+	raw := runTouched(t, "--subject", "no-subject-matches-this", "--json", touchedRepo(t))
+	var res map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(res["commits"]); got != "[]" {
+		t.Errorf("commits = %s, want []", got)
+	}
+}
+
 func TestTouchedRefusesWhatItCannotWalk(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := testRunner().runTouched(context.Background(), []string{t.TempDir()}, &out, &errOut); code != 2 {
