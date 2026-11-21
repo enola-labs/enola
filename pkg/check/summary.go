@@ -217,14 +217,14 @@ func (v Verdict) changed() []plain.Item {
 		drops := importPairs(v.Diff.EdgesRemoved, v.Diff.FactsRemoved)
 		for i, p := range uses {
 			if i == plain.MaxItems {
-				out = append(out, plain.Item{Text: plain.Plural(len(uses)-i, "more new use", "more new uses") + " between modules in the full verdict.", Certainty: plain.Certain})
+				out = append(out, plain.Item{Text: plain.Plural(len(uses)-i, "more new use", "more new uses") + " between modules: the full verdict lists them with the imports under New coupling.", Certainty: plain.Certain})
 				break
 			}
 			out = append(out, plain.Item{Text: p[0] + " now uses " + p[1] + ".", Certainty: plain.Certain})
 		}
 		for i, p := range drops {
 			if i == plain.MaxItems {
-				out = append(out, plain.Item{Text: plain.Plural(len(drops)-i, "more removed use", "more removed uses") + " between modules in the full verdict.", Certainty: plain.Certain})
+				out = append(out, plain.Item{Text: plain.Plural(len(drops)-i, "more removed use", "more removed uses") + " between modules: the full verdict lists them with the imports under Removed coupling.", Certainty: plain.Certain})
 				break
 			}
 			out = append(out, plain.Item{Text: p[0] + " no longer uses " + p[1] + ".", Certainty: plain.Certain})
