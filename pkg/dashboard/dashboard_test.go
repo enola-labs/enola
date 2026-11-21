@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/history"
 )
@@ -672,13 +674,11 @@ func TestInsightDetailsFiltersUnknownSources(t *testing.T) {
 	}
 }
 
+// Every explainer this build ships is admitted, read from the one registry list rather
+// than enumerated here: a hand-kept list in this test once lagged the engine by eight
+// explainers and passed while the page dropped four of them.
 func TestInsightDetailsAdmitsEveryCurrentBuiltInSource(t *testing.T) {
-	sources := []string{
-		"hotspots", "god-class", "exported-surface", "complexity-outliers",
-		"dependency-depth", "cycles", "layers", "crossrepo", "coverage",
-		"unused-routes", "domain", "query-loops", "entry-points",
-		"messaging-coverage", "intent", "constraints",
-	}
+	sources := config.KnownExplainers
 	ins := make([]facts.Insight, 0, len(sources))
 	for _, source := range sources {
 		ins = append(ins, facts.Insight{Source: source, Title: source, Confidence: 1})
@@ -686,8 +686,33 @@ func TestInsightDetailsAdmitsEveryCurrentBuiltInSource(t *testing.T) {
 
 	groups, structural, candidate := insightDetails(ins, insightLabels)
 	if len(groups) != len(sources) || structural != len(sources) || candidate != 0 {
-		t.Fatalf("built-in insights = %d groups, %d/%d split; want %d groups, %d/0 split",
-			len(groups), structural, candidate, len(sources), len(sources))
+		admitted := map[string]bool{}
+		for _, g := range groups {
+			admitted[g.Source] = true
+		}
+		var dropped []string
+		for _, source := range sources {
+			if !admitted[source] {
+				dropped = append(dropped, source)
+			}
+		}
+		t.Fatalf("built-in insights = %d groups, %d/%d split; want %d groups, %d/0 split; dropped %v",
+			len(groups), structural, candidate, len(sources), len(sources), dropped)
+	}
+}
+
+// Every shipped explainer has a display name, and no display name outlives its
+// explainer. A missing name would still be admitted, under its bare id.
+func TestExplainerDisplayNamesMatchRegistry(t *testing.T) {
+	for _, name := range config.KnownExplainers {
+		if explainerDisplayNames[name] == "" {
+			t.Errorf("explainer %q ships with no display name", name)
+		}
+	}
+	for name := range explainerDisplayNames {
+		if !slices.Contains(config.KnownExplainers, name) {
+			t.Errorf("display name for %q, which config.KnownExplainers does not ship", name)
+		}
 	}
 }
 
