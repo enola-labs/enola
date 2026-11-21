@@ -570,4 +570,9 @@ naming a generated directory, is the shape of a contract that was never met.
   says the graph moved. A binder change that moves `facts.jsonl` on an unedited tree
   therefore bumps it with a cachecov entry, as the mixin-owner (v224),
   framework-roots (v225) and module-edges (v232, v249) binders did. A change that moves no
-  output needs neither.
+  output needs neither. `TestGoldenFactsNeedCacheVersionBump` (`internal/engine`) holds
+  this rule: `internal/engine/testdata/golden_versions.json` records each fixture's input
+  and facts golden under the cacheVersion they were taken at, and a facts golden that
+  moves while the version and the fixture stay the same fails it. After a bump,
+  `go test ./internal/engine -run TestGolden -update` re-records it with the goldens; a new
+  or edited fixture is recorded the same way and needs no bump.
