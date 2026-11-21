@@ -800,3 +800,31 @@ func TestExplain_GoImportOfAnUnheldPackageIsNotItsParent(t *testing.T) {
 		t.Fatalf("no Go import cycle exists here, got %+v", insights)
 	}
 }
+
+// A loaded component just over the cycle limit but under the evidence cap lists
+// each of its modules once: the evidence never reaches past the component.
+func TestExplain_LargeCycleEvidenceStaysWithinComponent(t *testing.T) {
+	for n := maxCycleModules + 1; n <= maxClusterMembers+1; n++ {
+		modules, deps := ring("pkg", n)
+		insights, err := New().Explain(context.Background(), makeStoreLang("go", nil, modules, deps))
+		if err != nil {
+			t.Fatalf("%d modules: Explain: %v", n, err)
+		}
+		if len(insights) != 1 {
+			t.Fatalf("%d modules: want 1 insight, got %d", n, len(insights))
+		}
+		in := insights[0]
+		want := min(n, maxClusterMembers)
+		if len(in.Evidence) != want {
+			t.Errorf("%d modules: evidence = %d, want %d", n, len(in.Evidence), want)
+		}
+		for _, ev := range in.Evidence {
+			if ev.Fact == "" {
+				t.Errorf("%d modules: evidence names an empty module: %+v", n, ev)
+			}
+		}
+		if !strings.Contains(in.Description, fmt.Sprintf("lists %d of the %d modules", want, n)) {
+			t.Errorf("%d modules: description: %s", n, in.Description)
+		}
+	}
+}

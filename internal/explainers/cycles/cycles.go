@@ -113,7 +113,7 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 		}
 
 		listed := scc
-		if large {
+		if len(listed) > maxClusterMembers {
 			listed = scc[:maxClusterMembers]
 		}
 		evidence := make([]facts.Evidence, 0, len(listed))
