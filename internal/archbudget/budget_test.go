@@ -54,7 +54,9 @@ var hubBudgets = map[string]int{
 	"pkg/command":     33,
 	"pkg/check":       11,
 	"internal/config": 4,
-	"pkg/dashboard":   6,
+	// 7: internal/config, so the insight admission list is config.KnownExplainers
+	// instead of a hand-kept copy of it that had fallen four explainers behind.
+	"pkg/dashboard": 7,
 	// 8: internal/explainers/common, so coupling resolves an importer's module by the
 	// one shared rule (a Go package is named by import path, not by its directory)
 	// instead of a copy of it.
