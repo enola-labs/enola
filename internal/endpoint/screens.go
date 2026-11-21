@@ -48,7 +48,7 @@ func screensFrom(s *facts.Store, clients, servers []facts.Fact) []Screen {
 	var members map[string][]string
 	for _, c := range clients {
 		if c.PropString(facts.PropRole) != facts.RoleClient || c.PropAny("test_double") == true ||
-			c.PropAny(facts.PropClientReachable) == false {
+			facts.ClientReach(c) == facts.ReachNeverRuns {
 			continue
 		}
 		var endpoints []string

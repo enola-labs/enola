@@ -137,6 +137,19 @@ func TestRenderQuerySummary_SurfacesUnmatchedFlag(t *testing.T) {
 	}
 }
 
+// A matched route no caller is known to run is a flag worth sizing a route query by,
+// beside the routes no caller runs at all.
+func TestRenderQuerySummary_SurfacesUnjudgedFlag(t *testing.T) {
+	results := []facts.Fact{
+		{Kind: facts.KindRoute, Name: "/a", Props: map[string]any{"matched_by_clients": true, "unjudged_by_clients": true}},
+		{Kind: facts.KindRoute, Name: "/b", Props: map[string]any{"matched_by_clients": true}},
+	}
+	out := renderQuerySummary(results, len(results))
+	if !strings.Contains(out, "unjudged_by_clients=true: 1") {
+		t.Errorf("summary should surface the unjudged_by_clients flag count; got:\n%s", out)
+	}
+}
+
 // TestRenderInsightsSummary_HeadlineReflectsTheFilter composes the filter with the
 // summary, which no test in either repo did before. It pins the invariant that the
 // analyze_performance tool violated (bug new/56): a tool that filters its

@@ -116,6 +116,9 @@ func (r *Runner) Endpoint(ctx context.Context, args []string) {
 		if caller.NeverRuns {
 			line += "  (never runs: no page or component reaches it)"
 		}
+		if caller.ReachUnknown {
+			line += "  (reach unknown: nothing could judge whether this call runs)"
+		}
 		callers = append(callers, line)
 	}
 	section("callers", callers)

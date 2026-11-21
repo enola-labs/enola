@@ -420,6 +420,62 @@ func TestFlagUnmatchedRoutes_CalledOnlyFromCodeThatNeverRuns(t *testing.T) {
 	}
 }
 
+// A route no matching call is known to run, and at least one call nobody could judge,
+// is matched and not unreached, because the unjudged call may well be sent, and it says
+// that nobody could tell: unjudged_by_clients. One call known to run clears it, and so
+// does a later bind in which the route is no longer matched.
+func TestFlagUnmatchedRoutes_CalledOnlyFromCodeNobodyJudged(t *testing.T) {
+	judged := func(f facts.Fact, runs bool) facts.Fact { f.Props[facts.PropClientReachable] = runs; return f }
+	stale := serverRouteFact("backend", "/api/admin/{id}", "GET")
+	stale.Props[PropUnjudgedByClients] = true
+	store := facts.NewStore()
+	store.Add(
+		serverRouteFact("backend", "/api/users/{userId}", "GET"),
+		serverRouteFact("backend", "/api/orders/{orderId}", "GET"),
+		serverRouteFact("backend", "/api/items/{itemId}", "GET"),
+		serverRouteFact("backend", "/api/carts/{cartId}", "GET"),
+		stale,
+		clientRouteFact("app", "/api/users/{id}", "GET"), // no verdict
+		clientRouteFact("app", "/api/orders/{id}", "GET"),
+		judged(clientRouteFact("app", "/api/orders/{id}", "GET"), true),
+		judged(clientRouteFact("app", "/api/items/{id}", "GET"), false),
+		clientRouteFact("app", "/api/carts/{id}", "GET"),
+		judged(clientRouteFact("app", "/api/carts/{id}", "GET"), false),
+	)
+	bind(t, store)
+	verdict := func() map[string][3]any {
+		out := map[string][3]any{}
+		for _, f := range store.All() {
+			if f.Kind == facts.KindRoute && f.PropAny(facts.PropRole) == facts.RoleServer {
+				out[f.Name] = [3]any{f.Props[PropMatchedByClients], f.Props[PropUnreachedByClients], f.Props[PropUnjudgedByClients]}
+			}
+		}
+		return out
+	}
+	got := verdict()
+	for name, want := range map[string][3]any{
+		"/api/users/{userId}":   {true, nil, true},
+		"/api/orders/{orderId}": {true, nil, nil},
+		"/api/items/{itemId}":   {true, true, nil},
+		"/api/carts/{cartId}":   {true, nil, true},
+		"/api/admin/{id}":       {nil, nil, nil},
+	} {
+		if got[name] != want {
+			t.Errorf("%s: (matched, unreached, unjudged) = %v, want %v", name, got[name], want)
+		}
+	}
+
+	store.UpdateWhere(func(f *facts.Fact) {
+		if f.Name == "/api/users/{id}" {
+			f.SetProp(facts.PropClientReachable, true)
+		}
+	})
+	bind(t, store)
+	if got := verdict()["/api/users/{userId}"]; got != [3]any{true, nil, nil} {
+		t.Errorf("after the call was judged to run: (matched, unreached, unjudged) = %v, want the marker cleared", got)
+	}
+}
+
 // A server route carries the strongest trigger among the client calls that match it:
 // a poll on every page beats a page's mount, which beats a click; a call that never
 // runs gives none. Unmatched, it carries none, and a stale one is cleared.

@@ -33,6 +33,12 @@ const (
 	// facts.PropClientReachable false. It sits beside PropMatchedByClients, which
 	// still holds, because the call is in the source; this says it is never sent.
 	PropUnreachedByClients = "unreached_by_clients"
+	// PropUnjudgedByClients marks a matched SERVER route no matching call is known to
+	// run, because the client making at least one of them could not tell whether the
+	// application runs that code (facts.ReachUnjudged): a client the reach pass does
+	// not read, or a library its consumers call. The route stays matched and is not
+	// unreached, since the call may be sent; this says that nobody could judge it.
+	PropUnjudgedByClients = "unjudged_by_clients"
 	// PropUnmatchedByServer marks a CLIENT call site that resolves to no loaded server.
 	PropUnmatchedByServer = facts.PropUnmatchedByServer
 	// PropUnmatchedReason carries one of the crossrepo.Reason* values explaining why.
@@ -91,7 +97,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	clientKeys := httpsignal.UnmatchedClientCallReasons(b.m, all)
 	clientMatches := httpsignal.ClientRouteMatches(b.m, all)
 
-	flaggedServer, flaggedClient, linkedClient, unreachedServer := 0, 0, 0, 0
+	flaggedServer, flaggedClient, linkedClient, unreachedServer, unjudgedServer := 0, 0, 0, 0, 0
 	store.UpdateWhere(func(f *facts.Fact) {
 		if f.Kind != facts.KindRoute {
 			return
@@ -100,6 +106,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			f.DelProp(PropMatchedByClients)
 			f.DelProp(PropUnmatchedByClients)
 			f.DelProp(PropUnreachedByClients)
+			f.DelProp(PropUnjudgedByClients)
 			f.DelProp(facts.PropMatchedRoutes)
 			return
 		}
@@ -108,6 +115,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if f.Props != nil && f.PropAny(facts.PropRole) == facts.RoleClient {
 			f.DelProp(PropUnmatchedByClients)
 			f.DelProp(PropUnreachedByClients)
+			f.DelProp(PropUnjudgedByClients)
 			if f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
 				if reason := gqlReasons[graphqlsig.OperationIdentity(*f)+"\x00"+f.Repo+"\x00"+f.File]; reason != "" {
 					f.SetProp(PropGraphQLUnresolvedReason, reason)
@@ -158,6 +166,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				f.DelProp(PropMatchedByClients)
 				f.DelProp(PropUnmatchedByClients)
 				f.DelProp(PropUnreachedByClients)
+				f.DelProp(PropUnjudgedByClients)
 				setTraffic(f, httpsignal.ClientTraffic{})
 			}
 			return
@@ -169,6 +178,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			}
 			f.SetProp(PropUnmatchedByClients, true)
 			f.DelProp(PropUnreachedByClients)
+			f.DelProp(PropUnjudgedByClients)
 			// Clearing the opposite marker is what keeps the binder idempotent
 			// across appends, and the positive marker had to join the rule the
 			// moment it existed: a route matched while one repo was loaded and
@@ -192,6 +202,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			f.DelProp(PropMatchedByClients)
 			f.DelProp(PropUnmatchedByClients)
 			f.DelProp(PropUnreachedByClients)
+			f.DelProp(PropUnjudgedByClients)
 			setTraffic(f, httpsignal.ClientTraffic{})
 			return
 		}
@@ -209,11 +220,17 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		} else {
 			f.DelProp(PropUnreachedByClients)
 		}
+		if verdicts.Unjudged[identity] {
+			f.SetProp(PropUnjudgedByClients, true)
+			unjudgedServer++
+		} else {
+			f.DelProp(PropUnjudgedByClients)
+		}
 		setTraffic(f, verdicts.Traffic[identity])
 	})
 	if flaggedServer > 0 || flaggedClient > 0 || linkedClient > 0 {
-		log.Printf("[binder:unmatched-routes] flagged %d server route(s) unused by clients, %d called only from client code that never runs, %d client call(s) unresolved to a server; linked %d client call(s) to their server routes",
-			flaggedServer, unreachedServer, flaggedClient, linkedClient)
+		log.Printf("[binder:unmatched-routes] flagged %d server route(s) unused by clients, %d called only from client code that never runs, %d called only from client code nobody could judge, %d client call(s) unresolved to a server; linked %d client call(s) to their server routes",
+			flaggedServer, unreachedServer, unjudgedServer, flaggedClient, linkedClient)
 	}
 	return nil
 }

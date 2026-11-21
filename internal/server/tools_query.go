@@ -264,7 +264,7 @@ func renderNamesOnly(results []facts.Fact, total int) string {
 // notableBoolProps are high-signal boolean fact properties surfaced in the
 // query_facts summary so a caller sizing a result set discovers actionable
 // flags (e.g. dead routes) without already knowing the prop name exists.
-var notableBoolProps = []string{"unmatched_by_clients", "unreached_by_clients"}
+var notableBoolProps = []string{"unmatched_by_clients", "unreached_by_clients", "unjudged_by_clients"}
 
 // querySummary aggregates query_facts' summary one fact at a time, so summary mode
 // can count straight off the store. It used to page through every match 500 at a
