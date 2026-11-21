@@ -27,12 +27,12 @@ func TestAnalyzeAgainstBundledSnapshot(t *testing.T) {
 		t.Fatalf("loading facts: %v", err)
 	}
 
-	funcs, storage, routeHandlers, _ := collect(store)
+	funcs, routeHandlers, _ := collect(store)
 	if len(funcs) == 0 {
 		t.Fatal("expected functions/methods from a real snapshot, got none")
 	}
 
-	findings := analyze(funcs, storage, routeHandlers, nil)
+	findings := analyze(funcs, routeHandlers, nil)
 
 	validSeverity := map[string]bool{"high": true, "medium": true, "low": true}
 	seen := make(map[string]bool, len(funcs))

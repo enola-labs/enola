@@ -7,7 +7,7 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 )
 
-// riskySymbol is a function calling a storage fact inside a loop: confirmed I/O, so
+// riskySymbol is a function calling an I/O function inside a loop: confirmed I/O, so
 // the analyzer rates it high rather than on a name alone.
 func riskySymbol(name, file string, depth int) facts.Fact {
 	return facts.Fact{
@@ -21,8 +21,12 @@ func riskySymbol(name, file string, depth int) facts.Fact {
 	}
 }
 
-func storageFact(name string) facts.Fact {
-	return facts.Fact{Kind: facts.KindStorage, Name: name, Repo: "app"}
+// ioCallee is the function riskySymbol calls, flagged performs_io by the extractor.
+func ioCallee(name string) facts.Fact {
+	return facts.Fact{
+		Kind: facts.KindSymbol, Name: name, File: "app/data/d.go", Repo: "app", Line: 1,
+		Props: map[string]any{"language": "go", "symbol_kind": facts.SymbolFunc, "performs_io": true},
+	}
 }
 
 func annotate(t *testing.T, ff ...facts.Fact) map[string]any {
@@ -45,7 +49,7 @@ func annotate(t *testing.T, ff ...facts.Fact) map[string]any {
 // the 50-insight cap reaches a diff only as the rollup's number. A prop is diffed as
 // a fact attribute, so the function a change made expensive can still be NAMED.
 func TestHighSeverityRiskIsMarkedOnTheSymbol(t *testing.T) {
-	got := annotate(t, storageFact("app/data.LoadUser"), riskySymbol("app.Handler", "app/h.go", 1))
+	got := annotate(t, ioCallee("app/data.LoadUser"), riskySymbol("app.Handler", "app/h.go", 1))
 	if got["app.Handler"] != "call-in-loop" {
 		t.Fatalf("perf_risk on app.Handler = %v, want call-in-loop", got["app.Handler"])
 	}
@@ -55,7 +59,7 @@ func TestHighSeverityRiskIsMarkedOnTheSymbol(t *testing.T) {
 // stamping those would put "your change made this slow" into a diff on evidence that
 // does not support the sentence.
 func TestOnlyHighSeverityIsMarked(t *testing.T) {
-	// No storage fact, so the in-loop callee is a name-only match at best.
+	// No I/O fact about the callee, so it is a name-only match at best.
 	got := annotate(t, facts.Fact{
 		Kind: facts.KindSymbol, Name: "app.mild", File: "app/m.go", Repo: "app",
 		Props: map[string]any{
@@ -78,7 +82,7 @@ func TestCleanSymbolsAreLeftAlone(t *testing.T) {
 		Kind: facts.KindSymbol, Name: "app.Plain", File: "app/p.go", Repo: "app",
 		Props: map[string]any{"language": "go", "symbol_kind": facts.SymbolFunc},
 	}
-	got := annotate(t, storageFact("app/data.LoadUser"), riskySymbol("app.Handler", "app/h.go", 1), clean)
+	got := annotate(t, ioCallee("app/data.LoadUser"), riskySymbol("app.Handler", "app/h.go", 1), clean)
 	if _, marked := got["app.Plain"]; marked {
 		t.Fatal("a symbol with no finding was annotated")
 	}
@@ -95,7 +99,7 @@ func TestAnnotationIsScopedToItsRepo(t *testing.T) {
 		Props: map[string]any{"language": "go", "symbol_kind": facts.SymbolFunc},
 	}
 	store := facts.NewStore()
-	store.Add(storageFact("app/data.LoadUser"), riskySymbol("app.Handler", "app/h.go", 1), other)
+	store.Add(ioCallee("app/data.LoadUser"), riskySymbol("app.Handler", "app/h.go", 1), other)
 	if err := (&Explainer{}).Annotate(context.Background(), store); err != nil {
 		t.Fatal(err)
 	}

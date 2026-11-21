@@ -240,7 +240,8 @@ type Finding struct {
 	// Calls is set on a call-in-loop finding: one entry per call the finding names,
 	// in the order Evidence names them, with what each rests on. A finding lists
 	// every expensive call in the loop, and they are not equally well founded: one
-	// can be a storage fact and the next a verb in a helper's name.
+	// can resolve to a function flagged performs_io and the next be a verb in a
+	// helper's name.
 	Calls []CallEvidence `json:"calls,omitempty"`
 	// Routes names, sorted, up to five of the server routes whose handlers reach this
 	// function through calls (see reach.go); RoutesTotal counts them all. Empty when no
@@ -267,7 +268,7 @@ type CallEvidence struct {
 	Depth int `json:"depth,omitempty"`
 }
 
-// What a named call rests on, strongest first. The first three are facts about the
+// What a named call rests on, strongest first. The first two are facts about the
 // callee. The rest are readings of its name, and differ in how much of the name
 // is read: a method some function flagged performs_io also bears, a curated ORM
 // or client method, a receiver or module token, and last a generic verb or a
@@ -278,7 +279,6 @@ type CallEvidence struct {
 // matched here against every association the application declares, `tag.tag`, a
 // string column, read as one.
 const (
-	basisStorage    = "storage"      // the callee is a storage fact
 	basisPrimitive  = "io-primitive" // the extractor identified the call as an I/O entry point
 	basisResolvedIO = "resolved-io"  // the callee resolves to a function flagged performs_io
 	basisIOIndex    = "io-index"     // the method name is shared with a performs_io function
@@ -363,7 +363,7 @@ func tokenIsOwnPath(callee string, byName map[string]funcInfo, ioByName map[stri
 // basisIsFact reports whether a basis is a fact about the callee and not a reading
 // of its name. Only a fact confirms a call as I/O.
 func basisIsFact(basis string) bool {
-	return basis == basisStorage || basis == basisPrimitive || basis == basisResolvedIO
+	return basis == basisPrimitive || basis == basisResolvedIO
 }
 
 // callBasis names the strongest ground for treating an in-loop call as I/O. It is
@@ -372,10 +372,7 @@ func basisIsFact(basis string) bool {
 //
 // Go is read by its own rule: the method index and the ORM names say nothing about
 // Go code.
-func callBasis(caller funcInfo, callee string, golang bool, storage map[string]bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
-	if storage[callee] {
-		return basisStorage
-	}
+func callBasis(caller funcInfo, callee string, golang bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
 	if slices.Contains(caller.IOCalls, callee) {
 		return basisPrimitive
 	}
@@ -699,9 +696,14 @@ func isColdPath(file string) bool {
 }
 
 // collect reads the fact store via the public bootstrap API and produces the
-// pure-analysis inputs: the function list, the set of storage-fact names, the set
-// of symbol names that back a route handler (used to raise severity), and the set
-// of ActiveRecord association names (used to flag lazy-loaded reads in loops).
+// pure-analysis inputs: the function list, the set of symbol names that back a route
+// handler (used to raise severity), and the set of ActiveRecord association names
+// (used to flag lazy-loaded reads in loops).
+//
+// Storage facts are not read. They are named after entities and tables (`Comment`,
+// `users`), and an in-loop call target (`Comment.where`, `repo.findOne`) never equals
+// one, so a lookup of the call in them never matched. Saying which entity a call
+// touches needs an edge from the call to the entity, which the graph does not have.
 // collectRouteHandlers returns the set of symbols that serve an HTTP/gRPC route, keyed
 // by CANONICAL SYMBOL NAME — which is how analyze() and riskScore() look them up.
 //
@@ -738,17 +740,11 @@ func collectRouteHandlers(routes []facts.Fact) map[string]bool {
 // collect+analyze core as the analyze_performance tool. It is what the package's
 // own annotate pass runs to mark findings on the store.
 func Analyze(store *facts.Store) []Finding {
-	funcs, storage, routeHandlers, assoc := collect(store)
-	findings := analyze(funcs, storage, routeHandlers, assoc)
+	funcs, routeHandlers, assoc := collect(store)
+	findings := analyze(funcs, routeHandlers, assoc)
 	attachRoutes(store, findings)
 	sortFindings(findings)
 	return findings
-}
-
-// storageNameIsData are the storage kinds whose fact name is a data identifier
-// (a table, a topic, an index), not anything a call targets.
-var storageNameIsData = map[string]bool{
-	"table": true, "table_reference": true, "document_type": true, "topic": true, "cache": true,
 }
 
 func claimedHas(claimed map[string]struct{}, name string) bool {
@@ -756,20 +752,8 @@ func claimedHas(claimed map[string]struct{}, name string) bool {
 	return ok
 }
 
-func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) {
+func collect(store *facts.Store) (funcs []funcInfo, routeHandlers, assoc map[string]bool) {
 	claimed := queryloops.ClaimedSymbols(store)
-	storage = make(map[string]bool)
-	for f := range store.OfKind(facts.KindStorage) {
-		// A callee is matched against these names, so only the ones code calls
-		// belong: a model class, a storage client. A table, topic or index is
-		// named in a query, never called, and `attributes` or `items` as a table
-		// made every bare method of that name a database read.
-		if storageNameIsData[f.PropString("storage_kind")] {
-			continue
-		}
-		storage[f.Name] = true
-	}
-
 	// Route handlers sit on the request hot path, so a finding on one is escalated
 	// (analyze) and its risk lifted 1.3x (riskScore). Both look the handler up by its
 	// CANONICAL SYMBOL NAME.
@@ -865,7 +849,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			Calls:               calls,
 		})
 	}
-	return funcs, storage, routeHandlers, assoc
+	return funcs, routeHandlers, assoc
 }
 
 // bigOForDepth maps a loop-nesting depth to a Big-O label.
@@ -951,10 +935,7 @@ var expensivePrefixes = []string{
 	"axios", "URLSession", "NSFetchRequest",
 }
 
-func isExpensiveCall(target string, storage, assoc map[string]bool) bool {
-	if storage[target] {
-		return true
-	}
+func isExpensiveCall(target string, assoc map[string]bool) bool {
 	method := methodSegment(target)
 	for _, kw := range expensiveMethods {
 		if containsKeyword(method, kw) {
@@ -1030,10 +1011,7 @@ func goStatesOrBuilds(method string) bool {
 	return false
 }
 
-func isExpensiveGoCall(target string, storage map[string]bool, byName map[string]funcInfo) bool {
-	if storage[target] {
-		return true
-	}
+func isExpensiveGoCall(target string, byName map[string]funcInfo) bool {
 	method := methodSegment(target)
 	if goStatesOrBuilds(method) {
 		return false
@@ -1158,15 +1136,12 @@ func isSwiftIOSink(target string) bool {
 }
 
 // isExpensiveSwiftCall reports whether a Swift in-loop call is per-iteration I/O: a
-// storage fact, a resolved callee the extractor flagged performs_io (the transitive
+// resolved callee the extractor flagged performs_io (the transitive
 // network/file signal), or — for a bare/unresolved callee — a direct I/O primitive.
 // A bare callee that resolves to no fact and names no primitive is treated as
 // in-memory (an accepted false negative), which clears the update/load/insert
 // keyword false positives.
-func isExpensiveSwiftCall(target string, storage map[string]bool, byName map[string]funcInfo) bool {
-	if storage[target] {
-		return true
-	}
+func isExpensiveSwiftCall(target string, byName map[string]funcInfo) bool {
 	if f, ok := byName[target]; ok {
 		return f.PerformsIO
 	}
@@ -1181,7 +1156,7 @@ func isExpensiveSwiftCall(target string, storage map[string]bool, byName map[str
 // Kotlin/Java and produced the bulk of the false positives. Instead we use a curated
 // list of DB/network method names that name a real round-trip regardless of receiver —
 // Room, SQLDelight, Retrofit/OkHttp, JPA/Spring Data, JDBC, RestTemplate/WebClient —
-// plus storage facts and the extractor's performs_io signal when present.
+// plus the extractor's performs_io signal when present.
 
 // jvmExpensiveMethods are Kotlin/Java method names denoting real DB / network I/O.
 // Deliberately excludes the bare in-memory-ambiguous verbs (update, save, load, fetch,
@@ -1237,11 +1212,11 @@ var jvmIONameDenylist = map[string]bool{
 }
 
 // isExpensiveJvmCall reports whether a Kotlin/Java in-loop call is per-iteration I/O:
-// a storage fact, a resolved callee the extractor flagged performs_io (future-proofing
+// a resolved callee the extractor flagged performs_io (future-proofing
 // a JVM transitive-I/O pass), or a curated DB/network method / receiver — NOT the
 // cross-language keyword set.
-func isExpensiveJvmCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
-	if isJvmStorageBackedCall(target, storage, byName, ioMethods) {
+func isExpensiveJvmCall(target string, byName map[string]funcInfo, ioMethods map[string]bool) bool {
+	if isJvmIOBackedCall(target, byName, ioMethods) {
 		return true
 	}
 	method := methodSegment(target)
@@ -1258,18 +1233,15 @@ func isExpensiveJvmCall(target string, storage map[string]bool, byName map[strin
 	return false
 }
 
-// isJvmStorageBackedCall reports whether a JVM in-loop call is backed by a real
-// storage/I/O fact (not just a keyword guess): a storage fact, a resolved callee the
-// extractor flagged performs_io, or an in-loop callee whose method segment names a
+// isJvmIOBackedCall reports whether a JVM in-loop call is backed by a real
+// I/O fact (not just a keyword guess): a resolved callee the extractor flagged
+// performs_io, or an in-loop callee whose method segment names a
 // Retrofit/Room I/O method (the extractor's performs_io leaves, matched by short name
 // because in-loop callees are receiver-qualified — `service.fetchFurly` — not canonical
 // fact names). Used both to classify the call as expensive and to escalate a JVM
 // call-in-loop finding above the default `medium`, where `public` is a useless hotness
 // signal.
-func isJvmStorageBackedCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
-	if storage[target] {
-		return true
-	}
+func isJvmIOBackedCall(target string, byName map[string]funcInfo, ioMethods map[string]bool) bool {
 	if f, ok := byName[target]; ok && f.PerformsIO {
 		return true
 	}
@@ -1286,7 +1258,7 @@ func isJvmStorageBackedCall(target string, storage map[string]bool, byName map[s
 // escalated to "high" — those false positives dominate the high-severity bucket.
 // So, exactly as with Swift and the JVM, we do NOT keyword-match the generic
 // verbs. A TS/JS in-loop call is expensive only when it is genuinely I/O-shaped:
-// a storage fact, a resolved callee flagged performs_io, an HTTP/DB receiver
+// a resolved callee flagged performs_io, an HTTP/DB receiver
 // token, the global `fetch`, or a distinctive ORM query method (Prisma/TypeORM
 // findMany/queryRaw/… — multi-word names that do not collide with app helpers).
 
@@ -1318,15 +1290,12 @@ var tsExpensivePrefixes = []string{"axios", "http.", "https.", "db.", "sql.", "p
 var tsLifecycleNames = map[string]bool{"init": true, "setup": true}
 
 // isExpensiveTSCall reports whether a TypeScript/JavaScript in-loop call is
-// per-iteration I/O: a storage fact, a resolved callee the extractor flagged
-// performs_io, an HTTP/DB receiver, the global fetch, or a distinctive ORM query
+// per-iteration I/O: a resolved callee the extractor flagged performs_io, an
+// HTTP/DB receiver, the global fetch, or a distinctive ORM query
 // method. A bare locally-defined helper (no fact, no primitive) is treated as
 // in-memory — an accepted false negative that clears the CamelCase-verb false
 // positives (getFetchAllUpdate, updateState, findIndex, …).
-func isExpensiveTSCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
-	if storage[target] {
-		return true
-	}
+func isExpensiveTSCall(target string, byName map[string]funcInfo, ioMethods map[string]bool) bool {
 	resolved, isResolved := byName[target]
 	if isResolved && resolved.PerformsIO {
 		return true
@@ -1405,17 +1374,14 @@ var dartExpensivePrefixes = []string{
 }
 
 // isExpensiveDartCall reports whether a Dart in-loop call is per-iteration I/O: a
-// storage fact, a resolved callee the extractor flagged performs_io, an I/O receiver,
-// or a distinctive round-trip method.
+// resolved callee the extractor flagged performs_io, an I/O receiver, or a
+// distinctive round-trip method.
 //
 // A bare locally-defined helper with no I/O evidence is treated as in-memory. That is
 // the same accepted false negative the Swift, JVM and TypeScript handlers take, and it
 // buys the same thing: the ubiquitous collection verbs stop manufacturing N+1 findings
 // about list filtering.
-func isExpensiveDartCall(target string, storage map[string]bool, byName map[string]funcInfo) bool {
-	if storage[target] {
-		return true
-	}
+func isExpensiveDartCall(target string, byName map[string]funcInfo) bool {
 	if f, ok := byName[target]; ok && f.PerformsIO {
 		return true
 	}
@@ -1466,7 +1432,7 @@ var rustIOReceivers = []string{
 // loose short-name performs_io path the way Dart's dispatch names are. They are the
 // measured cause: on tokio, 42 of the high-severity call-in-loop findings named
 // new, send, recv, poll and iter — a constructor and a channel send, reported as
-// per-iteration database access. The exact-name, storage and receiver paths still
+// per-iteration database access. The exact-name and receiver paths still
 // apply, so a genuinely resolved I/O callee is unaffected.
 var rustPrimitiveNames = map[string]bool{
 	"new": true, "with_capacity": true, "default": true, "clone": true,
@@ -1486,14 +1452,11 @@ var rustPrimitiveNames = map[string]bool{
 // recv, read, write and poll over channels and buffers that never leave the process.
 //
 // The rule is the same as Dart's and TypeScript's: evidence of I/O SHAPE, not a verb.
-// A storage fact, a resolved callee the extractor flagged performs_io, an I/O
+// A resolved callee the extractor flagged performs_io, an I/O
 // receiver token, or a distinctive round-trip method. A bare call to a locally
 // defined helper is treated as in-memory, which accepts a false negative for an
 // unresolved helper that genuinely does I/O.
-func isExpensiveRustCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
-	if storage[target] {
-		return true
-	}
+func isExpensiveRustCall(target string, byName map[string]funcInfo, ioMethods map[string]bool) bool {
 	if f, ok := byName[target]; ok && f.PerformsIO {
 		return true
 	}
@@ -1693,7 +1656,7 @@ func isDispatchCall(target, file string) bool {
 // caller's complexity to O(n²). Examples: SystemEventService.trigger, which loops a handler
 // registry calling perform_now/perform_later; and thingsboard's processRuleNodePack, whose
 // loop only calls executorService.submit.
-func isBoundedFanout(f funcInfo, funcs map[string]funcInfo, storage, assoc map[string]bool) bool {
+func isBoundedFanout(f funcInfo, funcs map[string]funcInfo, assoc map[string]bool) bool {
 	if f.LoopDepth < 1 || len(f.CallsInLoop) == 0 {
 		return false
 	}
@@ -1712,7 +1675,7 @@ func isBoundedFanout(f funcInfo, funcs map[string]funcInfo, storage, assoc map[s
 		if g, ok := funcs[c]; ok && g.LoopDepth >= 1 {
 			return false
 		}
-		if isExpensiveCall(c, storage, assoc) && (!ruby || !rubyInMemory(c)) {
+		if isExpensiveCall(c, assoc) && (!ruby || !rubyInMemory(c)) {
 			return false
 		}
 		// otherwise a cheap read (e.g. an attribute like `inline`) — ignore.
@@ -1725,9 +1688,9 @@ func isBoundedFanout(f funcInfo, funcs map[string]funcInfo, storage, assoc map[s
 // per name) and effectiveDepthOf (which recomputes per fact, so overloaded siblings don't borrow
 // each other's depth) — read it instead of re-deriving it, so the two paths cannot disagree.
 // byName is refreshed too: computeEffectiveDepths reads its funcInfo values out of that map.
-func markNonScaling(funcs []funcInfo, byName map[string]funcInfo, storage, assoc map[string]bool) {
+func markNonScaling(funcs []funcInfo, byName map[string]funcInfo, assoc map[string]bool) {
 	for i := range funcs {
-		funcs[i].BoundedFanout = isBoundedFanout(funcs[i], byName, storage, assoc)
+		funcs[i].BoundedFanout = isBoundedFanout(funcs[i], byName, assoc)
 	}
 	for i := range funcs {
 		if selected, ok := byName[funcs[i].Name]; ok && selected.File == funcs[i].File && selected.Line == funcs[i].Line && selected.Repo == funcs[i].Repo && selected.Accessor == funcs[i].Accessor {
@@ -1912,7 +1875,7 @@ func effectiveDepthOf(f funcInfo, eff map[string]int, byName map[string]funcInfo
 
 // analyze is the pure analysis core: from the function list it produces a ranked
 // list of findings. No I/O — this is the unit-tested heart of the tool.
-func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []Finding {
+func analyze(funcs []funcInfo, routeHandlers, assoc map[string]bool) []Finding {
 	byName := make(map[string]funcInfo, len(funcs))
 	// The Python extractor emits in-loop calls to UNRESOLVED local functions in dotted
 	// import-path form ("a.b.c.func"), while byName is keyed by the slash-form canonical
@@ -1993,7 +1956,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 
 	// Mark the non-scaling special cases before any depth is computed, so the per-name and
 	// per-fact paths below read one shared answer rather than each deriving their own.
-	markNonScaling(funcs, byName, storage, assoc)
+	markNonScaling(funcs, byName, assoc)
 
 	eff := computeEffectiveDepths(byName)
 
@@ -2171,7 +2134,8 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			strings.HasSuffix(f.File, ".hxx") || strings.HasSuffix(f.File, ".h") ||
 			strings.HasSuffix(f.File, ".c")
 		// confirmedIO: a named call is known to do I/O, by a fact about the callee:
-		// it is a storage fact, or it resolves to a function flagged performs_io.
+		// the extractor identified it as an I/O entry point, or it resolves to a
+		// function flagged performs_io.
 		// It is what promotes a call-in-loop to "high".
 		//
 		// It used to accept readings of the name as well: a method name some
@@ -2219,28 +2183,27 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// Swift: the generic keyword list matches ubiquitous in-memory verbs
 				// (updateCenter, updateValue, insertArrangedSubview), so trust the
 				// extractor's transitive performs_io signal on the resolved callee.
-				isExpensive = isExpensiveSwiftCall(callee, storage, byName)
+				isExpensive = isExpensiveSwiftCall(callee, byName)
 			case jvm:
 				// Kotlin/Java: the cross-language verbs (update on a StateFlow, load on
 				// a view, await on a Deferred) are in-memory here, so use the curated
-				// Room/Retrofit/JPA list plus storage/performs_io facts.
-				isExpensive = isExpensiveJvmCall(callee, storage, byName, ioMethods)
+				// Room/Retrofit/JPA list plus performs_io facts.
+				isExpensive = isExpensiveJvmCall(callee, byName, ioMethods)
 			case ts:
 				// TS/JS: the generic verbs collide with exported in-memory helpers
-				// (getFetchAllUpdate, updateState), so use the I/O-shape gate — storage
-				// / performs_io (direct or transitive) / HTTP-DB receiver / global fetch /
+				// (getFetchAllUpdate, updateState), so use the I/O-shape gate — performs_io (direct or transitive) / HTTP-DB receiver / global fetch /
 				// ORM query method.
-				isExpensive = isExpensiveTSCall(callee, storage, byName, ioMethods)
+				isExpensive = isExpensiveTSCall(callee, byName, ioMethods)
 			case dart:
 				// Dart: the generic list carries `where` for Ruby's ActiveRecord, but
 				// Dart's `.where()` is Iterable.where — the in-memory filter, and the
 				// single most common collection call in the language. On AppFlowy it
 				// produced 58 call-in-loop findings about list processing. Use the
 				// extractor's import-gated performs_io signal plus an I/O receiver.
-				isExpensive = isExpensiveDartCall(callee, storage, byName)
+				isExpensive = isExpensiveDartCall(callee, byName)
 				if !isExpensive {
 					for _, path := range f.CallReceivers[callee] {
-						if isExpensiveDartCall(path, nil, nil) {
+						if isExpensiveDartCall(path, nil) {
 							isExpensive = true
 							dartReceiverEvidence = path
 							break
@@ -2252,7 +2215,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// send/recv on a channel, read/write on a buffer, poll on a future and
 				// new for construction are all in-memory, and on tokio they produced 42
 				// high-severity findings claiming per-iteration I/O.
-				isExpensive = isExpensiveRustCall(callee, storage, byName, ioMethods)
+				isExpensive = isExpensiveRustCall(callee, byName, ioMethods)
 			case py:
 				// Python: the cross-language keyword "merge" (SQLAlchemy Session.merge)
 				// collides with pure helpers like merge_dicts, and every module-level
@@ -2260,31 +2223,31 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// high. Prefer resolution: a callee that resolves to a known non-I/O local
 				// function is never an N+1, whatever its name; keep the keyword match only
 				// as a fallback for unresolved callees.
-				nameMatch := isExpensiveCall(callee, storage, nil)
+				nameMatch := isExpensiveCall(callee, nil)
 				resolved, ok := byName[callee]
 				if !ok {
 					// Unresolved local calls arrive in dotted import-path form; resolve them
 					// against the dotted index so the downgrade sees non-I/O locals too.
 					resolved, ok = byDotted[callee]
 				}
-				if ok && !resolved.PerformsIO && !storage[callee] {
+				if ok && !resolved.PerformsIO {
 					nameMatch = false
 				}
-				isExpensive = isConfirmedIOCall(callee, storage, byName, ioMethods) || nameMatch
+				isExpensive = isConfirmedIOCall(callee, byName, ioMethods) || nameMatch
 			case rs:
 				// Rust: there is no reliable cross-language verb list for Rust I/O
 				// (method names are highly project-specific), so — like Swift/TS —
 				// trust the extractor's signal: a callee that resolves to a
-				// performs_io function (transitively), a storage fact, or an
+				// performs_io function (transitively), or an
 				// unambiguous DB/HTTP method. Bare in-memory verbs never fire.
-				isExpensive = isConfirmedIOCall(callee, storage, byName, ioMethods)
+				isExpensive = isConfirmedIOCall(callee, byName, ioMethods)
 			case cpp:
 				// C/C++: there is no reliable cross-language verb list for C++ I/O
 				// (method names are project-specific), so — like Rust/Swift — trust the
 				// extractor's signal: a callee resolving to a performs_io function
-				// (transitively from a fopen/fread/socket primitive), a storage fact,
+				// (transitively from a fopen/fread/socket primitive),
 				// or an unambiguous DB/HTTP method. Bare in-memory verbs never fire.
-				isExpensive = isConfirmedIOCall(callee, storage, byName, ioMethods)
+				isExpensive = isConfirmedIOCall(callee, byName, ioMethods)
 			case php:
 				// PHP/WordPress: the codebase is full of exported in-memory helpers
 				// named with DB verbs (get_*, wp_get_*, query_*), so a name-only match
@@ -2292,31 +2255,31 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// known non-I/O local is never an N+1 — and keep the keyword match only
 				// as a fallback for unresolved callees, on top of the extractor's
 				// io_direct/performs_io signal.
-				nameMatch := isExpensiveCall(callee, storage, nil)
-				if resolved, ok := byName[callee]; ok && !resolved.PerformsIO && !storage[callee] {
+				nameMatch := isExpensiveCall(callee, nil)
+				if resolved, ok := byName[callee]; ok && !resolved.PerformsIO {
 					nameMatch = false
 				}
 				if phpInMemory(callee) {
 					nameMatch = false
 				}
-				isExpensive = isConfirmedIOCall(callee, storage, byName, ioMethods) || nameMatch
+				isExpensive = isConfirmedIOCall(callee, byName, ioMethods) || nameMatch
 			case cs:
 				// C#: the generic gate, minus the collection methods that own several
 				// of its verbs. Not PHP's "a callee resolving to a method that does no
 				// I/O is not an N+1": C# performs_io stops at an injected interface, so
 				// `DeleteEpisode`, whose body is `_libraryManager.DeleteItem(…)`,
 				// carries no flag, and trusting that removed it.
-				isExpensive = isExpensiveCall(callee, storage, nil) && !csInMemoryMethods[methodSegment(callee)]
+				isExpensive = isExpensiveCall(callee, nil) && !csInMemoryMethods[methodSegment(callee)]
 			case golang:
 				// Go: the generic verbs minus other ecosystems' API names, and a
 				// predicate or constructor is not I/O. See isExpensiveGoCall.
-				isExpensive = isExpensiveGoCall(callee, storage, byName)
+				isExpensive = isExpensiveGoCall(callee, byName)
 			default:
 				// nolint:staticcheck // QF1001 wants De Morgan's law applied here.
 				// "expensive, and NOT a Ruby in-memory call" is the rule as anyone
 				// states it; "(not ruby) or (not in-memory)" is the same predicate
 				// and reads as neither.
-				isExpensive = isExpensiveCall(callee, storage, nil) && !(ruby && rubyInMemory(callee))
+				isExpensive = isExpensiveCall(callee, nil) && !(ruby && rubyInMemory(callee))
 			}
 			// Positive evidence overrules every name gate above: a callee that resolves
 			// to a function flagged performs_io is I/O whatever it is called, in any
@@ -2359,7 +2322,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if !isExpensive {
 				continue
 			}
-			basis := callBasis(f, callee, golang, storage, byName, byDotted, ioMethods)
+			basis := callBasis(f, callee, golang, byName, byDotted, ioMethods)
 			if dartReceiverEvidence != "" && !basisIsFact(basis) {
 				basis = basisIOReceiver
 			}
@@ -2398,8 +2361,8 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			// Severity is evidence-based, not export-based (exported is noise in Python and
 			// on the JVM). Every emitted finding has already passed a per-language
 			// expensiveness gate, so it is at least worth review (medium). It rises to high
-			// only when there is real evidence: a confirmed I/O call (a storage fact, or
-			// a resolved callee flagged performs_io) or a route handler (always hot). A
+			// only when there is real evidence: a confirmed I/O call (an I/O entry point the
+			// extractor identified, or a resolved callee flagged performs_io) or a route handler (always hot). A
 			// match by name (a curated method, a receiver token, a generic verb) stays
 			// medium. Cold-path findings drop to low in the post-process below.
 			sev := "medium"
@@ -2484,7 +2447,7 @@ func confidenceFor(kind string, confirmed bool, depth int, discounted bool) floa
 	switch kind {
 	case "call-in-loop":
 		if confirmed {
-			conf = 0.9 // a storage fact, or a resolved callee flagged performs_io
+			conf = 0.9 // an extractor-identified I/O call, or a resolved callee flagged performs_io
 		} else {
 			conf = 0.6 // name-keyword heuristic only
 		}
@@ -2579,8 +2542,8 @@ var pyIOMethods = map[string]bool{
 	"get_or_create": true, "update_or_create": true,
 }
 
-// isConfirmedIOCall reports whether an in-loop call has the shape of real I/O — a storage
-// fact, a resolved callee flagged performs_io, an unambiguous DB method (SQLAlchemy/DBAPI
+// isConfirmedIOCall reports whether an in-loop call has the shape of real I/O — a
+// resolved callee flagged performs_io, an unambiguous DB method (SQLAlchemy/DBAPI
 // or a distinctive ORM query method), the global fetch, an I/O method from the transitive
 // performs_io short-name index, or an HTTP/DB receiver/module prefix — as opposed to a
 // name that merely collides with a generic DB verb (Find/Save/Update/where). It gates
@@ -2589,10 +2552,7 @@ var pyIOMethods = map[string]bool{
 // It no longer decides severity, despite its name. Most of what it accepts is a
 // reading of the callee's name, and only a fact about the callee confirms: see
 // basisIsFact.
-func isConfirmedIOCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
-	if storage[target] {
-		return true
-	}
+func isConfirmedIOCall(target string, byName map[string]funcInfo, ioMethods map[string]bool) bool {
 	if f, ok := byName[target]; ok && f.PerformsIO {
 		return true
 	}
@@ -2731,8 +2691,8 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 				strings.Join(bad, ", "), strings.Join(kindNames(), ", "))), nil, nil
 		}
 
-		funcs, storage, routeHandlers, assoc := collect(store())
-		all := analyze(funcs, storage, routeHandlers, assoc)
+		funcs, routeHandlers, assoc := collect(store())
+		all := analyze(funcs, routeHandlers, assoc)
 		// And the query-loops explainer's findings, every one of them: see
 		// queryLoopFindings.
 		all = append(all, queryLoopFindings(store(), routeHandlers)...)
@@ -3163,8 +3123,8 @@ const summaryTopN = 8
 // Summarize analyzes the whole store with the same core as the
 // analyze_performance tool, so the report and the tool cannot disagree.
 func Summarize(store *facts.Store) Summary {
-	funcs, storage, routeHandlers, assoc := collect(store)
-	findings := analyze(funcs, storage, routeHandlers, assoc)
+	funcs, routeHandlers, assoc := collect(store)
+	findings := analyze(funcs, routeHandlers, assoc)
 
 	s := Summary{FunctionsAnalyzed: len(funcs), Total: len(findings)}
 	byKind := map[string]int{}

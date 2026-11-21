@@ -10,17 +10,17 @@ import (
 // The rule itself, isolated from how query-loops decides what to claim: the same
 // function, reported when unclaimed and silent when claimed.
 func TestClaimedFunctionReportsNoCallInLoop(t *testing.T) {
-	storage := map[string]bool{"app/data.LoadUser": true}
 	fn := func(claimed bool) []funcInfo {
 		return []funcInfo{{Name: "app.Handler", File: "app/h.go", Line: 5, LoopDepth: 1, LoopCount: 1,
 			Claimed: claimed,
-			Calls:   []string{"app/data.LoadUser"}, CallsInLoop: []string{"app/data.LoadUser"}}}
+			Calls:   []string{"app/data.LoadUser"}, CallsInLoop: []string{"app/data.LoadUser"}},
+			{Name: "app/data.LoadUser", File: "app/data/d.go", Line: 1, PerformsIO: true}}
 	}
 
-	if _, ok := findFinding(analyze(fn(false), storage, nil, nil), "app.Handler", "call-in-loop"); !ok {
+	if _, ok := findFinding(analyze(fn(false), nil, nil), "app.Handler", "call-in-loop"); !ok {
 		t.Fatal("unclaimed: expected a call-in-loop finding, so the claimed case below means something")
 	}
-	if f, ok := findFinding(analyze(fn(true), storage, nil, nil), "app.Handler", "call-in-loop"); ok {
+	if f, ok := findFinding(analyze(fn(true), nil, nil), "app.Handler", "call-in-loop"); ok {
 		t.Fatalf("claimed: query-loops reports this one, so it should be deferred; got %+v", f)
 	}
 }
@@ -32,7 +32,7 @@ func TestClaimStillReportsOtherFindingKinds(t *testing.T) {
 		Claimed: true,
 		Calls:   []string{"app/data.LoadUser"}, CallsInLoop: []string{"app/data.LoadUser"}}}
 
-	if _, ok := findFinding(analyze(funcs, map[string]bool{"app/data.LoadUser": true}, nil, nil),
+	if _, ok := findFinding(analyze(funcs, nil, nil),
 		"app.Handler", "nested-loop"); !ok {
 		t.Fatal("a claimed symbol should still report its nested loop")
 	}
@@ -53,7 +53,7 @@ func TestCollectTakesItsClaimsFromQueryLoops(t *testing.T) {
 	if _, ok := queryloops.ClaimedSymbols(store)["Helpers#create_defaults"]; !ok {
 		t.Fatal("fixture no longer produces a query-loops claim, so it proves nothing")
 	}
-	funcs, _, _, _ := collect(store)
+	funcs, _, _ := collect(store)
 	for _, f := range funcs {
 		if f.Name == "Helpers#create_defaults" {
 			if !f.Claimed {
