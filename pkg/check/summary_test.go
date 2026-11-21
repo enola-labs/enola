@@ -358,3 +358,25 @@ func TestSummary_AGrownLoopIsWorse(t *testing.T) {
 		t.Errorf("the other altered findings are counted, not graded: %+v", s.Neither)
 	}
 }
+
+// A decline that mixes a kind with a sentence and one without still counts
+// both: the "more reasons" the summary points at must include the kind it
+// could not put in words.
+func TestSummary_DeclinedCountsUnmappedBlockingKinds(t *testing.T) {
+	mixed := Verdict{Status: StatusIncomparable,
+		BlockingKinds:         []diff.WarningKind{diff.WarnIgnoreGlobs, diff.WarnUnclassified},
+		ComparabilityWarnings: []string{"ignore globs differ between baseline and current", "working tree moved since the snapshot"}}.Summarize().Result
+	if !containsText(mixed.Items, "Why: Your ignore settings changed, so a different set of files was read. 1 more reason is in the full verdict.") {
+		t.Errorf("the unclassified kind is dropped from the count: %+v", mixed.Items)
+	}
+}
+
+// Every kind that declines the gate has a sentence, except the one whose
+// meaning is only in the caller's own words.
+func TestSummary_EveryBlockingKindHasAReason(t *testing.T) {
+	for k := range blockingKinds {
+		if _, ok := blockingReasons[k]; !ok && k != diff.WarnUnclassified {
+			t.Errorf("blocking kind %q has no sentence in blockingReasons", k)
+		}
+	}
+}
