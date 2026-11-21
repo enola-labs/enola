@@ -267,3 +267,30 @@ func TestGC_PruneClusterCopies(t *testing.T) {
 		t.Errorf("want only the member's own revision left, got %+v", entries)
 	}
 }
+
+// Pruning a store that holds only working revisions leaves an empty log. A later gc must
+// say the history was emptied, not that nothing was ever recorded.
+func TestGC_ReportsAnEmptiedHistory(t *testing.T) {
+	root := t.TempDir()
+	if rep, err := GC(root, GCOptions{}); err != nil || rep.Emptied {
+		t.Fatalf("never recorded: want no error and Emptied false, got %+v, %v", rep, err)
+	}
+	opts := Options{WorkingKeep: -1, BlobKeep: -1}
+	for i := 0; i < 2; i++ {
+		w := pkghistory.Entry{ID: "sha256:w" + string(rune('0'+i)) + "000000", Repo: "r",
+			At: time.Now().UTC().Format(time.RFC3339), Epoch: "e1"}
+		if _, err := Append(root, w, withContents(opts, w.ID, 20+i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rep, err := GC(root, GCOptions{PruneWorking: true}); err != nil || rep.PrunedEntries != 2 || rep.Emptied {
+		t.Fatalf("the pruning pass reports what it removed: got %+v, %v", rep, err)
+	}
+	rep, err := GC(root, GCOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Emptied || rep.Revisions != 0 {
+		t.Errorf("after the prune: want Emptied with 0 revisions, got %+v", rep)
+	}
+}

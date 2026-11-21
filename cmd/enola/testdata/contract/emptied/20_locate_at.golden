@@ -1,0 +1,5 @@
+$ enola locate --at HEAD main.go:1 .
+exit: 2
+--- stdout
+--- stderr
+enola locate: --at needs a recorded revision, and <TMP>/go_sample has none left: every revision this history recorded has been removed (gc --prune-working removes snapshots of uncommitted trees)
