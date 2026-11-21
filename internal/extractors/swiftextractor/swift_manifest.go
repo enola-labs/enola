@@ -122,6 +122,15 @@ func parsePackageManifest(src []byte, manifestRel string, dirToFile map[string]s
 
 	// Dependency fact per declared edge.
 	for _, t := range targets {
+		// A test target none of whose source files was indexed (test trees are
+		// ignored by default) declares coupling for code that is not in the graph.
+		// Its edges have no file of their own to sit in: an invented one inside the
+		// directory names a file that does not exist, and the manifest's own path puts
+		// the edge in the manifest's directory, a module that does not exist either
+		// (`.` for a root Package.swift, which then heads dependency chains).
+		if _, ok := dirToFile[t.dir]; t.isTest && !ok {
+			continue
+		}
 		for _, d := range t.deps {
 			targetDir := d.name
 			source := "external"
@@ -234,7 +243,8 @@ func parseManifestDeps(arr *sitter.Node, src []byte) []manifestDep {
 // representativeFile returns a file path inside dir so that the graph's
 // dependency→module bridge (fileDirectory(File) == dir) fires. It prefers a real
 // source file discovered in the walk; otherwise it falls back to a synthetic
-// Package.swift path inside the directory (used only for module derivation).
+// Package.swift path inside the directory (used only for module derivation). Test
+// targets never reach the fallback: one with no indexed file emits no dependency.
 func representativeFile(dir string, dirToFile map[string]string) string {
 	if f, ok := dirToFile[dir]; ok {
 		return f

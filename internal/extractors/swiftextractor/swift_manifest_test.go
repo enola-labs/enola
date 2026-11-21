@@ -175,3 +175,45 @@ func fileDir(p string) string {
 	}
 	return p
 }
+
+// TestManifestSkipsDependenciesOfAnUnindexedTestTarget pins what happens to a test
+// target none of whose files was indexed, which since test trees are ignored by
+// default is every SPM test target. Its dependency facts are not emitted: an
+// invented `<dir>/Package.swift` names a file that does not exist, and the manifest's
+// path files the edge under the manifest's directory, a module that does not exist
+// (it headed a "Deep dependency chain: ." finding). A production target keeps its
+// edges, and so does a test target whose source is indexed.
+func TestManifestSkipsDependenciesOfAnUnindexedTestTarget(t *testing.T) {
+	const manifestRel = "Packages/Mods/Package.swift"
+	run := func(dirToFile map[string]string) map[string]string {
+		got := map[string]string{}
+		for _, f := range parsePackageManifest([]byte(sampleManifest), manifestRel, dirToFile) {
+			if f.Kind == facts.KindDependency {
+				got[f.Name] = f.File
+			}
+		}
+		return got
+	}
+	const testDep = "Packages/Mods/Sources/AppShellTests -> Packages/Mods/Sources/AppShell"
+	const prodDep = "Packages/Mods/Sources/AppShell -> Packages/Mods/Sources/AppComposition"
+	prodFile := "Packages/Mods/Sources/AppShell/AppShellPlaceholder.swift"
+
+	got := run(map[string]string{"Packages/Mods/Sources/AppShell": prodFile})
+	if f, ok := got[testDep]; ok {
+		t.Errorf("unindexed test target still emits %s (file %q)", testDep, f)
+	}
+	if got[prodDep] != prodFile {
+		t.Errorf("production dependency file = %q, want %q", got[prodDep], prodFile)
+	}
+	for name, f := range got {
+		if strings.HasPrefix(fileDir(f), "Packages/Mods/Sources/AppShellTests") || f == manifestRel {
+			t.Errorf("%s: file %q", name, f)
+		}
+	}
+
+	testFile := "Packages/Mods/Sources/AppShellTests/AppShellTests.swift"
+	got = run(map[string]string{"Packages/Mods/Sources/AppShell": prodFile, "Packages/Mods/Sources/AppShellTests": testFile})
+	if got[testDep] != testFile {
+		t.Errorf("indexed test target's dependency file = %q, want %q", got[testDep], testFile)
+	}
+}

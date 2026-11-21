@@ -3754,7 +3754,11 @@ import (
 // content, so editing or deleting a theme outside the walk re-extracts.
 // v674: Rust: write_all, read_to_end and read_to_string called on a local the
 // source shows is an in-memory buffer or a generic parameter are not io_direct.
-const cacheVersion = "v674"
+// v675: Kotlin, Swift and PHP tests are ignored and listed as test globs by default
+// (Gradle src/test and src/<target>Test, SPM and Xcode *Tests/, PHP tests/ and test/),
+// and a CamelCase directory ending in Tests (MyAppTests, MyAppUITests) is test code.
+// An SPM test target with no indexed source file emits no dependency facts.
+const cacheVersion = "v675"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

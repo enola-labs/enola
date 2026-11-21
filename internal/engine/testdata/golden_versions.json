@@ -1,5 +1,5 @@
 {
-  "cache_version": "v674",
+  "cache_version": "v675",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -99,7 +99,7 @@
     },
     "kotlin_sample": {
       "input": "b3eb473a58a77f53c625d456e00cf9dd09c00a787c7ae35fc7b476195fdbfc41",
-      "facts": "8a009a215f6111c071a16d16f12a2e93da0d7514fb9878273d0ea3d0118b4158"
+      "facts": "39a43f1cb413169c19e340a4cd950f545a0c1b388ad288785dbecef5ffdf7ff3"
     },
     "kotlin_swift_multirepo": {
       "input": "781b7ffd11cfbea70d7adae2093143e7fc5d41d5aa327b992be572ba4820bd67",
@@ -163,7 +163,7 @@
     },
     "swift_sample": {
       "input": "3cab2fee87730ccce24b63c162c41e2e27d88923b08864ba1ef5bda0c894e096",
-      "facts": "4d9741a95c41c389eaeeef5e171b2fa793052ae7573ef5194a02ae7d157138aa"
+      "facts": "925f94ca8e9c49c9e90126793916d72099a25c3888976db7e8ac04e9fb5267b9"
     },
     "ts_custom_client_configured": {
       "input": "98ff702a08188d562df2c36a0c7be073e4435c043cabe9f8f2df721fa9179134",
