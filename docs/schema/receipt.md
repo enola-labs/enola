@@ -19,6 +19,7 @@ describes the current graph across repositories.
 | `repo_path` | string | Absolute analyzed repository path |
 | `git` | object, when a Git repository | `{ref, commit, dirty, remote}` at snapshot time. `remote` is normalized without scheme, credentials, port, or `.git` suffix |
 | `extractors` / `explainers` / `renderers` | array of string | Plugins used during generation |
+| `binders` | array of string, when set | Binders that ran without error, pre-link stage first. Every binder runs on every snapshot and a failing one is logged and skipped, so a name missing here is a binder that failed. Absent on receipts written before it was recorded |
 | `providers` | array, when set | External provider records. Contract fields are `name`, `fact_count`, and, when set, `version`, `skipped`, and `reason`; other counters are diagnostic |
 | `config_hash` | string, `"sha256:..."`, when set | Hash of the effective configuration |
 | `ignore_glob_hash` | string, `"sha256:..."`, when set | Hash of sorted ignore and test globs |

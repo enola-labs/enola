@@ -321,6 +321,34 @@ func TestPipeline_BinderAndExplainerFailuresDoNotAbort(t *testing.T) {
 	}
 }
 
+// The receipt names the binders that ran without error, pre-link first, the way it
+// names the explainers: a binder that failed is the one missing from the list, so the
+// snapshot does not read as complete when the only other trace was a log line.
+func TestPipeline_ReceiptListsTheBindersThatRan(t *testing.T) {
+	eng, _, repo := recordingEngine(t)
+	snap, err := eng.GenerateSnapshot(context.Background(), repo, false)
+	if err != nil {
+		t.Fatalf("GenerateSnapshot: %v", err)
+	}
+	want := []string{"rec-pre-link", "rec-post-link"}
+	if got := snap.Meta.Binders; !reflect.DeepEqual(got, want) {
+		t.Errorf("meta binders = %v, want %v", got, want)
+	}
+	if got := snap.Meta.Receipt().Binders; !reflect.DeepEqual(got, want) {
+		t.Errorf("receipt binders = %v, want %v", got, want)
+	}
+
+	eng, p, repo := recordingEngine(t)
+	p.pre.err = errors.New("pre-link binder failed")
+	snap, err = eng.GenerateSnapshot(context.Background(), repo, false)
+	if err != nil {
+		t.Fatalf("GenerateSnapshot: %v", err)
+	}
+	if got, want := snap.Meta.Receipt().Binders, []string{"rec-post-link"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("receipt binders with the pre-link binder failing = %v, want %v", got, want)
+	}
+}
+
 // A failing extractor does not abort either: its facts are missing and the run
 // records the failure rather than reporting a clean extraction.
 func TestPipeline_ExtractorFailureIsRecorded(t *testing.T) {

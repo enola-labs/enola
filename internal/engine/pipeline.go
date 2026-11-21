@@ -62,6 +62,9 @@ type snapshotRun struct {
 	provRecords    []facts.ProviderRecord
 	progress       *extractionProgress
 
+	// Set by link: the binders that ran without error, pre-link first.
+	usedBinders []string
+
 	// Set by buildSnapshot: how long the run took up to the point its snapshot
 	// was assembled, which is the figure the snapshot records.
 	duration time.Duration
@@ -488,9 +491,9 @@ func (e *Engine) link(r *snapshotRun) {
 	// keep the same one of several same-named facts whether the store was just
 	// extracted or restored and extended (a refresh). See SortByLocation.
 	e.store.SortByLocation()
-	e.runBinders(r.ctx, plugin.StagePreLink)
+	r.usedBinders = e.runBinders(r.ctx, plugin.StagePreLink)
 	e.linkCrossRepo(r.repoPaths)
-	e.runBinders(r.ctx, plugin.StagePostLink)
+	r.usedBinders = append(r.usedBinders, e.runBinders(r.ctx, plugin.StagePostLink)...)
 	r.t.link = time.Since(tStage)
 
 	// 3c. Build graph index for traversal queries
@@ -552,6 +555,7 @@ func (e *Engine) buildSnapshot(r *snapshotRun, allInsights []facts.Insight, used
 			Duration:     duration.String(),
 			Extractors:   r.usedExtractors,
 			Explainers:   usedExplainers,
+			Binders:      r.usedBinders,
 			Renderers:    []string{},
 			FileHashes:   fileHashes,
 			FactCount:    e.store.Count(),
