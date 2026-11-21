@@ -799,7 +799,7 @@ func ServerRouteVerdictsWithTraffic(m *routeindex.Matcher, all []facts.Fact) Rou
 		if f.Repo == "" {
 			continue
 		}
-		runs := f.PropAny(facts.PropClientReachable) != false
+		runs := facts.ClientReach(f) != facts.ReachNeverRuns
 		tr, hasTraffic := clientTraffic(f)
 		for _, ref := range routesCalledBy(m, server, f) {
 			key := routeindex.RouteIdentityKey(ref.Repo, ref.Method, ref.Path)

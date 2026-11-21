@@ -223,7 +223,7 @@ func unreachedFindings(store *facts.Store) []facts.Insight {
 	// Which never-running client calls name each route, for the evidence.
 	callers := map[string][]string{} // repo \x00 METHOD path → "file:line (caller)"
 	for _, f := range store.ByKind(facts.KindRoute) {
-		if f.PropAny(facts.PropRole) != facts.RoleClient || f.PropAny(facts.PropClientReachable) != false {
+		if f.PropAny(facts.PropRole) != facts.RoleClient || facts.ClientReach(f) != facts.ReachNeverRuns {
 			continue
 		}
 		refs, _ := f.PropAny(facts.PropMatchedRoutes).([]any)

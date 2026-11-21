@@ -477,7 +477,7 @@ func callersFrom(s *facts.Store, clients []facts.Fact, reach EndpointReach, call
 		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
 			continue
 		}
-		runs := fact.PropAny(facts.PropClientReachable) != false
+		runs := facts.ClientReach(fact) != facts.ReachNeverRuns
 		caller := fact.PropString(facts.PropCaller)
 		if caller == "" {
 			caller = enclosingSymbol(s, fact.File, fact.Line)
