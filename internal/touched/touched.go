@@ -101,6 +101,8 @@ func Run(ctx context.Context, repo string, o Options, extract Extract) (*Result,
 	}
 	res := &Result{Commits: commits}
 	if len(commits) == 0 {
+		// The schema promises an array: an empty walk encodes as [], not null.
+		res.Commits = []Commit{}
 		return res, nil
 	}
 
