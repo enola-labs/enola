@@ -570,3 +570,18 @@ func TestCriticalModulesResolveGoImporter(t *testing.T) {
 		t.Errorf("Dependency Rules: want the importer named by import path; got\n%s", content)
 	}
 }
+
+// The unresolved count is followed by its breakdown by reason: path_unknown and
+// method_mismatch point at different fixes, and a bare count names neither.
+func TestExtractionQuality_UnresolvedReasonsRendered(t *testing.T) {
+	content := renderWithCoverage(t, &facts.CoverageSummary{
+		ServicesTotal: 4, UnresolvedEdges: 144,
+		UnresolvedReasons: []facts.ReasonCount{{Reason: "path_unknown", Count: 132}, {Reason: "method_mismatch", Count: 12}, {Reason: "outside_snapshot", Count: 4}},
+	})
+	line := lineWith(content, "by reason")
+	for _, want := range []string{"`path_unknown` 132", "`method_mismatch` 12", "`outside_snapshot` 4"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("reason breakdown missing %q; got line %q in:\n%s", want, line, content)
+		}
+	}
+}

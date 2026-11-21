@@ -46,7 +46,10 @@ type Service struct {
 	UnresolvedTotal int            `json:"unresolved_total"`
 	ExternalTotal   int            `json:"external_total,omitempty"`
 	OutsideTotal    int            `json:"outside_total,omitempty"`
-	UnresolvedSites []CallSite     `json:"unresolved_sites,omitempty"`
+	// UnresolvedReasons breaks the open call sites down by the reason the linker
+	// recorded on each (unmatched_reason), most first.
+	UnresolvedReasons []facts.ReasonCount `json:"unresolved_reasons,omitempty"`
+	UnresolvedSites   []CallSite          `json:"unresolved_sites,omitempty"`
 }
 
 // Detected and Resolved sum this service's per-edge-type tallies.
@@ -99,6 +102,8 @@ func Build(store *facts.Store, service string) Report {
 			UnresolvedTotal: c.Unresolved,
 			ExternalTotal:   c.External,
 			OutsideTotal:    c.Outside,
+
+			UnresolvedReasons: facts.SortedReasons(facts.UnresolvedReasons(store, svc.Repo)),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Service < out[j].Service })
@@ -172,6 +177,7 @@ func (r Report) RenderMarkdown() string {
 			s.Service, s.Classification, s.OutboundEdges, s.Detected(), s.Resolved(), s.UnresolvedTotal, s.OutsideTotal, s.ExternalTotal)
 		outside = outside || s.OutsideTotal > 0
 	}
+	writeReasons(&sb, r)
 	if outside {
 		sb.WriteString("\n`Outside snapshot` counts calls whose target the source names (an env var, a client name) as a service that is not loaded: load it to resolve them.\n")
 	}
@@ -184,6 +190,37 @@ func (r Report) RenderMarkdown() string {
 		}
 	}
 	return sb.String()
+}
+
+// writeReasons lists each service's open call sites by the linker's reason, so the
+// Unresolved and Outside snapshot columns say what they hold. Nothing for a report
+// with no open call site.
+func writeReasons(sb *strings.Builder, r Report) {
+	var lines []string
+	for _, s := range r {
+		if len(s.UnresolvedReasons) > 0 {
+			lines = append(lines, "- "+s.Service+": "+FormatReasons(s.UnresolvedReasons))
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	sb.WriteString("\nOpen call sites by reason (`unmatched_reason`; `query_insights(explainer=\"coverage\")` says what to do about each, `enola coverage --unresolved` lists them):\n\n")
+	sb.WriteString(strings.Join(lines, "\n") + "\n")
+}
+
+// FormatReasons renders reason counts as "`path_unknown` 132, `method_mismatch` 12",
+// the one form every surface prints them in.
+func FormatReasons(reasons []facts.ReasonCount) string {
+	parts := make([]string, 0, len(reasons))
+	for _, rc := range reasons {
+		reason := rc.Reason
+		if reason == "" {
+			reason = "unknown"
+		}
+		parts = append(parts, fmt.Sprintf("`%s` %d", reason, rc.Count))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // readInt reads an int-valued prop, tolerating the float64 form that survives a JSON

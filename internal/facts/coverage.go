@@ -1,5 +1,7 @@
 package facts
 
+import "sort"
+
 // Service coverage classifications. A service node's class answers "did enola
 // resolve this repo's outbound calls, and if not, is that a blind spot or is the
 // repo genuinely a leaf?"
@@ -132,4 +134,60 @@ func DependsOnCount(svc Fact) int {
 		}
 	}
 	return n
+}
+
+// ReasonCount is how many open client call sites carry one unmatched_reason.
+type ReasonCount struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
+}
+
+// IsOpenClientCall reports whether f is a client call site the cross-repo linker
+// could not resolve to a loaded server (unmatched_by_server), test doubles excluded.
+// It is the one rule the per-reason counts and the per-site listings select by.
+func IsOpenClientCall(f Fact) bool {
+	if f.Kind != KindRoute || f.PropString(PropRole) != RoleClient {
+		return false
+	}
+	if b, _ := f.PropAny(PropUnmatchedByServer).(bool); !b {
+		return false
+	}
+	double, _ := f.PropAny("test_double").(bool)
+	return !double
+}
+
+// UnresolvedReasons counts the open client call sites of one repository, or of every
+// repository when repo is empty, by the unmatched_reason the linker recorded. The
+// snapshot receipt, coverage_report and the coverage insight all read this count, so
+// the breakdown one surface prints is the breakdown every surface prints.
+func UnresolvedReasons(store *Store, repo string) map[string]int {
+	out := map[string]int{}
+	for _, f := range store.ByKind(KindRoute) {
+		if repo != "" && f.Repo != repo {
+			continue
+		}
+		if IsOpenClientCall(f) {
+			out[f.PropString(PropUnmatchedReason)]++
+		}
+	}
+	return out
+}
+
+// SortedReasons orders reason counts most first, then by name, so two renders of
+// one graph agree. Empty for no counts.
+func SortedReasons(counts map[string]int) []ReasonCount {
+	if len(counts) == 0 {
+		return nil
+	}
+	out := make([]ReasonCount, 0, len(counts))
+	for reason, n := range counts {
+		out = append(out, ReasonCount{Reason: reason, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Reason < out[j].Reason
+	})
+	return out
 }

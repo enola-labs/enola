@@ -7,4 +7,8 @@ Distinguishes genuinely isolated services from those whose outbound edges could 
 | api | isolated | 0 | 0 | 0 | 0 | 0 | 0 |
 | consumer | connected | 1 | 4 | 1 | 1 | 0 | 2 |
 
+Open call sites by reason (`unmatched_reason`; `query_insights(explainer="coverage")` says what to do about each, `enola coverage --unresolved` lists them):
+
+- consumer: `path_unknown` 1
+
 `isolated` means no outbound call resolved and none is left open: every detected call site, if any, goes to a third-party host (`External`) or a declared target. A leaf in this snapshot, not a gap in enola's resolution.

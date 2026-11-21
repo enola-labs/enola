@@ -814,6 +814,12 @@ type CoverageSummary struct {
 	UnresolvedEdges int `json:"unresolved_edges"`         // detected outbound edges that did not resolve to a loaded service (internal blind spots; excludes external)
 	ExternalEdges   int `json:"external_edges,omitempty"` // detected outbound edges to hardcoded external hosts (third-party APIs) — expected, not a blind spot
 
+	// UnresolvedReasons breaks the open HTTP client call sites (unresolved, plus
+	// those naming a service outside the snapshot) down by the unmatched_reason the
+	// linker recorded, most first. path_unknown and method_mismatch point at
+	// different fixes, which a bare count names neither of.
+	UnresolvedReasons []ReasonCount `json:"unresolved_reasons,omitempty"`
+
 	// ExtractorsReporting counts extractors that accounted for their own misses.
 	// It is deliberately separate from the service tallies above: an extraction
 	// blind spot ("this macro declares routes I cannot read") is a different

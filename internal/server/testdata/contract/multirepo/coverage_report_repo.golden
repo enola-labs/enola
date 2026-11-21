@@ -5,3 +5,7 @@ Distinguishes genuinely isolated services from those whose outbound edges could 
 | Service | Classification | Outbound edges | Detected | Resolved | Unresolved | Outside snapshot | External |
 |---|---|---|---|---|---|---|---|
 | consumer | connected | 1 | 4 | 1 | 1 | 0 | 2 |
+
+Open call sites by reason (`unmatched_reason`; `query_insights(explainer="coverage")` says what to do about each, `enola coverage --unresolved` lists them):
+
+- consumer: `path_unknown` 1
