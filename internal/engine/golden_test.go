@@ -231,6 +231,13 @@ var fixtures = []fixture{
 	// external, a hardcoded INTERNAL host still resolves to its loaded repo, and a
 	// config-injected base URL stays an unresolved internal edge.
 	{name: "go_httpclient_multirepo", subRepos: []string{"api", "consumer"}},
+	// A Go command that calls an HTTP endpoint only through a project-local helper:
+	// cmd/tasks.go passes a literal path to api.Get, which reaches net/http through an
+	// unexported do. The client-seam binder writes the route at the command's call site
+	// (source go-client-seam, seam naming the helper) and drops the candidate list the
+	// Go extractor left on the caller. The only golden carrying that source, so the
+	// route-source conformance test in internal/facts sees it.
+	{name: "go_client_seam", subRepos: []string{"."}},
 	// Two Go services coupled ONLY by Kafka topics — no import, no call, no HTTP
 	// route between them. Pins the async linking signal (v132) end-to-end, which the
 	// unit tests cannot: the topic name the extractor emits has to resolve against
