@@ -7,6 +7,7 @@ The result of `enola touched --json`. Consumers must accept unknown fields.
 | `commits` | array of [commits](#commit) | The selected commits, oldest first |
 | `ranked_commits` | int | How many of them the ranking counts |
 | `symbols` | int | How many callables they changed, however few `ranking` returns |
+| `files_ignored` | int | How many of their changed files the ignore settings left out. See [What it reads](#what-it-reads) |
 | `ranking` | array of [ranked callables](#ranked-callable) | Most often changed first, limited by `--top` |
 
 ## Commit
@@ -20,6 +21,7 @@ The result of `enola touched --json`. Consumers must accept unknown fields.
 | `files` | array of strings | optional | The files it changed |
 | `symbols` | array | optional | [Symbols](locate.md#symbol) on its new side, each with `lines`, as `locate --diff` reports them |
 | `outside` | int | optional | Changed lines no symbol holds, in files with symbols |
+| `files_ignored` | int | optional | How many of `files` the ignore settings left out, so they show no symbols |
 
 ## Ranked callable
 
@@ -45,6 +47,13 @@ first-parent line. Each commit's files are extracted from
 that commit's tree on their own, so a symbol's id, name, kind and span are what a snapshot of that
 commit holds, while nothing resolved across files or linked is there to read. A pure deletion is
 credited as in [locate](locate.md#diff): only when the lines on both sides of it are in one symbol.
+
+A changed file the in-force config's ignore settings would keep out of a snapshot is not extracted
+either: under the built-in defaults that is every test file and anything under `build/`, `dist/`,
+`vendor/` and the like. It stays in the commit's `files` and is counted in `files_ignored`, so a
+commit that changed only such files has no symbols and says why. The text output prints the total
+on a line of its own when it is not 0, and the `touched` MCP tool returns it as `files_ignored`, on
+each commit of `commit_list` too.
 
 `--subject` keeps commits and `--exclude` then drops some of them. Both are RE2 regexps, which have
 no lookahead, so "fix, but not CI" takes the two together.

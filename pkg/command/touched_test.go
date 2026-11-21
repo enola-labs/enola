@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/touched"
@@ -297,4 +298,66 @@ func commitSHAs(r touched.Result) []string {
 		out[i] = c.SHA
 	}
 	return out
+}
+
+// ignoredRepo is a repository with one commit changing a source file and the
+// ones after it changing only files the default ignore settings leave out.
+func ignoredRepo(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(filepath.Join(dir, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	write := func(subject string, files ...string) {
+		t.Helper()
+		for _, name := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("export function f() {\n  return \""+subject+"\";\n}\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		git("add", "-A")
+		git("commit", "-q", "-m", subject)
+	}
+	git("init", "-q")
+	write("fix: source", "a.ts")
+	write("fix: ignored only", "a.test.ts", "build/b.ts")
+	write("fix: both", "a.ts", "build/b.ts")
+	return dir
+}
+
+// A changed file the ignore settings leave out is counted, so a commit that
+// changed only such files says why it has no symbols.
+func TestTouchedCountsFilesTheIgnoreSettingsLeaveOut(t *testing.T) {
+	dir := ignoredRepo(t)
+	var res touched.Result
+	if err := json.Unmarshal(runTouched(t, "--subject", "^fix", "--json", dir), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Commits) != 3 {
+		t.Fatalf("%d commits, want 3", len(res.Commits))
+	}
+	for i, want := range []int{0, 2, 1} {
+		if got := res.Commits[i].FilesIgnored; got != want {
+			t.Errorf("%s: files_ignored %d, want %d", res.Commits[i].Subject, got, want)
+		}
+	}
+	if c := res.Commits[1]; len(c.Symbols) != 0 || len(c.Files) != 2 {
+		t.Errorf("the ignored-only commit: %d symbols, files %v", len(c.Symbols), c.Files)
+	}
+	if res.FilesIgnored != 3 {
+		t.Errorf("files_ignored %d in total, want 3", res.FilesIgnored)
+	}
+	text := string(runTouched(t, "--subject", "^fix", dir))
+	if !strings.Contains(text, "3 changed file(s) left out by the ignore settings") {
+		t.Errorf("the text does not count the ignored files:\n%s", text)
+	}
+	if text := string(runTouched(t, "--subject", "^fix: source", dir)); strings.Contains(text, "ignore settings") {
+		t.Errorf("nothing was ignored, yet the text says so:\n%s", text)
+	}
 }

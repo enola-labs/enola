@@ -30,6 +30,8 @@ type touchedCommit struct {
 	Subject string   `json:"subject"`
 	Files   []string `json:"files,omitempty"`
 	Symbols []string `json:"symbols,omitempty"`
+	// FilesIgnored counts its files the ignore settings left out, which show no symbols.
+	FilesIgnored int `json:"files_ignored,omitempty"`
 }
 
 // touchedNote travels with the ranking because it can change who comes first, and a session
@@ -57,7 +59,7 @@ func (s *Server) registerTouchedTool() {
 		if repo == "" {
 			return errorResult("no repository to walk: run generate_snapshot first, or pass repo_path"), nil, nil
 		}
-		opts := touched.Options{Since: args.Since, Until: args.Until, MaxSymbols: args.MaxSymbols}
+		opts := touched.Options{Since: args.Since, Until: args.Until, MaxSymbols: args.MaxSymbols, Ignored: s.eng.IgnoredFiles}
 		if args.Subject != "" {
 			re, err := regexp.Compile(args.Subject)
 			if err != nil {
@@ -113,7 +115,7 @@ func (s *Server) registerTouchedTool() {
 		if args.Commits {
 			for i := len(res.Commits) - 1; i >= 0 && len(list) < top; i-- {
 				c := res.Commits[i]
-				row := touchedCommit{SHA: c.SHA, Date: c.Date, Subject: c.Subject, Files: c.Files}
+				row := touchedCommit{SHA: c.SHA, Date: c.Date, Subject: c.Subject, Files: c.Files, FilesIgnored: c.FilesIgnored}
 				for _, sym := range c.Symbols {
 					row.Symbols = append(row.Symbols, sym.Name)
 				}
@@ -125,8 +127,9 @@ func (s *Server) registerTouchedTool() {
 			Note          string           `json:"note"`
 			RankedCommits int              `json:"ranked_commits"`
 			Symbols       int              `json:"symbols"`
+			FilesIgnored  int              `json:"files_ignored"`
 			Ranking       []touched.Ranked `json:"ranking,omitempty"`
 			CommitList    []touchedCommit  `json:"commit_list,omitempty"`
-		}{len(res.Commits), touchedNote, res.RankedCommits, res.Symbols, res.Ranking, list})
+		}{len(res.Commits), touchedNote, res.RankedCommits, res.Symbols, res.FilesIgnored, res.Ranking, list})
 	})
 }
