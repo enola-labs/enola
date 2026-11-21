@@ -19,6 +19,14 @@ import (
 // as "nothing recorded yet" rather than as a failure.
 var ErrNoHistory = errors.New("no architecture history recorded")
 
+// ErrEmptied is returned by ReadRecorded when a root holds a log with no revision in it:
+// revisions were recorded and every one has since been removed. `gc --prune-working` does
+// this to a history that holds only snapshots of uncommitted trees, the usual shape of a
+// tree that is never committed. It is not ErrNoHistory, and a reader that reported it as
+// "nothing recorded yet" would tell the user the repository was never watched.
+var ErrEmptied = errors.New("every revision this history recorded has been removed " +
+	"(gc --prune-working removes snapshots of uncommitted trees)")
+
 // FormatFileName marks a history root's store format, beside the log. Histories written
 // before the marker existed carry none and are read as FormatVersion 1 — the only format
 // that ever existed then — so the marker's absence is compatibility, never an error.
@@ -80,6 +88,18 @@ func Read(root string) ([]Entry, error) {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 	return Parse(data, path)
+}
+
+// ReadRecorded is Read for a reader that reports on the history: it returns ErrNoHistory
+// when no log exists and ErrEmptied when the log exists and holds nothing, so every
+// surface names the same state the same way. Read itself keeps returning an emptied log
+// as empty, which is what lets the next append start it again cleanly.
+func ReadRecorded(root string) ([]Entry, error) {
+	entries, err := Read(root)
+	if err == nil && len(entries) == 0 {
+		return nil, ErrEmptied
+	}
+	return entries, err
 }
 
 // Parse decodes a log's bytes. name is used only in error messages. Exported so a
