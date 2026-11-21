@@ -99,13 +99,14 @@ func (r *Runner) historyWithStore(repoArg, storeFlag string, fatal func(string, 
 	repoPath, root, cfg := r.historyRootOf("blame", repoArg)
 	storeDir := resolveStoreDir(storeFlag, repoPath, cfg)
 
-	entries, err := history.Read(root)
+	entries, err := history.ReadRecorded(root)
 	if err != nil {
-		if !errors.Is(err, history.ErrNoHistory) {
+		if !errors.Is(err, history.ErrNoHistory) && !errors.Is(err, history.ErrEmptied) {
 			fatal("%v", err)
 		}
+		// With a shared store the local history is only one side of the answer.
 		if storeDir == "" {
-			r.reportNoHistory(repoPath, root, cfg)
+			r.reportEmptyHistory(err, repoPath, root, cfg)
 			os.Exit(0)
 		}
 	}

@@ -186,10 +186,13 @@ func (r *Runner) locateFacts(ctx context.Context, repoArg, at, factsPath string,
 	}
 	if at != "" {
 		repoPath, root, _ := r.historyRootOf("locate", repoArg)
-		entries, err := history.Read(root)
+		entries, err := history.ReadRecorded(root)
 		if err != nil {
 			if errors.Is(err, history.ErrNoHistory) {
 				return nil, nil, fmt.Errorf("--at needs a recorded history, and %s has none", repoPath)
+			}
+			if errors.Is(err, history.ErrEmptied) {
+				return nil, nil, fmt.Errorf("--at needs a recorded revision, and %s has none left: %w", repoPath, err)
 			}
 			return nil, nil, err
 		}

@@ -179,10 +179,9 @@ func (r *Runner) reconstructUnion(root string, sh *history.Share, revs []history
 // failing with the same guidance `log` gives when there is nothing to read.
 func (r *Runner) historyFor(repoArg string) ([]history.Entry, string) {
 	repoPath, root, cfg := r.historyRootOf("show", repoArg)
-	entries, err := history.Read(root)
+	entries, err := history.ReadRecorded(root)
 	if err != nil {
-		if errors.Is(err, history.ErrNoHistory) {
-			r.reportNoHistory(repoPath, root, cfg)
+		if r.reportEmptyHistory(err, repoPath, root, cfg) {
 			os.Exit(0)
 		}
 		r.showFatal("%v", err)

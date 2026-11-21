@@ -70,3 +70,28 @@ func appendEntry(t *testing.T, root, id string) {
 		t.Fatal(err)
 	}
 }
+
+// A history whose every revision was removed (gc --prune-working on a store of
+// uncommitted-tree snapshots) is not one that was never recorded, and architecture_history
+// and architecture_blame both read it through readHistory.
+func TestReadHistory_EmptiedHistoryIsNotNeverRecorded(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo, _ := filepath.EvalSymlinks(t.TempDir())
+	s := &Server{cfg: config.Default()}
+
+	_, _, _, err := s.readHistory(repo)
+	if err == nil || !strings.Contains(err.Error(), "no architecture history recorded") {
+		t.Fatalf("never recorded: want the nothing-recorded error, got %v", err)
+	}
+
+	root, _ := history.Root(repo, "")
+	appendEntry(t, root, "sha256:w1")
+	if _, err := inthistory.GC(root, inthistory.GCOptions{PruneWorking: true}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err = s.readHistory(repo)
+	if err == nil || strings.Contains(err.Error(), "no architecture history recorded") ||
+		!strings.Contains(err.Error(), "has been removed") || !strings.Contains(err.Error(), "generate_snapshot") {
+		t.Fatalf("emptied: want an error saying the revisions were removed and how to record again, got %v", err)
+	}
+}

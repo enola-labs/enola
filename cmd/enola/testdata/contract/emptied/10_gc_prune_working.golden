@@ -1,0 +1,16 @@
+$ enola gc --prune-working .
+exit: 0
+--- stdout
+<TMP>/.enola/graphs/go_sample-<KEY>/history
+
+  revisions      2
+    with contents 2  (replayable)
+    working      2  (snapshots of uncommitted trees)
+  segments       1
+  stored         <SIZE>
+
+Removed:
+  1 orphaned segment(s) — on disk, referred to by no revision
+  2 revision(s) from the log
+  <SIZE> reclaimed
+--- stderr

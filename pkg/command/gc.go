@@ -10,6 +10,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/engine"
 	inthistory "github.com/enola-labs/enola/internal/history"
+	"github.com/enola-labs/enola/pkg/history"
 )
 
 // GC is `enola gc`: report what a history holds and remove what it no longer needs.
@@ -159,6 +160,13 @@ func renderGC(rep inthistory.GCReport, dryRun bool, root string, cluster bool) s
 	add := func(format string, args ...any) { b = append(b, fmt.Sprintf(format, args...)...) }
 
 	add("%s\n\n", root)
+	if rep.Revisions == 0 && rep.Emptied {
+		add("No revisions left: %v.\n", history.ErrEmptied)
+		if n := len(rep.OrphanSegments); n > 0 && !dryRun {
+			add("Removed %d orphaned segment(s), %s reclaimed.\n", n, humanBytes(rep.BytesFreed))
+		}
+		return string(b)
+	}
 	if rep.Revisions == 0 {
 		add("No revisions recorded.\n")
 		return string(b)

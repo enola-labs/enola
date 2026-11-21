@@ -1,0 +1,9 @@
+$ enola blame pkg/c .
+exit: 0
+--- stdout
+--- stderr
+No revisions left in the architecture history for <TMP>/go_sample:
+every revision this history recorded has been removed (gc --prune-working removes snapshots of uncommitted trees).
+
+Run `enola --generate` and the next revision lands in
+<TMP>/.enola/graphs/go_sample-<KEY>/history
