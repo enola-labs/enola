@@ -93,6 +93,26 @@ func (e *Engine) extractFiles(ctx context.Context, root, repoLabel string, files
 	return e.store.FactsRef(), nil
 }
 
+// IgnoredFiles is which of files, paths relative to root, ExtractFiles leaves out because
+// the ignore settings would keep them out of a snapshot. A caller reporting what a few
+// files held can then say why one of them held nothing.
+func (e *Engine) IgnoredFiles(root string, files []string) ([]string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolving %s: %w", root, err)
+	}
+	ignored := e.ignoredPaths(absRoot)
+	var out []string
+	for _, f := range files {
+		if ignored(f) {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+
 // ignoredPaths answers what walkRepo's ignore check answers for a file, without the walk:
 // a directory it would have pruned hides the file, so each parent is asked too.
 func (e *Engine) ignoredPaths(root string) func(string) bool {

@@ -200,6 +200,11 @@ func (e *Engine) ExtractFiles(ctx context.Context, root, repoLabel string, files
 	return e.eng.ExtractFiles(ctx, root, repoLabel, files)
 }
 
+// IgnoredFiles is which of files ExtractFiles leaves out by the ignore settings.
+func (e *Engine) IgnoredFiles(root string, files []string) ([]string, error) {
+	return e.eng.IgnoredFiles(root, files)
+}
+
 // SetPersistCache controls whether the per-extractor cache is written to disk.
 func (e *Engine) SetPersistCache(persist bool) {
 	e.eng.SetPersistCache(persist)

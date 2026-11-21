@@ -102,6 +102,7 @@ func (r *Runner) runTouched(ctx context.Context, args []string, stdout, stderr i
 		say("%v", err)
 		return usageError
 	}
+	opts.Ignored = tgt.engine.IgnoredFiles
 	res, err := touched.Run(ctx, repoPath, opts, func(ctx context.Context, root string, files []string) ([]facts.Fact, error) {
 		return tgt.engine.ExtractFiles(ctx, root, label, files)
 	})
@@ -122,7 +123,11 @@ func (r *Runner) runTouched(ctx context.Context, args []string, stdout, stderr i
 		}
 		return 0
 	}
-	_, _ = fmt.Fprintf(stdout, "%d commit(s), %d in the ranking, %d symbol(s) changed.\n\n", len(res.Commits), res.RankedCommits, res.Symbols)
+	_, _ = fmt.Fprintf(stdout, "%d commit(s), %d in the ranking, %d symbol(s) changed.\n", len(res.Commits), res.RankedCommits, res.Symbols)
+	if res.FilesIgnored > 0 {
+		_, _ = fmt.Fprintf(stdout, "%d changed file(s) left out by the ignore settings, as a snapshot leaves them out: they show no symbols.\n", res.FilesIgnored)
+	}
+	_, _ = fmt.Fprintln(stdout)
 	for _, e := range res.Ranking {
 		_, _ = fmt.Fprintf(stdout, "%5d  %s  %s\n", e.Count, e.Name, e.File)
 	}

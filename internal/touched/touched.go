@@ -52,6 +52,10 @@ type Options struct {
 	// the scratch tree lives in the temp directory, where its own confinement would
 	// refuse it, and a link committed to the repository could point anywhere.
 	NoSymlinks bool
+	// Ignored is which of a commit's files, relative to the tree, the extraction leaves
+	// out by the ignore settings. They are counted, so a commit that changed only such
+	// files says why it has no symbols. Nil counts none.
+	Ignored func(tree string, files []string) ([]string, error)
 }
 
 // Commit is one commit and the symbols it changed, on its new side.
@@ -65,6 +69,8 @@ type Commit struct {
 	Symbols []locate.DiffSymbol `json:"symbols,omitempty"`
 	// Outside counts changed lines in files with symbols that no symbol holds.
 	Outside int `json:"outside,omitempty"`
+	// FilesIgnored counts its files the ignore settings left out of the extraction.
+	FilesIgnored int `json:"files_ignored,omitempty"`
 }
 
 // Ranked is one callable and the ranked commits that changed it.
@@ -85,8 +91,10 @@ type Result struct {
 	// RankedCommits counts the commits the ranking is over.
 	RankedCommits int `json:"ranked_commits"`
 	// Symbols counts the ranking's rows, before anything limits how many are returned.
-	Symbols int      `json:"symbols"`
-	Ranking []Ranked `json:"ranking,omitempty"`
+	Symbols int `json:"symbols"`
+	// FilesIgnored counts the selected commits' files the ignore settings left out.
+	FilesIgnored int      `json:"files_ignored"`
+	Ranking      []Ranked `json:"ranking,omitempty"`
 }
 
 func callable(kind string) bool {
@@ -131,6 +139,7 @@ func Run(ctx context.Context, repo string, o Options, extract Extract) (*Result,
 		if err := attribute(ctx, repo, tree, c, o, extract); err != nil {
 			return nil, fmt.Errorf("commit %s: %w", c.SHA, err)
 		}
+		res.FilesIgnored += c.FilesIgnored
 	}
 	moves, err := followMoves(ctx, repo, o, res.Commits)
 	if err != nil {
@@ -151,6 +160,13 @@ func attribute(ctx context.Context, repo, tree string, c *Commit, o Options, ext
 		}
 	}
 	sort.Strings(c.Files)
+	if o.Ignored != nil {
+		left, err := o.Ignored(tree, c.Files)
+		if err != nil {
+			return err
+		}
+		c.FilesIgnored = len(left)
+	}
 	ff, err := extract(ctx, tree, c.Files)
 	if err != nil {
 		return err
