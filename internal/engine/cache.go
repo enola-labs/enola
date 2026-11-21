@@ -3752,7 +3752,9 @@ import (
 // worktree nested in it.
 // v673: Tailwind: a theme file the reader follows an import into is keyed by its
 // content, so editing or deleting a theme outside the walk re-extracts.
-const cacheVersion = "v673"
+// v674: Rust: write_all, read_to_end and read_to_string called on a local the
+// source shows is an in-memory buffer or a generic parameter are not io_direct.
+const cacheVersion = "v674"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
