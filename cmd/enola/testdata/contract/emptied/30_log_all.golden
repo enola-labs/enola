@@ -1,5 +1,5 @@
 $ enola log --all .
 exit: 0
 --- stdout
-316738f  <TIME>  initial: 21 facts, 6 findings
+90abf88  <TIME>  initial: 21 facts, 6 findings
 --- stderr

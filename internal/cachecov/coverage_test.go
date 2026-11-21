@@ -266,6 +266,8 @@ var versionCoverage = map[int][]string{
 	671: {"TestExtractAllRoutes_ApplicationHelperDrawsARouteFile", "TestParseRouteFile_MethodIsDeclaredWhereItIsCalled", "TestExtractAllRoutes_FileDrawnFromTwoScopes"},
 	672: {"TestExtract_PathItemRefIntoNestedWorktreeIsNotFollowed", "TestExternalRefIntoNestedWorktreeIsNotFollowed", "TestTailwind_ImportIntoNestedWorktreeOrOutsideIsNotRead", "TestInCheckout"},
 	673: {"TestTailwindThemeReadsAreRecorded", "TestTailwindOffWalkThemeTracksEditsAcrossWarmRuns", "TestExtractorCache_ReadPathContentKeysTheFacts"},
+	674: {"TestIsTestPath"}, // reserved for a parallel branch; replaced on merge
+	675: {"TestKotlinSwiftPHPTestGlobsScopeToTestTrees", "TestIsTestPath", "TestBundledConfigTreatsTestFilesLikeDefaults"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

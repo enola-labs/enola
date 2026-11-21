@@ -229,9 +229,12 @@ ignore:
   - ".gradle/**"
   - "**/.gradle/**"
   - "**/generated/**"
-  # Kotlin tests
-  - "**/*Test.kt"
-  - "**/androidTest/**"
+  # Kotlin tests: Gradle's src/test and src/<target>Test source sets (androidTest,
+  # commonTest, jvmTest). Scoped to the source set, never a name suffix: a bare
+  # "**/*Test.kt" deletes production files such as a model named ABTest.kt.
+  # Kept in sync with config.Default(), which also lists them as test globs.
+  - "**/src/test/**/*.kt"
+  - "**/src/[a-z]*Test/**/*.kt"
   # Swift / Xcode build and cache
   - "DerivedData/**"
   - "**/DerivedData/**"
@@ -247,9 +250,10 @@ ignore:
   - "**/.build"
   - "**/.swiftpm"
   - "**/*.bak-*"
-  # Swift tests
-  - "**/*Tests.swift"
-  - "**/*Test.swift"
+  # Swift tests: SPM's Tests/ and Xcode's <Target>Tests/ test targets, not a name
+  # suffix (a feature directory OnboardingABTest/ is production). Kept in sync
+  # with config.Default().
+  - "**/*Tests/**/*.swift"
   # Ruby / Rails
   - "**/spec/**/*_spec.rb"
   - "**/test/**/*_test.rb"
@@ -257,13 +261,14 @@ ignore:
   - "log/**"
   - "public/assets/**"
   - "public/packs/**"
-  # PHP tests (PHPUnit / Pest / Codeception). Excluded so test request
-  # simulations (e.g. Symfony WebTestCase `$client->request(...)`) are not
-  # indexed as production routes/clients, and the fact graph stays focused.
-  - "tests/**"
-  - "**/*Test.php"
-  - "**/*TestCase.php"
-  - "**/*Cest.php"
+  # PHP tests (PHPUnit / Pest / Codeception under tests/, Laminas under test/).
+  # Excluded so test request simulations (e.g. Symfony WebTestCase
+  # `$client->request(...)`) are not indexed as production routes/clients.
+  # Per-language, not a bare "tests/**": a directory ignore skips the whole tree
+  # before the test globs run, which dropped Python, TypeScript and C# tests there.
+  # Kept in sync with config.Default().
+  - "**/tests/**/*.php"
+  - "**/test/**/*.php"
 # extractors: / explainers: / renderers: are deliberately ABSENT.
 #
 # Each of these keys REPLACES the built-in list rather than extending it, so a

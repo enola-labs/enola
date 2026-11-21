@@ -147,6 +147,15 @@ func isCompoundMocksSeg(seg string) bool {
 	return ok && head != "" && head[0] >= 'A' && head[0] <= 'Z'
 }
 
+// isCompoundTestsSeg reports a directory named like Xcode's test target, a word
+// followed by Tests: MyAppTests, MyAppUITests, NetworkingTests. Xcode generates the
+// test targets of an app named MyApp as MyAppTests/ and MyAppUITests/ beside it.
+// The head must start in upper case, as Mocks' does above.
+func isCompoundTestsSeg(seg string) bool {
+	head, ok := strings.CutSuffix(seg, "Tests")
+	return ok && head != "" && head[0] >= 'A' && head[0] <= 'Z'
+}
+
 // isTestSourceSetSeg is IsTestSourceSet for a segment and the one before it.
 func isTestSourceSetSeg(prev, seg string) bool {
 	if prev != "src" {
@@ -243,7 +252,7 @@ func IsTestPath(p string) bool {
 			seg, rest = rest[:i], rest[i+1:]
 		}
 		if testSegments[seg] || (!first && isTestSourceSetSeg(prev, seg)) || IsTestSupportModule(seg) ||
-			isCompoundMocksSeg(seg) {
+			isCompoundMocksSeg(seg) || isCompoundTestsSeg(seg) {
 			return true
 		}
 		for _, suf := range testProjectSuffixes {

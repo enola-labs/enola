@@ -3752,7 +3752,11 @@ import (
 // worktree nested in it.
 // v673: Tailwind: a theme file the reader follows an import into is keyed by its
 // content, so editing or deleting a theme outside the walk re-extracts.
-const cacheVersion = "v673"
+// v674: reserved for a parallel branch; this line is replaced by that branch's on merge.
+// v675: Kotlin, Swift and PHP tests are ignored and listed as test globs by default
+// (Gradle src/test and src/<target>Test, SPM and Xcode *Tests/, PHP tests/ and test/),
+// and a CamelCase directory ending in Tests (MyAppTests, MyAppUITests) is test code.
+const cacheVersion = "v675"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

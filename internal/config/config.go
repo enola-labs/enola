@@ -474,6 +474,26 @@ func Default() *Config {
 			"**/src/test/**/*.scala",
 			"**/src/it/**/*.scala",
 			"**/src/multi-jvm/**/*.scala",
+			// Kotlin, Swift and PHP tests, each scoped to the directory its build tool
+			// or runner reserves for tests, never to a name suffix: `**/*Test.kt` and
+			// `**/*Test.swift` delete production files that merely end in the token
+			// (a model named ABTest.kt, a feature directory OnboardingABTest/).
+			//   - Kotlin: Gradle's unit test source set src/test, and src/<target>Test,
+			//     which is how the Android plugin (androidTest, androidUnitTest) and
+			//     Kotlin Multiplatform (commonTest, jvmTest, iosTest) name theirs. The
+			//     lowercase head is facts.IsTestSourceSet's rule, so the two agree.
+			//   - Swift: SPM's Tests/ and Xcode's <Target>Tests/ and <Target>UITests/
+			//     test targets (`*Tests` also matches a bare `Tests`).
+			//   - PHP: PHPUnit, Pest and Codeception keep tests under tests/, Laminas
+			//     under test/. Indexed, a functional test's simulated request
+			//     (Symfony WebTestCase `$client->request(...)`) reads as production
+			//     client code.
+			// Keep in sync with TestGlobs below.
+			"**/src/test/**/*.kt",
+			"**/src/[a-z]*Test/**/*.kt",
+			"**/*Tests/**/*.swift",
+			"**/tests/**/*.php",
+			"**/test/**/*.php",
 			// Dart tests. Directory-scoped, following the Ruby and C# precedent: pub's
 			// convention puts them under a package's `test/` (and `integration_test/`)
 			// directory, and a bare `**/*_test.dart` would additionally swallow
@@ -637,6 +657,16 @@ func Default() *Config {
 			"**/src/test/**/*.scala",
 			"**/src/it/**/*.scala",
 			"**/src/multi-jvm/**/*.scala",
+			// Kotlin, Swift and PHP have no TestRefExtractor yet, so these are the same
+			// deliberate no-op as Scala's: listed because Ignore above requires the two
+			// lists to agree, and so that implementing ExtractTestRefs for one of them
+			// switches the signal on without a second config change. Until then, a
+			// symbol called only from a test reads as dead, not test-only.
+			"**/src/test/**/*.kt",
+			"**/src/[a-z]*Test/**/*.kt",
+			"**/*Tests/**/*.swift",
+			"**/tests/**/*.php",
+			"**/test/**/*.php",
 			// Dart. Unlike Scala's above, these are live: DartExtractor implements
 			// TestRefExtractor, so a production symbol whose only caller is its test
 			// keeps a reference and does not read as dead.
