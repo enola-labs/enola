@@ -5,6 +5,10 @@
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
       "facts": "89cc3bb987ae19f1fa6108732aab8d781d2709fb5066c36a660899a1f5ba4faa"
     },
+    "argocd_deploy_multirepo": {
+      "input": "436d68c32e12227f97b662d3137514779954c6541cfb7ddf7477c351ae0bbf43",
+      "facts": "2ef31256cd1938a0b11dfd767fe87ecee74800880feb1e0aa9aefb5ad5cfc4d1"
+    },
     "asyncapi_multirepo": {
       "input": "abb6e53abb522eda2398e7334da5c22f8dc493c9932d0d32e229e08b69402e42",
       "facts": "625f7cc0daa1f2087e0409332bf768d095838c7ae78367d52f4b866f692f9d3c"
@@ -25,9 +29,21 @@
       "input": "8fc1b71d26622f86607860432381ecfc577feb69edd0cd756fd667f8a12d02f5",
       "facts": "7bf7943db6b5499dc676204a0841829c2a6be3d72d19fdac8c9fd5768a7109c2"
     },
+    "dart_openapi_app": {
+      "input": "c4c25392aca4bd56cac6d612dcdbd00e3e33c6f25d87d1d054bc2f808d73047c",
+      "facts": "4667e88fe5ce2997d33d92291a3d3dc3dcfddf088ca9d0a3eac8e3767ad11a1e"
+    },
     "dart_sample": {
       "input": "c2afd35735a8961b49ee0ef75996d7460de5724ad733cf63d99ee5b6b0588cf9",
       "facts": "ed87bba120feed5b72a6ce0f9d64ba855951095a9d475e70797d54c27a703a89"
+    },
+    "dbt_lineage_sample": {
+      "input": "dec3449c42028ae60a9fd01febdcab9d2d80b253712edb383382cb2d65e51708",
+      "facts": "0874a1f8d77934072cbf3f9515d70d92ffe6457f672a8b5c608da95851037a1c"
+    },
+    "go_cache_sample": {
+      "input": "d9d4fcd49d4dcff657bfb084e0c360fb6de56b0bdea7f7b71c7b8a173e333116",
+      "facts": "4e4ffe3d6b7615a99709e358f0d4384c0d7b73de8b60bebaa7cafbd0d858c706"
     },
     "go_client_seam": {
       "input": "d8e8e2e628fa60eb25eef406b21784395017826f9d45ce9686c0ee53a7e832a1",
@@ -48,6 +64,10 @@
     "go_kafka_multirepo": {
       "input": "3fc90912e58a13afcdc02ac7af51331d419548c114d16b23d423b9a9536836dc",
       "facts": "fa62318dec4a848dcecbf7249ddd5120b3cb67e48011f7b64e7ae81d1075a9d4"
+    },
+    "go_openapi_sample": {
+      "input": "58b05aa2a3288bca9fca0fc3d2e7c8e08fd091996b3d5fe94ab32bdb6b9bd091",
+      "facts": "41d413c2a523547276e652c76120bf37e2cc20c3f00338cbfdf585230c3c0165"
     },
     "go_sample": {
       "input": "e4409935c976c11197aa2c03a6bc49e20cec888fc6c351d9858193906737b096",
@@ -137,6 +157,10 @@
       "input": "0856141cda28eb050f696a6d9012bb30d9d752244ea1356122765b859cd2d9e1",
       "facts": "38daa10ed0a0b1a6a55f04b77b802c258f31ad41b07b335bf17cace956e0b1ca"
     },
+    "stimulus_sample": {
+      "input": "d30d60afa302408655733ba1f31009b9c7e3a9242d1b7242046aa91ca469c710",
+      "facts": "5188cd51e974efa8dbc4f266db97e6233acb560ae04006195cd3f8dbbd0782f5"
+    },
     "swift_sample": {
       "input": "3cab2fee87730ccce24b63c162c41e2e27d88923b08864ba1ef5bda0c894e096",
       "facts": "4d9741a95c41c389eaeeef5e171b2fa793052ae7573ef5194a02ae7d157138aa"
@@ -184,6 +208,10 @@
     "ts_sample": {
       "input": "864a7ff537edccdd3639f8f680aa3f78919da28b68a1b971fb4ded748ed6d613",
       "facts": "b2138702e7374252f27e0eee3d6b58349415b3db18c7eb48577e1073943168b0"
+    },
+    "ts_test_exercises_sample": {
+      "input": "1e8056ba2519558553817df2e7202565d3688a6a2c77cd3008f82139e865da8e",
+      "facts": "d6fed17aae7cebcfb6b3552b10cc05c00cac0c3e77c50cb5bf9cc807fa994087"
     }
   }
 }
