@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/enola-labs/enola/internal/diff"
+	"github.com/enola-labs/enola/internal/explainers/cycles"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/plain"
 )
@@ -404,5 +405,44 @@ func TestSummary_MoreUsesNameTheVerdictsImports(t *testing.T) {
 	}
 	if out := v.Render(); !strings.Contains(out, "New coupling (11: imports 5, calls 5, declares 1):") {
 		t.Errorf("verdict heading does not count each kind:\n%s", out)
+	}
+}
+
+// withMembers gives a cycle finding the membership the explainer records for a
+// large component. The title deliberately disagrees, so a test can tell which
+// one the summary read.
+func withMembers(in facts.Insight, members ...any) facts.Insight {
+	in.Metrics = map[string]any{cycles.MetricMembers: members}
+	return in
+}
+
+func TestCycleMembersMetricIsTheExplainers(t *testing.T) {
+	if cycleMembersMetric != cycles.MetricMembers {
+		t.Errorf("cycleMembersMetric = %q, the cycles explainer writes %q", cycleMembersMetric, cycles.MetricMembers)
+	}
+}
+
+// The loop size comes from the members the explainer recorded, not from the
+// title's prose; the title is read only when no members were recorded.
+func TestPlainFinding_CycleSizeReadsMembersMetric(t *testing.T) {
+	in := withMembers(cycle("12"), "a", "b", "c", "d", "e")
+	in.Evidence = []facts.Evidence{{Fact: "a"}, {Fact: "b"}}
+	want := "Creates a loop: 5 modules now depend on each other, so none of them can be changed or tested on its own. They include a, b and 3 others."
+	if got := plainFinding(in).Text; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := plainFinding(cycle("4")).Text; !strings.HasPrefix(got, "Creates a loop: 4 modules") {
+		t.Errorf("without members the title is the fallback: %q", got)
+	}
+}
+
+func TestSummary_AGrownLoopReadsMembersMetric(t *testing.T) {
+	v := Verdict{Status: StatusClean, FindingsChanged: []diff.InsightChange{
+		// The titles say it shrank; the members say it grew.
+		{Before: withMembers(cycle("9"), "a", "b"), After: withMembers(cycle("3"), "a", "b", "c")},
+	}}
+	s := v.Summarize()
+	if len(s.Worse) != 1 || s.Worse[0].Text != "Makes an existing loop bigger: 3 modules now depend on each other, up from 2." {
+		t.Errorf("worse: %+v", s.Worse)
 	}
 }

@@ -352,7 +352,7 @@ func (v Verdict) worse() ([]plain.Item, int) {
 	for _, c := range v.grownLoops() {
 		it := plainFinding(c.After)
 		it.Text = fmt.Sprintf("Makes an existing loop bigger: %d modules now depend on each other, up from %d.",
-			firstNumber(c.After.Title), firstNumber(c.Before.Title))
+			loopSize(c.After), loopSize(c.Before))
 		it.Certainty = plain.CertaintyOf(c.After.Confidence)
 		out = append(out, it)
 	}
@@ -444,7 +444,7 @@ func (v Verdict) neither() []plain.Item {
 func (v Verdict) grownLoops() []diff.InsightChange {
 	var out []diff.InsightChange
 	for _, c := range v.FindingsChanged {
-		if c.After.Source == "cycles" && firstNumber(c.After.Title) > firstNumber(c.Before.Title) {
+		if c.After.Source == "cycles" && loopSize(c.After) > loopSize(c.Before) {
 			out = append(out, c)
 		}
 	}
@@ -575,9 +575,10 @@ func plainFinding(in facts.Insight) plain.Item {
 	t := in.Title
 	switch in.Source {
 	case "cycles":
-		it.Text = fmt.Sprintf("Creates a loop: %d modules now depend on each other, so none of them can be changed or tested on its own.", firstNumber(t))
+		size := loopSize(in)
+		it.Text = fmt.Sprintf("Creates a loop: %d modules now depend on each other, so none of them can be changed or tested on its own.", size)
 		if mods := evidenceFacts(in, plain.MaxItems); len(mods) > 0 {
-			if n := firstNumber(t) - len(mods); n > 0 {
+			if n := size - len(mods); n > 0 {
 				mods = append(mods, plain.Plural(n, "other", "others"))
 			}
 			it.Text += " They include " + plain.AndList(mods) + "."
@@ -657,6 +658,21 @@ func between(s, prefix, stop string) string {
 		s = s[:j]
 	}
 	return strings.TrimSpace(s)
+}
+
+// cycleMembersMetric is the cycles explainer's MetricMembers key, spelled out
+// rather than imported to keep this package off the explainer; a test holds the
+// two equal.
+const cycleMembersMetric = "members"
+
+// loopSize is how many modules a cycle finding spans: the members the explainer
+// recorded, which it does for every component too large to list as evidence,
+// else the count in the title, the only place a small cycle states it.
+func loopSize(in facts.Insight) int {
+	if members := in.MetricStrings(cycleMembersMetric); len(members) > 0 {
+		return len(members)
+	}
+	return firstNumber(in.Title)
 }
 
 // firstNumber is the first integer in a title's parentheses, where explainers
