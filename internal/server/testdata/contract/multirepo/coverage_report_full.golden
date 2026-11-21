@@ -19,6 +19,12 @@
       }
     ],
     "unresolved_total": 1,
-    "external_total": 2
+    "external_total": 2,
+    "unresolved_reasons": [
+      {
+        "reason": "path_unknown",
+        "count": 1
+      }
+    ]
   }
 ]

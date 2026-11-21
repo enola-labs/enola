@@ -1,6 +1,8 @@
 package coverage
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -58,5 +60,40 @@ func TestReadEdgeCoverage_JSONRoundTripShape(t *testing.T) {
 	cov := readEdgeCoverage(svc)
 	if len(cov) != 1 || cov[0].Detected != 4 || cov[0].Resolved != 1 || cov[0].Unresolved != 3 {
 		t.Errorf("readEdgeCoverage = %+v, want detected 4 resolved 1 unresolved 3", cov)
+	}
+}
+
+// coverage_report carries each service's open call sites by unmatched_reason, in the
+// JSON and in the markdown, read through the same count the receipt uses.
+func TestBuild_UnresolvedReasons(t *testing.T) {
+	call := func(reason string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/" + reason, Repo: "web", Props: map[string]any{
+			facts.PropRole: facts.RoleClient, facts.PropUnmatchedByServer: true, facts.PropUnmatchedReason: reason,
+		}}
+	}
+	store := facts.NewStore()
+	store.Add(
+		facts.Fact{Kind: facts.KindService, Name: "web", Repo: "web",
+			Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: "api"}},
+			Props: map[string]any{"edge_coverage": []map[string]any{
+				{"edge_type": "http_client", "detected": 6, "resolved": 3, "unresolved": 3},
+			}}},
+		facts.Fact{Kind: facts.KindService, Name: "api", Repo: "api"},
+		call("path_unknown"), call("path_unknown"), call("method_mismatch"),
+	)
+	report := Build(store, "")
+	var web Service
+	for _, s := range report {
+		if s.Service == "web" {
+			web = s
+		}
+	}
+	want := []facts.ReasonCount{{Reason: "path_unknown", Count: 2}, {Reason: "method_mismatch", Count: 1}}
+	if !reflect.DeepEqual(web.UnresolvedReasons, want) {
+		t.Errorf("web UnresolvedReasons = %+v, want %+v", web.UnresolvedReasons, want)
+	}
+	md := report.RenderMarkdown()
+	if !strings.Contains(md, "web: `path_unknown` 2, `method_mismatch` 1") {
+		t.Errorf("markdown lacks the reason breakdown:\n%s", md)
 	}
 }
