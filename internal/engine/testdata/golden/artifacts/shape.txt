@@ -103,6 +103,7 @@
 
 ## output/receipt.json
 
+.binders[] string
 .config_hash string
 .duration string
 .enola_version string
@@ -144,6 +145,7 @@
 
 ## output/snapshot.meta.json
 
+.binders[] string
 .census.excluded_by_ignore number
 .census.excluded_by_kind number
 .census.files_walked number

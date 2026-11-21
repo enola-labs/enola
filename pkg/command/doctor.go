@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/hookstate"
 	"github.com/enola-labs/enola/internal/providers"
@@ -106,6 +107,9 @@ func (r *Runner) Doctor(args []string) {
 	fmt.Println("Runtime")
 	fmt.Printf("  %s\n", bootstrap.MemoryLimitLine())
 	fmt.Printf("  %s %s (extractors %s)\n", r.name(), r.buildVersion(), engine.ExtractorVersion())
+	if eng, err := bootstrap.NewEngineFromConfig(config.Default()); err == nil {
+		fmt.Printf("  %s\n", binderLine(eng.BindersByStage()))
+	}
 	fmt.Println()
 
 	fmt.Println("Providers carried by this binary")
@@ -435,4 +439,13 @@ func (r *Runner) printSkills(repoDir string) {
 		fmt.Printf("  Run `%s install` to bring them in line with this binary.\n", r.name())
 	}
 	fmt.Println()
+}
+
+// binderLine says how many binders this binary runs on every snapshot, by stage. A
+// binder that fails is logged and skipped, and the run goes on; the snapshot's receipt
+// lists the binders that ran without error, so the one missing there is the one to
+// look for in the log.
+func binderLine(preLink, postLink []string) string {
+	return fmt.Sprintf("binders: %d run on every snapshot (%d pre-link, %d post-link); a snapshot's receipt lists those that ran without error",
+		len(preLink)+len(postLink), len(preLink), len(postLink))
 }
