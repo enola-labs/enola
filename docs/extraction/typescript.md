@@ -164,7 +164,10 @@ never sent. The verdict is given per application: the repository root or a works
 package that is a Next.js app, or a React app with an entry file (`src/main.tsx`,
 `src/index.tsx`, ...). A library package gets none, since whoever consumes it makes its
 calls, and neither do Vue, Nuxt, Svelte, Angular and Ember applications, which use
-their code from templates.
+their code from templates. A call with no verdict is not read as one that runs: a
+matched server route none of whose calls is known to run, with at least one call that
+has no verdict, gets `unjudged_by_clients=true`, and stays out of
+`unreached_by_clients`.
 
 A request helper sends the method its own request sets: `fetchPost(url, body)`, which
 calls fetch with `method: 'POST'`, is a POST unless the call passes a method of its

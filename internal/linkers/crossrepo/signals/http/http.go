@@ -769,7 +769,12 @@ func clientTraffic(f facts.Fact) (ClientTraffic, bool) {
 // RouteVerdicts is ServerRouteVerdicts with the traffic each matched route receives.
 type RouteVerdicts struct {
 	Evaluated, Unmatched, Unreached map[string]bool
-	Traffic                         map[string]ClientTraffic
+	// Unjudged holds the matched routes no matching call is known to run, while at
+	// least one of them is a call whose client could not tell (facts.ReachUnjudged).
+	// Such a route stays out of Unreached, since the call may well be sent, and this
+	// says nobody could judge whether it is.
+	Unjudged map[string]bool
+	Traffic  map[string]ClientTraffic
 }
 
 // ServerRouteVerdictsWithTraffic is ServerRouteVerdicts, and for each matched server
@@ -792,20 +797,24 @@ func ServerRouteVerdictsWithTraffic(m *routeindex.Matcher, all []facts.Fact) Rou
 	// in use is the unsafe direction for a verdict that may drive its removal. A service
 	// alias is the exception. The config states which repository the call reaches, so
 	// the others serving the same path were not called by it.
-	matched, reached := map[string]bool{}, map[string]bool{}
+	matched, reached, known := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	traffic := map[string]ClientTraffic{}
 	providerRepos := map[string]bool{}
 	for _, f := range all {
 		if f.Repo == "" {
 			continue
 		}
-		runs := facts.ClientReach(f) != facts.ReachNeverRuns
+		reach := facts.ClientReach(f)
+		runs := reach != facts.ReachNeverRuns
 		tr, hasTraffic := clientTraffic(f)
 		for _, ref := range routesCalledBy(m, server, f) {
 			key := routeindex.RouteIdentityKey(ref.Repo, ref.Method, ref.Path)
 			matched[key] = true
 			if runs {
 				reached[key] = true
+			}
+			if reach == facts.ReachRuns {
+				known[key] = true
 			}
 			if hasTraffic && runs {
 				if prev, ok := traffic[key]; !ok || tr.stronger(prev) {
@@ -823,7 +832,7 @@ func ServerRouteVerdictsWithTraffic(m *routeindex.Matcher, all []facts.Fact) Rou
 	// frontend's own page routes, a mobile app) has no clients among the loaded
 	// repos, so flagging its routes would be vacuous noise — skip it, the same way
 	// a single-repo snapshot is skipped, applied per repo.
-	v := RouteVerdicts{Evaluated: map[string]bool{}, Unmatched: map[string]bool{}, Unreached: map[string]bool{}, Traffic: map[string]ClientTraffic{}}
+	v := RouteVerdicts{Evaluated: map[string]bool{}, Unmatched: map[string]bool{}, Unreached: map[string]bool{}, Unjudged: map[string]bool{}, Traffic: map[string]ClientTraffic{}}
 	for id := range identities {
 		if !providerRepos[routeindex.RepoFromIdentity(id)] {
 			continue
@@ -832,6 +841,9 @@ func ServerRouteVerdictsWithTraffic(m *routeindex.Matcher, all []facts.Fact) Rou
 		if matched[id] {
 			if !reached[id] {
 				v.Unreached[id] = true
+			} else if !known[id] {
+				// Reached only through calls nobody judged.
+				v.Unjudged[id] = true
 			}
 			if t, ok := traffic[id]; ok {
 				v.Traffic[id] = t
