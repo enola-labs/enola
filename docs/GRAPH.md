@@ -86,7 +86,7 @@ A snapshot is produced by one fixed pipeline, the same on every run:
 5. **Analyse.** Run the checks (enola calls them explainers) over the graph and record their findings.
 6. **Write.** Save the snapshot to `.enola/` and record a receipt of how it was built.
 
-No step calls a language model. Re-runs only re-parse files whose content changed, so refreshing a snapshot is fast. Stage-by-stage internals: [ARCHITECTURE.md → The pipeline](../ARCHITECTURE.md#the-pipeline).
+No step calls a language model. Re-runs reuse the facts of every language none of whose files changed, so refreshing a snapshot is fast; one changed file re-parses every file of its language. Stage-by-stage internals: [ARCHITECTURE.md → The pipeline](../ARCHITECTURE.md#the-pipeline).
 
 ## Across repositories
 
@@ -129,7 +129,7 @@ Why the graph is a value computed on demand rather than a store kept up to date:
 | `docs.jsonl` | The whole comment of each documented symbol and module, one per line, joined to `facts.jsonl` by `id` | yes, [schema/docs.md](schema/docs.md) |
 | `snapshot.meta.json` | The receipt fields plus per-file content hashes, for incremental runs | no |
 | `llm_context.md` | A compact written summary for an agent to read directly | no |
-| `extractor_cache.json` | Parsed results per file, so unchanged files are not re-parsed | no; keep it between runs |
+| `extractor_cache.json` | Parsed results per extractor, keyed on the content of every file it reads, so a language with no changed file is not re-parsed | no; keep it between runs |
 | `run.json` | Which agent session wrote this run, and when, so a diff can tell another session's "before" from its own | no |
 | `previous/` | The snapshot before this one, rotated on every write | same files as above |
 | `baseline/` | The snapshot you pinned with `enola baseline pin`; survives re-snapshots. Its `pin.json` records which agent session pinned it | same files as above |
