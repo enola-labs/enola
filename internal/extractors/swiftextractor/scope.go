@@ -39,6 +39,12 @@ type swiftNameIndex struct {
 	ambiguous map[string]bool     // simple type name -> declared in more than one module
 	methods   map[string][]string // method short name -> qualified dir.Type.method names
 	funcs     map[string][]string // top-level function short name -> qualified dir.func names
+	// owners maps the simple name of every declaration (a type, a constant, a
+	// member) to the simple names of what it is declared in: its type, or for a
+	// top-level declaration its module. concrete holds the simple names of the
+	// classes, structs, enums and actors the repository declares.
+	owners   map[string][]string
+	concrete map[string]bool
 }
 
 func newSwiftNameIndex() swiftNameIndex {
@@ -47,15 +53,22 @@ func newSwiftNameIndex() swiftNameIndex {
 		ambiguous: make(map[string]bool),
 		methods:   make(map[string][]string),
 		funcs:     make(map[string][]string),
+		owners:    make(map[string][]string),
+		concrete:  make(map[string]bool),
 	}
 }
 
 // add indexes one declaration fact of a file in module dir.
 func (ix *swiftNameIndex) add(fact *facts.Fact, dir string) {
+	short := lastDotComponent(fact.Name)
+	ix.owners[short] = append(ix.owners[short], lastDotComponent(ownerOf(fact.Name)))
 	sk, _ := fact.PropAny("symbol_kind").(string)
+	if sk == facts.SymbolStruct || sk == facts.SymbolClass {
+		ix.concrete[lastDotComponent(fact.Name)] = true
+	}
 	switch sk {
 	case facts.SymbolStruct, facts.SymbolClass, facts.SymbolInterface:
-		if simpleName := lastDotComponent(fact.Name); simpleName != "" {
+		if simpleName := short; simpleName != "" {
 			// A bare type name is not unique across modules: Swift namespaces
 			// nested types by their enclosing type/module, so short names like
 			// Event/State/Style/Coordinator recur in many targets. Track which
@@ -72,11 +85,10 @@ func (ix *swiftNameIndex) add(fact *facts.Fact, dir string) {
 		// Index methods by short name so the resolveMethodCalls post-pass can
 		// bind tentative member-call edges (self?.x(), coordinator?.y()) to a
 		// concrete method, or drop them when no project method matches.
-		if short := lastDotComponent(fact.Name); short != "" {
+		if short != "" {
 			ix.methods[short] = append(ix.methods[short], fact.Name)
 		}
 	case facts.SymbolFunc:
-		short := lastDotComponent(fact.Name)
 		if short == "" {
 			break
 		}
@@ -145,4 +157,40 @@ func (s *swiftHierarchies) forFile(file string) *swiftHierarchy {
 		s.prod = newSwiftHierarchy(s.facts, true)
 	}
 	return s.prod
+}
+
+// reachesRepo reports whether a call chain rooted at root can hand on a value of the
+// repository's: the repository declares root (a type, or a constant such as a global
+// `let AF = Session.default`), or a member the chain passes through is one it
+// declares outside its classes and structs (`SecPolicy.af`, a property a protocol
+// extension of the repository adds to every conforming type).
+func (ix *swiftNameIndex) reachesRepo(root string, via []string) bool {
+	if len(ix.owners[root]) > 0 {
+		return true
+	}
+	for _, m := range via {
+		for _, o := range ix.owners[m] {
+			if !ix.concrete[o] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// openCandidates returns the methods named method that a value the repository did
+// not make can have: those not owned by a class or struct of the repository, an
+// extension of a framework type or protocol's included. With none, the top-level
+// functions of that name (a module-qualified call, `SharedModels.score(word)`).
+func (ix *swiftNameIndex) openCandidates(method string) []string {
+	var open []string
+	for _, c := range ix.methods[method] {
+		if !ix.concrete[lastDotComponent(ownerOf(c))] {
+			open = append(open, c)
+		}
+	}
+	if len(open) == 0 {
+		return ix.funcs[method]
+	}
+	return open
 }

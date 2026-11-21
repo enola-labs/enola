@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 
@@ -131,8 +132,13 @@ class C {
 	if !hasRelation(f, facts.RelCalls, "AppComposition") {
 		t.Errorf("expected calls AppComposition (root type); relations=%v", f.Relations)
 	}
-	if !hasRelation(f, facts.RelCalls, "makeRepo") {
-		t.Errorf("expected tentative calls makeRepo (method); relations=%v", f.Relations)
+	// The method is noted with its root, for resolveRootedCalls to bind once the
+	// repository's declarations are known.
+	notes, _ := f.PropAny(propRootedCalls).([]swiftRootedCall)
+	if !slices.ContainsFunc(notes, func(n swiftRootedCall) bool {
+		return n.root == "AppComposition" && n.method == "makeRepo" && slices.Equal(n.via, []string{"shared"})
+	}) {
+		t.Errorf("expected rooted call AppComposition.makeRepo; notes=%v", notes)
 	}
 }
 

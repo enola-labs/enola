@@ -215,6 +215,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// Bind the walker's tentative bare-short-name member-call edges to concrete
 	// project methods (or drop stdlib/framework calls). Runs after
 	// canonicalizeTargets so type-target rewrites are already settled.
+	allFacts = resolveRootedCalls(allFacts, index)
 	hier := &swiftHierarchies{facts: allFacts}
 	resolveTypedCalls(allFacts, hier)
 	resolveMethodCalls(allFacts, index)
