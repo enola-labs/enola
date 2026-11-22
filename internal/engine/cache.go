@@ -3807,7 +3807,12 @@ import (
 // (`X.NAME`) and a declared parameter or field type, type arguments included, name
 // the repository type javac resolves the name to; a variable or type parameter of
 // that name names nothing.
-const cacheVersion = "v686"
+// v687: Kotlin: an annotation on a function, class, object or property is a use of
+// its type. What it annotates gets a names edge to the annotation type where the
+// repository declares it; an annotation imported from outside the repository, or one
+// Kotlin imports by default (@Deprecated, @JvmStatic, @Volatile) and the file does
+// not import itself, records nothing.
+const cacheVersion = "v687"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
