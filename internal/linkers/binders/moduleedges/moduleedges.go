@@ -93,6 +93,13 @@ type edge struct {
 	repo           string
 }
 
+// site is the declaration a derived edge is placed at.
+type site struct {
+	file     string
+	line     int
+	prefixed bool
+}
+
 // unresolvedReason distinguishes resolution work from expected graph boundaries.
 // Keep these values stable: they are emitted in coverage diagnostics so runs over
 // large repositories can be compared directly.
@@ -158,8 +165,6 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	seenNameInRepo := map[key]bool{}
 	knownSymbols := map[string]bool{}
 	shortNameCount := map[string]int{}
-	// Repositories whose files carry their label, as an appended repository's do.
-	labelled := map[string]bool{}
 	for _, f := range store.ByKind(facts.KindSymbol) {
 		if f.File == "" {
 			continue
@@ -169,9 +174,6 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		module := res.of(f)
 		if module == "" || !production[module] {
 			continue
-		}
-		if f.RepoPrefixed {
-			labelled[f.Repo] = true
 		}
 		k := key{repo: f.Repo, name: f.Name}
 		if !seenNameInRepo[k] {
@@ -220,6 +222,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	}
 
 	weights := map[edge]int{}
+	sites := map[edge]site{}
 	unresolved, crossRepo := 0, 0
 	unresolvedReasons := map[string]int{}
 	unresolvedTargets := map[string]map[string]int{}
@@ -295,7 +298,11 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			if target.module == sourceModule {
 				continue
 			}
-			weights[edge{source: sourceModule, target: target.module, repo: f.Repo}]++
+			e := edge{source: sourceModule, target: target.module, repo: f.Repo}
+			weights[e]++
+			if prior, ok := sites[e]; !ok || f.File < prior.file || f.File == prior.file && f.Line < prior.line {
+				sites[e] = site{file: f.File, line: f.Line, prefixed: f.RepoPrefixed}
+			}
 		}
 	}
 	if len(weights) == 0 {
@@ -310,21 +317,19 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			skipped++
 			continue
 		}
-		// The edge sits at its source module's directory, named the way every other
-		// fact of that repository names a path. Added after the engine prefixed an
-		// appended repository's files, a bare module name here was the one path in
-		// the repository without its label.
-		file := e.source
-		if labelled[e.repo] {
-			file = e.repo + "/" + e.source
-		}
+		// The edge sits at the first declaration that makes one of its calls. Every
+		// reader places a dependency at the module enclosing its file, so a file of
+		// the source module lands it there; the module's own directory, read as a
+		// file, landed it at the parent directory, which never made the call. The
+		// declaration's path is already named the way its repository names paths.
+		at := sites[e]
 		derived = append(derived, facts.Fact{
-			Kind: facts.KindDependency,
-			Name: fmt.Sprintf("module-edge: %s -> %s", e.source, e.target),
-			File: file,
-			Repo: e.repo,
-			// Prefixed here as the engine prefixes the rest, so its id is its id alone.
-			RepoPrefixed: labelled[e.repo],
+			Kind:         facts.KindDependency,
+			Name:         fmt.Sprintf("module-edge: %s -> %s", e.source, e.target),
+			File:         at.file,
+			Line:         at.line,
+			Repo:         e.repo,
+			RepoPrefixed: at.prefixed,
 			Props: map[string]any{
 				facts.PropCouplingKind: facts.CouplingSymbolRollup,
 				WeightProp:             weight,
@@ -492,8 +497,14 @@ func extractorEdges(store *facts.Store, production, test map[string]bool) map[[2
 			continue
 		}
 		for _, r := range dep.Relations {
-			if r.Kind == facts.RelImports {
-				out[[2]string{source, r.Target}] = true
+			if r.Kind != facts.RelImports {
+				continue
+			}
+			// Read the target as the module graph reads it: an import of a file
+			// connects the module holding that file. Keyed by the raw target, every
+			// file-stem or file-path import missed, and its pair was derived again.
+			if target := common.ImportTargetModule(dep, source, r.Target, production, test); target != "" {
+				out[[2]string{source, target}] = true
 			}
 		}
 	}

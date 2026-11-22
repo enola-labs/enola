@@ -3803,7 +3803,10 @@ import (
 // falling back to its last segment.
 // v685: Svelte: a component tag in markup is a reference, from the rendering
 // component to the declaration its script imported under that name.
-const cacheVersion = "v685"
+// v689: a derived module edge sits at a file of its source module, so readers place
+// it there and not at the parent directory, and an import of a file now connects
+// the module holding that file, so a pair an import connects is not derived again.
+const cacheVersion = "v689"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
