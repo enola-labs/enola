@@ -94,14 +94,28 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex, filePkg map[stri
 			resolveImport(f, typeDir, packageDir)
 			continue
 		}
+		var qualified map[int]bool
 		for j := range f.Relations {
 			r := &f.Relations[j]
 			switch r.Kind {
-			case facts.RelImplements, facts.RelInstantiates, facts.RelInjects, facts.RelNames:
+			case facts.RelNames:
+				if strings.HasPrefix(r.Target, qualMark) {
+					r.Target = resolveQualified(r.Target, filePkg[f.File], typeIndex, packageDir)
+					if qualified == nil {
+						qualified = map[int]bool{}
+					}
+					qualified[j] = true
+					continue
+				}
+				r.Target = resolveTypeTarget(r.Target, filePkg[f.File], typeIndex, packageDir)
+			case facts.RelImplements, facts.RelInstantiates, facts.RelInjects:
 				r.Target = resolveTypeTarget(r.Target, filePkg[f.File], typeIndex, packageDir)
 			case facts.RelCalls:
 				r.Target = resolveCallTarget(marks.resolve(r.Target, filePkg[f.File]), filePkg[f.File], typeIndex)
 			}
+		}
+		if qualified != nil {
+			dedupeQualified(f, qualified)
 		}
 		dropUnresolvedTypeNames(f)
 		// The loop metrics recorded the same targets; a mark must not leave as text.
@@ -276,6 +290,72 @@ func dropUnresolvedTypeNames(f *facts.Fact) {
 	for _, r := range f.Relations {
 		if r.Kind == facts.RelNames && !strings.Contains(r.Target, ".") {
 			continue
+		}
+		out = append(out, r)
+	}
+	f.Relations = out
+}
+
+// qualMark opens a names target the walker could not settle alone: the qualified
+// path a reference was written with, then what the reference resolves to without
+// it. NUL never occurs in a Scala identifier, and resolveQualified rewrites every
+// such target before the facts leave the extractor.
+const qualMark = "\x00"
+
+// markQualified encodes a qualified reference and its fallback for resolveQualified.
+func markQualified(qual, fallback string) string {
+	return qualMark + qual + qualMark + fallback
+}
+
+// resolveQualified settles a markQualified target. The qualified path wins when it
+// names a type this repository declares, as written or relative to the file's
+// package (`util.Logger` inside package `a.impl` is `a.impl.util.Logger`). Otherwise
+// the fallback is resolved the way an unqualified reference is, which is what the
+// reference resolved to before the path was read; an empty fallback is dropped.
+func resolveQualified(target, filePackage string, typeIndex, packageDir map[string]string) string {
+	qual, fallback, _ := strings.Cut(strings.TrimPrefix(target, qualMark), qualMark)
+	candidates := []string{qual}
+	if filePackage != "" {
+		candidates = append(candidates, filePackage+"."+qual)
+	}
+	for _, c := range candidates {
+		if canon, ok := typeIndex[c]; ok {
+			return canon
+		}
+	}
+	// A Java or Kotlin type in a sibling module (resolveTypeTarget, case 3), only
+	// for a path written in full: a package-relative guess would invent a type in
+	// a package that declares other things.
+	if pkg, name := parentName(qual), lastSegment(qual); pkg != "" && isTypeName(name) {
+		if dir, ok := packageDir[pkg]; ok {
+			return dir + "." + name
+		}
+	}
+	if fallback == "" {
+		return ""
+	}
+	return resolveTypeTarget(fallback, filePackage, typeIndex, packageDir)
+}
+
+// dedupeQualified drops a names edge resolved from a qualified reference (the
+// relation indexes in qualified) when it repeats another names edge of the fact or
+// points at the fact itself: two references resolving to one type, or an object
+// importing its own members. Every other edge is left as it was.
+func dedupeQualified(f *facts.Fact, qualified map[int]bool) {
+	plain := map[string]bool{}
+	for j, r := range f.Relations {
+		if r.Kind == facts.RelNames && !qualified[j] {
+			plain[r.Target] = true
+		}
+	}
+	seen := map[string]bool{}
+	out := f.Relations[:0]
+	for j, r := range f.Relations {
+		if qualified[j] {
+			if plain[r.Target] || seen[r.Target] || r.Target == f.Name {
+				continue
+			}
+			seen[r.Target] = true
 		}
 		out = append(out, r)
 	}

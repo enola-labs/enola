@@ -54,6 +54,7 @@ func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map
 		imports:        map[string]string{},
 		ownerStack:     []int{},
 		inlineHandlers: inlineHandlers,
+		fileRefIdx:     -1,
 	}
 	w.walk(root)
 	w.resolveValueRefs()
@@ -61,9 +62,16 @@ func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map
 }
 
 // valueRef is a capitalized identifier used as a value, and the symbol using it.
+//
+// qual, when set, is the qualified path the reference was written with
+// (`util.Logger` in a type, `a.b.Obj` in an import reaching through an object). It
+// is resolved after the merge, and when it names nothing this repository declares
+// the reference falls back to name, as an unqualified reference resolves, or to
+// nothing when name is empty (see markQualified).
 type valueRef struct {
 	owner int
 	name  string
+	qual  string
 }
 
 // resolveValueRefs turns each value reference into a names edge when the name is
@@ -97,9 +105,15 @@ func (w *astWalker) resolveValueRefs() {
 		owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelNames, Target: target})
 	}
 	for _, ref := range w.typeRefs {
-		target := declared[ref.name]
-		if target == "" {
-			target = w.resolveTypeName(ref.name)
+		target := ""
+		if ref.name != "" {
+			target = declared[ref.name]
+			if target == "" {
+				target = w.resolveTypeName(ref.name)
+			}
+		}
+		if ref.qual != "" {
+			target = markQualified(w.qualifyHead(ref.qual), target)
 		}
 		owner := &w.out[ref.owner]
 		if target == "" || target == owner.Name || owner.HasRelation(facts.RelNames, target) {
@@ -163,6 +177,10 @@ type astWalker struct {
 	// An index rather than a pointer: nested declarations append to out, which can
 	// reallocate the backing array and strand a raw pointer.
 	ownerStack []int
+
+	// fileRefIdx indexes the file-scope reference fact (facts.KindFileRef) once a
+	// reference outside every declaration needs one, or is -1.
+	fileRefIdx int
 
 	// inExtension is set while walking an `extension (x: T) def f = …` block, so
 	// the methods it contributes are tagged rather than read as free functions.
@@ -380,8 +398,14 @@ func (w *astWalker) walk(n *sitter.Node) {
 		// declaration it appears in. Recorded as written; one this file neither
 		// declares nor imports is tried against the file's package after every file
 		// is read, and dropped if it names nothing there (see dropUnresolvedTypeNames).
+		// A qualified type (`util.Logger`) is resolved by its whole path first: its
+		// last segment alone can match an unrelated same-named type in this package.
 		if len(w.ownerStack) > 0 {
-			w.typeRefs = append(w.typeRefs, valueRef{owner: w.ownerStack[len(w.ownerStack)-1], name: w.text(n)})
+			ref := valueRef{owner: w.ownerStack[len(w.ownerStack)-1], name: w.text(n)}
+			if p := n.Parent(); p != nil && kindOf(p) == "stable_type_identifier" {
+				ref.qual = normalizeDotted(w.text(p))
+			}
+			w.typeRefs = append(w.typeRefs, ref)
 		}
 		return
 	case "identifier":
@@ -522,11 +546,14 @@ func (w *astWalker) handleCall(n *sitter.Node) {
 		return
 	}
 	callee := fn
-	// `f[T](x)` wraps the callee in a generic_function; unwrap to the callee.
+	// `f[T](x)` wraps the callee in a generic_function; unwrap to the callee. Its
+	// type arguments name types (`Props[Logger]()`), walked here because the
+	// callee itself is not.
 	if kindOf(fn) == "generic_function" {
 		if inner := firstNamedChild(fn); inner != nil {
 			fn = inner
 		}
+		w.walkTypeArguments(callee)
 	}
 
 	var recvNode *sitter.Node
@@ -614,6 +641,8 @@ func (w *astWalker) handleTypeApplication(n *sitter.Node) {
 	if inner == nil {
 		return
 	}
+	// `classOf[T]`, `implicitly[Codec[T]]`: the type arguments name types.
+	w.walkTypeArguments(n)
 	switch kindOf(inner) {
 	case "identifier":
 		w.emitCallEdge(nil, "", w.text(inner))
@@ -630,6 +659,13 @@ func (w *astWalker) handleTypeApplication(n *sitter.Node) {
 		// Anything else is an expression the type arguments merely follow (the
 		// grammar can attach `[T]` to a whole infix chain): walk it as before.
 		w.walk(inner)
+	}
+}
+
+// walkTypeArguments walks the type arguments of a type application `f[A, B]`.
+func (w *astWalker) walkTypeArguments(n *sitter.Node) {
+	if args := n.ChildByFieldName("type_arguments"); args != nil {
+		w.walk(args)
 	}
 }
 
@@ -1141,6 +1177,16 @@ func (w *astWalker) handleImport(n *sitter.Node) {
 		return
 	}
 
+	// An import that reaches through an object (`import Parsers._`,
+	// `import a.Registry.{next, last}`, `import a.Registry.next`) brings its
+	// members into scope, and they are then used unqualified: the import is the
+	// one place the object is named.
+	obj := base
+	if len(selectors) == 0 && !wildcard {
+		obj = parentName(base)
+	}
+	w.noteObjectImport(obj)
+
 	switch {
 	case len(selectors) > 0:
 		for _, sel := range selectors {
@@ -1163,6 +1209,45 @@ func (w *astWalker) handleImport(n *sitter.Node) {
 }
 
 type importSelector struct{ orig, local string }
+
+// noteObjectImport records that the enclosing declaration, or the file when the
+// import is at file scope, names the object path an import reaches through. A path
+// whose last segment is lower case is a package and names nothing. The reference
+// survives only if it resolves to an object this repository declares.
+func (w *astWalker) noteObjectImport(path string) {
+	if !isTypeName(lastSegment(path)) {
+		return
+	}
+	owner := w.fileRefIdx
+	if len(w.ownerStack) > 0 {
+		owner = w.ownerStack[len(w.ownerStack)-1]
+	} else if owner < 0 {
+		w.out = append(w.out, facts.Fact{
+			Kind:  facts.KindFileRef,
+			Name:  w.relFile,
+			File:  w.relFile,
+			Line:  1,
+			Props: map[string]any{"language": "scala"},
+		})
+		w.fileRefIdx = len(w.out) - 1
+		owner = w.fileRefIdx
+	}
+	w.typeRefs = append(w.typeRefs, valueRef{owner: owner, qual: path})
+}
+
+// qualifyHead rewrites the first segment of a qualified path through the file's
+// imports: after `import org.apache.pekko`, `pekko.http.X` is
+// `org.apache.pekko.http.X`.
+func (w *astWalker) qualifyHead(path string) string {
+	head, rest, dotted := strings.Cut(path, ".")
+	if fqn, ok := w.imports[head]; ok {
+		if dotted {
+			return fqn + "." + rest
+		}
+		return fqn
+	}
+	return path
+}
 
 // emitDependency records one import as a dependency fact. `source` is classified
 // stdlib here and otherwise left as external; canonicalizeTargets promotes it to

@@ -29,6 +29,7 @@ func runPasses(t *testing.T, files map[string]string, crossLang map[string]strin
 	// after targets are canonical or every cross-file edge is still a bare name and
 	// the propagation stops at the first hop.
 	canonicalizeTargets(all, crossLang, filePkg)
+	all = dropEmptyFileRefs(all)
 	ioclosure.Propagate(all)
 	return all
 }
