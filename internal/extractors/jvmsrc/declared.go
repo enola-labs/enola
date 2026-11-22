@@ -1,6 +1,7 @@
 package jvmsrc
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -110,13 +111,12 @@ func BuildDeclaredNames(repoPath string, files []string, dirs map[string][]strin
 		if split[dir] == nil {
 			continue
 		}
-		abs := filepath.Join(repoPath, relFile)
-		pkg, ok := readPackage(abs)
-		if !ok || !split[dir][pkg] {
+		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
+		if err != nil {
 			continue
 		}
-		src, err := os.ReadFile(abs)
-		if err != nil {
+		pkg, ok := scanPackage(bytes.NewReader(src))
+		if !ok || !split[dir][pkg] {
 			continue
 		}
 		for _, line := range strings.Split(string(src), "\n") {

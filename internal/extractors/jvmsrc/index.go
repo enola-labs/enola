@@ -6,6 +6,7 @@
 package jvmsrc
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -360,9 +361,13 @@ func readPackage(absFile string) (string, bool) {
 		return "", false
 	}
 	defer func() { _ = f.Close() }()
+	return scanPackage(f)
+}
 
+// scanPackage is readPackage over source already open or in memory.
+func scanPackage(r io.Reader) (string, bool) {
 	var parts []string
-	scanner := linescan.New(f)
+	scanner := linescan.New(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || isCommentLine(line) {
