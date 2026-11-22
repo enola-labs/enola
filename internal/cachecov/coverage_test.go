@@ -267,6 +267,7 @@ var versionCoverage = map[int][]string{
 	672: {"TestExtract_PathItemRefIntoNestedWorktreeIsNotFollowed", "TestExternalRefIntoNestedWorktreeIsNotFollowed", "TestTailwind_ImportIntoNestedWorktreeOrOutsideIsNotRead", "TestInCheckout"},
 	673: {"TestTailwindThemeReadsAreRecorded", "TestTailwindOffWalkThemeTracksEditsAcrossWarmRuns", "TestExtractorCache_ReadPathContentKeysTheFacts"},
 	674: {"TestRustIODirect_InMemoryOrGenericReceiverNotIO", "TestRustIODirect_RealSinkReceiverStillIO"},
+	676: {"TestKotlinTestRefsCaptureProductionReferences", "TestKotlinTestRefsDropHarnessAndOwnDeclarations", "TestKotlinExtractTestRefsEmitsOnlyTestRefFacts"},
 	675: {"TestKotlinSwiftPHPTestGlobsScopeToTestTrees", "TestIsTestPath", "TestBundledConfigTreatsTestFilesLikeDefaults", "TestManifestSkipsDependenciesOfAnUnindexedTestTarget"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},

@@ -3758,7 +3758,10 @@ import (
 // (Gradle src/test and src/<target>Test, SPM and Xcode *Tests/, PHP tests/ and test/),
 // and a CamelCase directory ending in Tests (MyAppTests, MyAppUITests) is test code.
 // An SPM test target with no indexed source file emits no dependency facts.
-const cacheVersion = "v675"
+// v676: Kotlin implements plugin.TestRefExtractor: each ignored Kotlin test file
+// emits one test_ref fact carrying the calls, member reads, callable references and
+// types it names, without the test harness's vocabulary or the file's own helpers.
+const cacheVersion = "v676"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -1,5 +1,5 @@
 {
-  "cache_version": "v675",
+  "cache_version": "v676",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -99,7 +99,7 @@
     },
     "kotlin_sample": {
       "input": "b3eb473a58a77f53c625d456e00cf9dd09c00a787c7ae35fc7b476195fdbfc41",
-      "facts": "39a43f1cb413169c19e340a4cd950f545a0c1b388ad288785dbecef5ffdf7ff3"
+      "facts": "87e805059a38a083ecc19351e207d8266e6ffb2ec1a2afb15ef81f9b4ad6a29d"
     },
     "kotlin_swift_multirepo": {
       "input": "781b7ffd11cfbea70d7adae2093143e7fc5d41d5aa327b992be572ba4820bd67",
