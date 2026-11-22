@@ -3766,9 +3766,6 @@ import (
 // unique method, a typed receiver's method or an inherited one. A member call rooted
 // at a type the repository does not declare (Bundle.module.path()) binds only to a
 // method no class or struct of the repository owns, else to a top-level function.
-// v681: Swift: an SPM testTarget with no path: is the directory Tests/<name>,
-// SwiftPM's default, not Sources/<name>, in its module fact, its dependency facts
-// and the module a file under it declares into.
 // v678: Android per-variant test source sets (src/test<Variant>, src/androidTest<Variant>)
 // are test code, and their Kotlin files are ignored and listed as test globs; so are
 // JavaScript files under a test/ directory (Mocha's default), which the TypeScript
@@ -3782,6 +3779,9 @@ import (
 // one test_ref fact, walked as a #[cfg(test)] module file is, and no symbols. Test
 // code's impl blocks and constants contribute their references too: the trait a
 // fixture implements, and the calls its methods and constant values make.
+// v681: Swift: an SPM testTarget with no path: is the directory Tests/<name>,
+// SwiftPM's default, not Sources/<name>, in its module fact, its dependency facts
+// and the module a file under it declares into.
 const cacheVersion = "v681"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
