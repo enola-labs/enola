@@ -3834,7 +3834,11 @@ import (
 // v693: package metrics count a derived module edge (named "module-edge: A -> B")
 // as coupling, so afferent, efferent, instability and distance on module facts move
 // wherever calls, not imports, connect two modules.
-const cacheVersion = "v693"
+// v696: Rust: diesel's query methods (load, first, get_result, get_results,
+// load_iter, load_stream) seed io_direct when the file's use declarations bring
+// diesel into scope (diesel, diesel_async, an in-repo crate depending on either, or
+// RunQueryDsl) and the call's one argument can be a connection.
+const cacheVersion = "v696"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
