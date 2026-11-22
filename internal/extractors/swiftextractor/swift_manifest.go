@@ -46,53 +46,13 @@ func parsePackageManifest(src []byte, manifestRel string, dirToFile map[string]s
 	}
 	defer tree.Close()
 
-	pkgCall := findPackageCall(tree.RootNode(), src)
-	if pkgCall == nil {
+	pkgName, targets, ok := manifestTargets(tree.RootNode(), src, manifestRel)
+	if !ok {
 		return nil
 	}
-	args := callValueArguments(pkgCall)
-	if args == nil {
-		return nil
-	}
-
-	pkgDir := factpath.Dir(manifestRel)
-	pkgName := argString(args, "name", src)
-
-	// Collect targets and the set of internal target names → dir.
-	var targets []manifestTarget
-	internalDirs := make(map[string]string)
-	if targetsArr := argValue(args, "targets", src); targetsArr != nil {
-		for _, elem := range arrayElements(targetsArr) {
-			if kindOf(elem) != "call_expression" {
-				continue
-			}
-			callName := memberCallName(elem, src)
-			switch callName {
-			case "target", "executableTarget", "testTarget", "macro", "plugin", "systemLibrary", "binaryTarget":
-			default:
-				continue
-			}
-			tArgs := callValueArguments(elem)
-			if tArgs == nil {
-				continue
-			}
-			name := argString(tArgs, "name", src)
-			if name == "" {
-				continue
-			}
-			dir := manifestTargetDir(pkgDir, callName, name, argString(tArgs, "path", src))
-			t := manifestTarget{
-				name:   name,
-				dir:    dir,
-				line:   int(elem.StartPosition().Row) + 1,
-				isTest: callName == "testTarget",
-			}
-			if depsArr := argValue(tArgs, "dependencies", src); depsArr != nil {
-				t.deps = parseManifestDeps(depsArr, src)
-			}
-			targets = append(targets, t)
-			internalDirs[name] = dir
-		}
+	internalDirs := make(map[string]string, len(targets))
+	for _, t := range targets {
+		internalDirs[t.name] = t.dir
 	}
 
 	var out []facts.Fact
@@ -174,40 +134,175 @@ func manifestTargetRoots(src []byte, manifestRel string) map[string]string {
 	}
 	defer tree.Close()
 
-	pkgCall := findPackageCall(tree.RootNode(), src)
-	if pkgCall == nil {
+	_, targets, ok := manifestTargets(tree.RootNode(), src, manifestRel)
+	if !ok {
 		return nil
+	}
+	roots := make(map[string]string, len(targets))
+	for _, t := range targets {
+		roots[t.name] = t.dir
+	}
+	return roots
+}
+
+// manifestTargets reads every target a manifest declares: the elements of the
+// `Package(targets: [...])` literal, then, in source order, those added to the
+// Package binding afterwards with `<binding>.targets.append(contentsOf: [...])`,
+// `<binding>.targets.append(.target(...))` or `<binding>.targets += [...]`,
+// wherever they sit (an `if` that adds server-only targets included). A name
+// declared twice keeps its first declaration. ok is false when the manifest has
+// no Package(...) call.
+func manifestTargets(root *sitter.Node, src []byte, manifestRel string) (pkgName string, targets []manifestTarget, ok bool) {
+	pkgCall := findPackageCall(root, src)
+	if pkgCall == nil {
+		return "", nil, false
 	}
 	args := callValueArguments(pkgCall)
 	if args == nil {
-		return nil
+		return "", nil, false
+	}
+	pkgDir := factpath.Dir(manifestRel)
+	pkgName = argString(args, "name", src)
+
+	elems := arrayElements(argValue(args, "targets", src))
+	if binding := packageBinding(pkgCall, src); binding != "" {
+		walkAppendedTargets(root, binding, src, &elems)
 	}
 
-	pkgDir := factpath.Dir(manifestRel)
-	roots := map[string]string{}
-	if targetsArr := argValue(args, "targets", src); targetsArr != nil {
-		for _, elem := range arrayElements(targetsArr) {
-			if kindOf(elem) != "call_expression" {
-				continue
+	seen := make(map[string]bool, len(elems))
+	for _, elem := range elems {
+		t, ok := manifestTargetOf(elem, src, pkgDir)
+		if !ok || seen[t.name] {
+			continue
+		}
+		seen[t.name] = true
+		targets = append(targets, t)
+	}
+	return pkgName, targets, true
+}
+
+// manifestTargetOf reads one `.target(...)`-style element of a targets array.
+func manifestTargetOf(elem *sitter.Node, src []byte, pkgDir string) (manifestTarget, bool) {
+	if kindOf(elem) != "call_expression" {
+		return manifestTarget{}, false
+	}
+	callName := memberCallName(elem, src)
+	switch callName {
+	case "target", "executableTarget", "testTarget", "macro", "plugin", "systemLibrary", "binaryTarget":
+	default:
+		return manifestTarget{}, false
+	}
+	tArgs := callValueArguments(elem)
+	if tArgs == nil {
+		return manifestTarget{}, false
+	}
+	name := argString(tArgs, "name", src)
+	if name == "" {
+		return manifestTarget{}, false
+	}
+	t := manifestTarget{
+		name:   name,
+		dir:    manifestTargetDir(pkgDir, callName, name, argString(tArgs, "path", src)),
+		line:   int(elem.StartPosition().Row) + 1,
+		isTest: callName == "testTarget",
+	}
+	if depsArr := argValue(tArgs, "dependencies", src); depsArr != nil {
+		t.deps = parseManifestDeps(depsArr, src)
+	}
+	return t, true
+}
+
+// packageBinding is the name the Package(...) call is bound to
+// (`let package = Package(...)` gives "package"), or "".
+func packageBinding(pkgCall *sitter.Node, src []byte) string {
+	decl := pkgCall.Parent()
+	if decl == nil || kindOf(decl) != "property_declaration" {
+		return ""
+	}
+	if v := decl.ChildByFieldName("value"); v == nil || v.StartByte() != pkgCall.StartByte() || v.EndByte() != pkgCall.EndByte() {
+		return ""
+	}
+	pat := decl.ChildByFieldName("name")
+	if pat == nil {
+		return ""
+	}
+	if id := pat.ChildByFieldName("bound_identifier"); id != nil {
+		return nodeText(id, src)
+	}
+	return ""
+}
+
+// walkAppendedTargets appends to elems, in source order, the target elements
+// added to `<binding>.targets` after the Package literal.
+func walkAppendedTargets(node *sitter.Node, binding string, src []byte, elems *[]*sitter.Node) {
+	if node == nil {
+		return
+	}
+	switch kindOf(node) {
+	case "call_expression":
+		if nav := firstNamedChild(node); nav != nil && kindOf(nav) == "navigation_expression" &&
+			navigationSuffix(nav, src) == "append" && isBindingTargets(nav.ChildByFieldName("target"), binding, src) {
+			for _, arg := range namedChildren(callValueArguments(node), "value_argument") {
+				v := arg.ChildByFieldName("value")
+				if v == nil {
+					continue
+				}
+				if label := arg.ChildByFieldName("name"); label != nil {
+					if argLabelText(label, src) == "contentsOf" {
+						*elems = append(*elems, arrayElements(v)...)
+					}
+					continue
+				}
+				*elems = append(*elems, v)
 			}
-			callName := memberCallName(elem, src)
-			switch callName {
-			case "target", "executableTarget", "testTarget", "macro", "plugin", "systemLibrary", "binaryTarget":
-			default:
-				continue
+			return
+		}
+	case "assignment":
+		if op := node.ChildByFieldName("operator"); op != nil && nodeText(op, src) == "+=" {
+			if t := node.ChildByFieldName("target"); t != nil && isBindingTargets(firstNamedChild(t), binding, src) {
+				*elems = append(*elems, arrayElements(node.ChildByFieldName("result"))...)
+				return
 			}
-			tArgs := callValueArguments(elem)
-			if tArgs == nil {
-				continue
-			}
-			name := argString(tArgs, "name", src)
-			if name == "" {
-				continue
-			}
-			roots[name] = manifestTargetDir(pkgDir, callName, name, argString(tArgs, "path", src))
 		}
 	}
-	return roots
+	for i := uint(0); i < uint(node.ChildCount()); i++ {
+		walkAppendedTargets(node.Child(i), binding, src, elems)
+	}
+}
+
+// isBindingTargets reports whether node is the expression `<binding>.targets`.
+func isBindingTargets(node *sitter.Node, binding string, src []byte) bool {
+	if node == nil || kindOf(node) != "navigation_expression" || navigationSuffix(node, src) != "targets" {
+		return false
+	}
+	base := node.ChildByFieldName("target")
+	return base != nil && kindOf(base) == "simple_identifier" && nodeText(base, src) == binding
+}
+
+// navigationSuffix is the member name of a navigation_expression (`a.b` gives "b").
+func navigationSuffix(nav *sitter.Node, src []byte) string {
+	suffix := nav.ChildByFieldName("suffix")
+	if suffix == nil {
+		return ""
+	}
+	if id := suffix.ChildByFieldName("suffix"); id != nil {
+		return nodeText(id, src)
+	}
+	return ""
+}
+
+// namedChildren returns node's direct children of the given kind.
+func namedChildren(node *sitter.Node, kind string) []*sitter.Node {
+	var out []*sitter.Node
+	if node == nil {
+		return out
+	}
+	for i := uint(0); i < uint(node.ChildCount()); i++ {
+		if c := node.Child(i); kindOf(c) == kind {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // manifestTargetDir is a target's module directory, repo-relative: its `path:`

@@ -3834,7 +3834,12 @@ import (
 // v693: package metrics count a derived module edge (named "module-edge: A -> B")
 // as coupling, so afferent, efferent, instability and distance on module facts move
 // wherever calls, not imports, connect two modules.
-const cacheVersion = "v693"
+// v697: Swift: a Package.swift's targets include those added to the Package binding
+// after its literal (`<binding>.targets.append(contentsOf: [...])`, `.append(.target(...))`,
+// `+= [...]`, also inside an `if`), with the literal's per-kind directory defaults: they
+// get SPM module facts, seed the module resolver, and their dependencies resolve to
+// target directories.
+const cacheVersion = "v697"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
