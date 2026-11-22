@@ -139,6 +139,7 @@ func testRefsFromFile(src []byte, relFile string) []facts.Fact {
 		w:        &phpWalker{src: src, relFile: relFile, importMap: map[string]string{}},
 		seen:     map[string]bool{},
 		declared: map[string]bool{},
+		required: map[string]bool{},
 	}
 	c.collectDeclared(root)
 	c.w.namespace = ""
@@ -179,6 +180,8 @@ type phpTestRefCollector struct {
 	// declares itself: its test cases, fakes and helpers. A reference to one is the
 	// test using its own code, never a production symbol.
 	declared map[string]bool
+	// required holds the variables the file assigns from require or include.
+	required map[string]bool
 }
 
 // collectDeclared records the file's own class-likes and functions under the
@@ -199,6 +202,13 @@ func (c *phpTestRefCollector) collectDeclared(n *sitter.Node) {
 	case "class_declaration", "interface_declaration", "trait_declaration", "enum_declaration", "function_definition":
 		if name := phpText(n.ChildByFieldName("name"), c.w.src); name != "" {
 			c.declared[c.w.qualify(name)] = true
+		}
+	case "assignment_expression":
+		switch kindOf(n.ChildByFieldName("right")) {
+		case "require_expression", "require_once_expression", "include_expression", "include_once_expression":
+			if name := variableName(n.ChildByFieldName("left"), c.w.src); name != "" {
+				c.required[name] = true
+			}
 		}
 	}
 	for i := uint(0); i < n.NamedChildCount(); i++ {
@@ -301,11 +311,8 @@ func (c *phpTestRefCollector) walk(n *sitter.Node) {
 		return
 	case "member_call_expression", "nullsafe_member_call_expression":
 		obj, method := n.ChildByFieldName("object"), n.ChildByFieldName("name")
-		if method != nil && kindOf(method) == "name" && variableName(obj, c.w.src) != "this" {
-			// `$this->get(...)`, `$this->actingAs(...)` and the test's own helpers
-			// are the test case's members; anything else is a call on what the test
-			// built or was handed.
-			if name := phpText(method, c.w.src); !isHarnessMethod(name) {
+		if method != nil && kindOf(method) == "name" {
+			if name := phpText(method, c.w.src); !isHarnessMethod(name) && !c.harnessReceiver(obj, name) {
 				c.seen[name] = true
 			}
 		}
@@ -313,6 +320,45 @@ func (c *phpTestRefCollector) walk(n *sitter.Node) {
 		return
 	}
 	c.walkNamed(n)
+}
+
+// phpFactoryChainMethods are the methods of a Laravel model factory, the builder
+// `Model::factory()` returns.
+var phpFactoryChainMethods = map[string]bool{
+	"create": true, "createOne": true, "createMany": true, "createQuietly": true,
+	"make": true, "makeOne": true, "makeMany": true, "raw": true, "for": true,
+	"has": true, "hasAttached": true, "state": true, "count": true, "times": true,
+	"sequence": true, "forEachSequence": true, "recycle": true, "afterCreating": true,
+	"afterMaking": true, "trashed": true,
+}
+
+// harnessReceiver reports an instance call made on the test case or on a builder
+// the harness owns, whose method names nothing in production even though the name
+// is not harness vocabulary by itself:
+//
+//   - `$this->get(...)` and the test's own helpers are the test case's members, and
+//     so is a fluent chain on one, `$this->actingAs($user)->post(...)`. A call
+//     through a property, `$this->service->run()`, is on the code under test.
+//   - `Model::factory()->for($team)->create()`: the factory's own methods.
+//   - `$migration = require '...'; $migration->up()`: the receiver is the object
+//     one file returns, whose class the walk cannot name, so the bare method would
+//     vouch for every same-named method in the repository.
+func (c *phpTestRefCollector) harnessReceiver(obj *sitter.Node, method string) bool {
+	for obj != nil {
+		switch kindOf(obj) {
+		case "variable_name":
+			name := variableName(obj, c.w.src)
+			return name == "this" || c.required[name]
+		case "member_call_expression", "nullsafe_member_call_expression":
+			obj = obj.ChildByFieldName("object")
+		case "scoped_call_expression":
+			name := obj.ChildByFieldName("name")
+			return phpFactoryChainMethods[method] && name != nil && phpText(name, c.w.src) == "factory"
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func (c *phpTestRefCollector) walkNamed(n *sitter.Node) {

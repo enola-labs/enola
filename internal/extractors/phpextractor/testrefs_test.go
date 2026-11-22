@@ -159,7 +159,7 @@ it('creates a team', function () {
 test('helpers', fn () => expect(team_slug('Ops'))->toEqual('ops'));
 `
 	got := phpTestRefTargets(t, "tests/Feature/TeamTest.php", src)
-	for _, want := range []string{`App\Actions\CreateTeam`, `handle`, `App\Models\User::factory`, `owner`, `team_slug`, `create`} {
+	for _, want := range []string{`App\Actions\CreateTeam`, `handle`, `App\Models\User::factory`, `owner`, `team_slug`} {
 		if !got[want] {
 			t.Errorf("missing reference %q; have %v", want, sortedTargets(got))
 		}
@@ -198,5 +198,41 @@ func TestPHPExtractTestRefsScopesToPHP(t *testing.T) {
 	}
 	if len(got[0].Relations) != 1 || got[0].Relations[0].Target != `App\Alpha::make` {
 		t.Fatalf("want App\\Alpha::make, got %+v", got[0].Relations)
+	}
+}
+
+// TestPHPTestRefsDropHarnessReceivers pins the receivers whose bare method names
+// would vouch for unrelated production methods: a fluent chain on the test case, a
+// model factory's builder, and an object a required file returns.
+func TestPHPTestRefsDropHarnessReceivers(t *testing.T) {
+	src := `<?php
+namespace Tests\Feature;
+
+use App\Models\Team;
+use Tests\TestCase;
+
+class TeamTest extends TestCase
+{
+    public function test_store(): void
+    {
+        $team = Team::factory()->for($this->owner)->create();
+        $this->actingAs($team->owner)->post('/teams')->json('data');
+        $migration = require base_path('database/migrations/2024_add_teams.php');
+        $migration->up();
+        $this->service->archive($team);
+        $team->refresh();
+    }
+}
+`
+	got := phpTestRefTargets(t, "tests/Feature/TeamTest.php", src)
+	for _, want := range []string{`App\Models\Team::factory`, `archive`, `refresh`, `base_path`} {
+		if !got[want] {
+			t.Errorf("missing reference %q; have %v", want, sortedTargets(got))
+		}
+	}
+	for _, unwanted := range []string{`for`, `create`, `actingAs`, `post`, `json`, `up`} {
+		if got[unwanted] {
+			t.Errorf("unexpected reference %q; have %v", unwanted, sortedTargets(got))
+		}
 	}
 }
