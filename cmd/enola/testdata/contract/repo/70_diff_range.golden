@@ -1,7 +1,7 @@
 $ enola diff @1..@2 .
 exit: 0
 --- stdout
-# 9384852..02ddf5c · <TIME> → <TIME>
+# e2404d1..b5e3193 · <TIME> → <TIME>
 
 # Architecture diff
 

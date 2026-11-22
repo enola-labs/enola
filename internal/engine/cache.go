@@ -3766,7 +3766,11 @@ import (
 // unique method, a typed receiver's method or an inherited one. A member call rooted
 // at a type the repository does not declare (Bundle.module.path()) binds only to a
 // method no class or struct of the repository owns, else to a top-level function.
-const cacheVersion = "v677"
+// v679: Java tests are ignored and listed as test globs by default (Maven and Gradle
+// src/test, src/<name>Test, src/testFixtures and Android flavor sets), and Java
+// implements plugin.TestRefExtractor: each ignored Java test file emits one test_ref
+// fact carrying the calls, member reads, method references and types it names.
+const cacheVersion = "v679"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

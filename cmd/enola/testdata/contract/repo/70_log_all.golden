@@ -1,6 +1,6 @@
 $ enola log --all .
 exit: 0
 --- stdout
-9384852  <TIME>  initial: 22 facts, 6 findings
-02ddf5c  <TIME>  1 new finding · +4 facts · +4 edges
+e2404d1  <TIME>  initial: 22 facts, 6 findings
+b5e3193  <TIME>  1 new finding · +4 facts · +4 edges
 --- stderr
