@@ -28,25 +28,33 @@ import (
 // a value. It does not leave the extractor.
 const propValueRefs = "value_refs"
 
-// kotlinValueParents are the places an expression stands as a value.
+// propReceiverRefs lists, the same way, the types a function calls a member
+// through (`Key.takeIf { }`). Each names the type only when no relation of the
+// function reaches the type or a member of it already.
+const propReceiverRefs = "value_receiver_refs"
+
+// kotlinValueParents are the places an expression stands as a value. The grammar
+// reads every binary operator (`==`, `<`, `&&`, `?:`, arithmetic) as a
+// binary_expression, and `entry<Key> { }` as two comparisons, so its type argument
+// stands as an operand there too.
 var kotlinValueParents = map[string]bool{
 	"when_entry": true, "when_subject": true, "property_declaration": true,
-	"value_argument": true, "return_expression": true, "jump_expression": true,
-	"parenthesized_expression": true, "equality_expression": true,
-	"comparison_expression": true, "conjunction_expression": true,
-	"disjunction_expression": true, "elvis_expression": true,
-	"collection_literal": true, "if_expression": true, "statements": true,
+	"value_argument": true, "return_expression": true,
+	"parenthesized_expression": true, "binary_expression": true,
+	"in_expression": true, "range_expression": true, "spread_expression": true,
+	"index_expression": true, "collection_literal": true, "if_expression": true,
 }
 
 // noteValueRef records a type the node uses as a value, if it is one: a
 // capitalized identifier or a capitalized path in a value position, the right side
-// of an assignment, or the type of a type test.
+// of an assignment, the receiver of a call, or the type of a type test.
 func (w *astWalker) noteValueRef(node *sitter.Node) {
 	parent := node.Parent()
 	if parent == nil {
 		return
 	}
 	var segs []string
+	prop := propValueRefs
 	switch kindOf(node) {
 	case "identifier", "simple_identifier":
 		if kotlinValuePosition(node, parent) {
@@ -55,6 +63,13 @@ func (w *astWalker) noteValueRef(node *sitter.Node) {
 	case "navigation_expression":
 		if kotlinValuePosition(node, parent) {
 			segs = kotlinPathSegments(node, w.src)
+		} else if kotlinIsCallee(node) {
+			// `Key.takeIf { }`: the receiver of the called member is used. A member
+			// the type declares is a call edge already, and resolveValueRefs drops
+			// the name then.
+			if segs = kotlinPathSegments(node, w.src); len(segs) > 0 {
+				segs, prop = segs[:len(segs)-1], propReceiverRefs
+			}
 		}
 	case "user_type":
 		// A type a declaration's signature, a property, a type argument or a cast
@@ -72,7 +87,7 @@ func (w *astWalker) noteValueRef(node *sitter.Node) {
 			}
 		}
 	}
-	w.noteValueSegments(segs)
+	w.noteValueSegments(segs, prop)
 }
 
 // kotlinValuePosition reports whether node stands as a value of parent: not a
@@ -82,9 +97,13 @@ func kotlinValuePosition(node, parent *sitter.Node) bool {
 	case "assignment":
 		r := parent.ChildByFieldName("right")
 		return r != nil && r.Id() == node.Id()
+	case "infix_expression":
+		// `Key to v`: the operands, not the infix function between them.
+		n := parent.NamedChildCount()
+		return n == 3 && (parent.NamedChild(0).Id() == node.Id() || parent.NamedChild(2).Id() == node.Id())
 	case "navigation_expression":
-		// The receiver of a navigation that is itself a call's member is a type
-		// whose member is called (`Analytics.log()`), already a call edge.
+		// The receiver of a navigation is read with the navigation: as a path in a
+		// value position, or as a callee's receiver.
 		return false
 	}
 	return kotlinValueParents[kindOf(parent)]
@@ -111,8 +130,9 @@ func kotlinPathSegments(nav *sitter.Node, src []byte) []string {
 }
 
 // noteValueSegments records the names a written path could have: the capitalized
-// prefix of the path, longest first, rooted where its first segment resolves.
-func (w *astWalker) noteValueSegments(segs []string) {
+// prefix of the path, longest first, rooted where its first segment resolves, under
+// prop.
+func (w *astWalker) noteValueSegments(segs []string, prop string) {
 	n := 0
 	for n < len(segs) && isCapitalized(segs[n]) {
 		n++
@@ -132,8 +152,8 @@ func (w *astWalker) noteValueSegments(segs []string) {
 	for k := n; k >= 1; k-- {
 		cands = append(cands, base+strings.Join(append([]string{""}, segs[1:k]...), "."))
 	}
-	notes, _ := w.out[owner].PropAny(propValueRefs).([][]string)
-	w.out[owner].SetProp(propValueRefs, append(notes, cands))
+	notes, _ := w.out[owner].PropAny(prop).([][]string)
+	w.out[owner].SetProp(prop, append(notes, cands))
 }
 
 // resolveValueRefs turns the walker's notes into names edges to the first
@@ -169,18 +189,24 @@ func resolveValueRefs(all []facts.Fact) {
 	}
 	for i := range all {
 		f := &all[i]
-		notes, ok := f.PropAny(propValueRefs).([][]string)
-		if !ok {
-			continue
-		}
-		f.DelProp(propValueRefs)
-		for _, cands := range notes {
-			for _, c := range cands {
-				if t := resolve(c); t != "" {
-					if t != f.Name && !slices.ContainsFunc(f.Relations, func(r facts.Relation) bool { return r.Target == t }) {
-						f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelNames, Target: t})
+		for _, prop := range []string{propValueRefs, propReceiverRefs} {
+			notes, ok := f.PropAny(prop).([][]string)
+			if !ok {
+				continue
+			}
+			f.DelProp(prop)
+			for _, cands := range notes {
+				for _, c := range cands {
+					if t := resolve(c); t != "" {
+						if t != f.Name && !slices.ContainsFunc(f.Relations, func(r facts.Relation) bool {
+							// A call through the type to a member of it records the use
+							// already.
+							return r.Target == t || (prop == propReceiverRefs && strings.HasPrefix(r.Target, t+"."))
+						}) {
+							f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelNames, Target: t})
+						}
+						break
 					}
-					break
 				}
 			}
 		}

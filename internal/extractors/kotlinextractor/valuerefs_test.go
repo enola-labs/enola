@@ -140,3 +140,59 @@ class A {
 		}
 	}
 }
+
+// An object used as a value inside this grammar's expressions is named: an operand
+// of a comparison, an elvis or a `to` pair, the receiver of a call to a member it
+// does not declare (`Key.takeIf {}`), and the type argument of a generic call the
+// grammar misreads as two comparisons (`entry<Key> {}`). A member called through
+// its type is already a call edge, and adds no names edge.
+func TestKotlinObjectUsedAsAValueInAnExpressionIsNamed(t *testing.T) {
+	const dir = "lib/src/main/kotlin/com/acme"
+	ff := extractKotlinRepo(t, map[string]string{
+		dir + "/Keys.kt": `package com.acme
+
+object HomeKey
+object SearchKey
+object FallbackKey
+object BookmarksKey
+object ProfileKey
+object Flags {
+    fun on() = true
+}
+`,
+		dir + "/Nav.kt": `package com.acme
+
+val TOP = mapOf(HomeKey to 1)
+
+class Nav {
+    fun current(x: Any) = x == SearchKey
+    fun orDefault(x: Any?) = x ?: FallbackKey
+    fun unread() = BookmarksKey.takeIf { true }
+    fun route() {
+        entry<ProfileKey> { }
+    }
+    fun check() = Flags.on()
+    fun entry(a: Any) {}
+}
+`,
+	})
+	for sym, want := range map[string]string{
+		"Nav.current":   dir + ".SearchKey",
+		"Nav.orDefault": dir + ".FallbackKey",
+		"Nav.unread":    dir + ".BookmarksKey",
+		"Nav.route":     dir + ".ProfileKey",
+		"acme.TOP":      dir + ".HomeKey",
+	} {
+		if f := ktSym(t, ff, sym); !f.HasRelation(facts.RelNames, want) {
+			t.Errorf("%s relations = %v, want names %s", sym, f.Relations, want)
+		}
+	}
+	if f := ktSym(t, ff, "Nav.check"); f.HasRelation(facts.RelNames, dir+".Flags") {
+		t.Errorf("check names Flags, whose member it calls: %v", f.Relations)
+	}
+	for _, f := range ff {
+		if _, kept := f.Prop(propReceiverRefs); kept {
+			t.Errorf("%s: the walker's note leaked into the facts", f.Name)
+		}
+	}
+}

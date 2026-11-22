@@ -3784,6 +3784,10 @@ import (
 // and the module a file under it declares into.
 // v682: Kotlin test refs: only a class or object the test file declares drops a
 // receiver's members; a local named like a test function is still a receiver.
+// Kotlin: an object used as a value in a binary, `in`, range, index or spread
+// expression, a `to` pair, or as the receiver of a call to a member it does not
+// declare (`Key.takeIf {}`) is named; the value parents listed another grammar's
+// node kinds. Test refs record a capitalized identifier in those places.
 const cacheVersion = "v682"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

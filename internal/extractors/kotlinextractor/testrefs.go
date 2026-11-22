@@ -281,6 +281,15 @@ func (c *kotlinTestRefCollector) walk(n *sitter.Node) {
 			}
 		}
 		return
+	case "identifier":
+		// An object or a constant used as a value: passed on, compared, paired with
+		// `to`. A lower-case name in those places is a local.
+		if p := n.Parent(); p != nil && kotlinValuePosition(n, p) {
+			if name := nodeText(n, c.src); isCapitalized(name) {
+				c.add(name)
+			}
+		}
+		return
 	case "user_type":
 		// A type written in the test: a declared variable's type, a cast, an `is`
 		// check, a type argument, a supertype of a fake.

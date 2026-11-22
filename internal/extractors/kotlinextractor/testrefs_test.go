@@ -54,6 +54,9 @@ class CacheTest {
     dispatcher.finishedAccessor(call)
     val parse = ::parseCookie
     if (cache is DiskCache) { }
+    navigator.navigate(BookmarksNavKey)
+    val keys = mapOf(ForYouNavKey to 1)
+    assertEquals(InterestsNavKey, navigator.current)
   }
 }
 `
@@ -68,6 +71,9 @@ class CacheTest {
 		"parseCookie",                 // a callable reference
 		"Cache",                       // a declared type
 		"DiskCache",                   // an is-check
+		"BookmarksNavKey",             // an object passed as an argument
+		"ForYouNavKey",                // an object in a `to` pair
+		"InterestsNavKey",             // an object compared in an assertion
 	} {
 		if !got[want] {
 			t.Errorf("missing reference %q; have %v", want, sortedKeys(got))
