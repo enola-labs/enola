@@ -270,6 +270,7 @@ var versionCoverage = map[int][]string{
 	676: {"TestKotlinTestRefsCaptureProductionReferences", "TestKotlinTestRefsDropHarnessAndOwnDeclarations", "TestKotlinExtractTestRefsEmitsOnlyTestRefFacts"},
 	675: {"TestKotlinSwiftPHPTestGlobsScopeToTestTrees", "TestIsTestPath", "TestBundledConfigTreatsTestFilesLikeDefaults", "TestManifestSkipsDependenciesOfAnUnindexedTestTarget"},
 	677: {"TestSwiftProductionReferenceSkipsTestDeclarations", "TestSwiftCallOnAForeignTypeRootDoesNotBindByName"},
+	678: {"TestGradleFlavorTestSetsAreTests", "TestMochaTestDirectoryIsTests", "TestIsTestPath", "TestIsTSTestFile"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

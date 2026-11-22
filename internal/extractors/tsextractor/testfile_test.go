@@ -14,6 +14,12 @@ func TestIsTSTestFile(t *testing.T) {
 		"src/__tests__.ts":                        false,
 		"src/tests__/a.ts":                        false,
 		"src/app.ts":                              false,
+		"test/index.js":                           true,
+		"plugins/poll/test/javascripts/a-test.js": true,
+		"test/smoke.mjs":                          true,
+		"ext/node/polyfills/test/reporters.ts":    false,
+		"src/test.js":                             false,
+		"src/testing/harness.js":                  false,
 	}
 	for path, want := range cases {
 		if got := isTSTestFile(path); got != want {

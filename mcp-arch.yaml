@@ -78,6 +78,11 @@ ignore:
   - "**/tests/**/*-test.ts"
   - "**/tests/**/*-test.gjs"
   - "**/tests/**/*-test.gts"
+  # Mocha's default test/ directory of JavaScript with no suffix in the name.
+  # JavaScript only: TypeScript under test/ includes production code.
+  - "**/test/**/*.js"
+  - "**/test/**/*.mjs"
+  - "**/test/**/*.cjs"
   # Ruby has no co-located test convention (RSpec requires spec/, Minitest
   # defaults to test/), so these demand the directory as well as the filename: a
   # bare "**/*_test.rb" also swallows production code that merely ends in the
@@ -235,6 +240,9 @@ ignore:
   # Kept in sync with config.Default(), which also lists them as test globs.
   - "**/src/test/**/*.kt"
   - "**/src/[a-z]*Test/**/*.kt"
+  # Android per-variant test sets (src/testDemo, src/androidTestProd).
+  - "**/src/test[A-Z]*/**/*.kt"
+  - "**/src/androidTest[A-Z]*/**/*.kt"
   # Swift / Xcode build and cache
   - "DerivedData/**"
   - "**/DerivedData/**"
