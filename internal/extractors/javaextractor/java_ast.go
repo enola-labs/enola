@@ -33,14 +33,16 @@ func extractFileAST(src []byte, relFile string) []facts.Fact {
 	defer tree.Close()
 
 	w := &astWalker{
-		src:       src,
-		relFile:   relFile,
-		dir:       factpath.Dir(relFile),
-		importMap: make(map[string]string),
+		src:        src,
+		relFile:    relFile,
+		dir:        factpath.Dir(relFile),
+		importMap:  make(map[string]string),
+		fileRefIdx: noOwner,
 	}
 	root := tree.RootNode()
 	w.pkg = w.findPackage(root)
 	w.walkProgram(root)
+	w.dropOwnStaticImports()
 	return w.out
 }
 
@@ -60,6 +62,9 @@ type astWalker struct {
 	// order: `import com.example.rest.*;` adds "com.example.rest". Annotation names
 	// fall back to them (annotationrefs.go).
 	wildcards []string
+	// fileRefIdx is the index in out of the file's reference fact, which carries
+	// the types its static imports name (staticimports.go), or noOwner.
+	fileRefIdx int
 
 	// typeStack holds the simple names of the enclosing type declarations, so a
 	// method declared in class Foo is named "<dir>.Foo.method". methodStack is
@@ -692,7 +697,11 @@ func (w *astWalker) handleImport(node *sitter.Node) {
 	if isWildcard && !isStatic {
 		w.wildcards = append(w.wildcards, importPath)
 	}
-	if isStatic || isWildcard {
+	if isStatic {
+		w.noteStaticImport(importPath, isWildcard)
+		return
+	}
+	if isWildcard {
 		return
 	}
 	simple := importPath

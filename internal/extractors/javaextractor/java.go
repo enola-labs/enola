@@ -113,6 +113,7 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 	// this only fills the cross-language gap.
 	packageIndex := jvmsrc.BuildPackageIndex(repoPath, files)
 	typeIndex := canonicalizeTargets(allFacts, packageIndex)
+	allFacts = dropEmptyFileRefs(allFacts)
 	resolveTableConstants(allFacts)
 
 	// Calls on a receiver of declared type become edges here, now that every type

@@ -3819,7 +3819,12 @@ import (
 // v689: a derived module edge sits at a file of its source module, so readers place
 // it there and not at the parent directory, and an import of a file now connects
 // the module holding that file, so a pair an import connects is not derived again.
-const cacheVersion = "v689"
+// v691: Java: a static import (`import static T.member;`, `import static T.*;`) is
+// a use of the type T: the importing file's file_ref fact gets a names edge to T
+// where the repository declares it, and a test's static import records T as a
+// test_ref by its declaration's name. A JDK or library type, or a type the file
+// declares itself, records nothing.
+const cacheVersion = "v691"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

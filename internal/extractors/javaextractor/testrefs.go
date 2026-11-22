@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/jvmsrc"
+	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
@@ -161,11 +162,12 @@ func javaTestIgnored(name string) bool {
 	return javaTestHarnessNames[name] || javaLangTypes[name] || javaTestBuiltins[name]
 }
 
-// javaProdTypes is the set of top-level type FQNs the production Java sources
-// declare: each file's package plus its base name, the public type javac requires
-// the file to be named after. Only an annotation type's existence is asked of it,
-// and an annotation type is public to be applied from a test in the first place.
-func javaProdTypes(ctx context.Context, repoPath string, prodFiles []string) map[string]bool {
+// javaProdTypes maps the top-level type FQNs the production Java sources declare
+// to the directory of the declaring file: each file's package plus its base name,
+// the public type javac requires the file to be named after. An annotation type is
+// public to be applied from a test in the first place, and so is a type a test
+// imports static members of from another package.
+func javaProdTypes(ctx context.Context, repoPath string, prodFiles []string) map[string]string {
 	var javaFiles []string
 	for _, relFile := range prodFiles {
 		if isJavaFile(relFile) {
@@ -176,9 +178,9 @@ func javaProdTypes(ctx context.Context, repoPath string, prodFiles []string) map
 		pkg, _ := jvmsrc.ReadPackage(filepath.Join(repoPath, relFile))
 		return qualifyIn(pkg, strings.TrimSuffix(filepath.Base(relFile), filepath.Ext(relFile)))
 	})
-	out := make(map[string]bool, len(fqns))
-	for _, fqn := range fqns {
-		out[fqn] = true
+	out := make(map[string]string, len(fqns))
+	for i, fqn := range fqns {
+		out[fqn] = factpath.Dir(javaFiles[i])
 	}
 	return out
 }
@@ -191,7 +193,7 @@ func testRefsFromFile(src []byte, relFile string) []facts.Fact {
 // fact. The fact Name is the file path, which never equals a symbol name, so the
 // fact introduces no self-reference: the contract the orphan detector's fold
 // relies on.
-func testRefsFromFileIn(src []byte, relFile string, prodTypes map[string]bool) []facts.Fact {
+func testRefsFromFileIn(src []byte, relFile string, prodTypes map[string]string) []facts.Fact {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(java.Language())); err != nil {
@@ -209,6 +211,7 @@ func testRefsFromFileIn(src []byte, relFile string, prodTypes map[string]bool) [
 		prodTypes: prodTypes, imports: map[string]string{}}
 	c.collectHeader(root)
 	c.collectDeclared(root)
+	c.addStaticImports()
 	c.walk(root)
 	if len(c.seen) == 0 {
 		return nil
@@ -252,14 +255,17 @@ type javaTestRefCollector struct {
 	declaredTypes map[string]bool
 	// The file's package and imports, and the production types they may name: an
 	// annotation counts only when its name resolves to one of those (addAnnotation).
-	prodTypes map[string]bool
+	prodTypes map[string]string
 	pkg       string
 	imports   map[string]string
 	wildcards []string
+	// staticTypes are the types the file's static imports name: `T` of
+	// `import static T.member;` and of `import static T.*;`.
+	staticTypes []string
 }
 
-// collectHeader reads the package and the non-static imports: what an annotation
-// name resolves against.
+// collectHeader reads the package, the non-static imports (what an annotation name
+// resolves against) and the types the static imports name.
 func (c *javaTestRefCollector) collectHeader(root *sitter.Node) {
 	for i := uint(0); i < root.NamedChildCount(); i++ {
 		n := root.NamedChild(i)
@@ -282,7 +288,11 @@ func (c *javaTestRefCollector) collectHeader(root *sitter.Node) {
 				}
 			}
 			switch {
-			case path == "" || static:
+			case path == "":
+			case static && wildcard:
+				c.staticTypes = append(c.staticTypes, path)
+			case static:
+				c.staticTypes = append(c.staticTypes, parentName(path))
 			case wildcard:
 				c.wildcards = append(c.wildcards, path)
 			default:
@@ -303,13 +313,31 @@ func (c *javaTestRefCollector) addAnnotation(n *sitter.Node) {
 		return
 	}
 	for _, cand := range typeCandidates(nodeText(nameNode, c.src), c.pkg, nil, c.imports, c.wildcards) {
-		if !c.prodTypes[cand] && !c.prodTypes[parentName(cand)] {
+		_, top := c.prodTypes[cand]
+		_, member := c.prodTypes[parentName(cand)]
+		if !top && !member {
 			continue
 		}
 		if simple := lastTypeComponent(cand); !c.declared[simple] {
 			c.seen[simple] = true
 		}
 		return
+	}
+}
+
+// addStaticImports records each type a static import names when it is a
+// production type of the repository or a member type of one, by its declaration's
+// name ("<dir>.Outer.Inner"): the import is how the test reaches the type, and the
+// member it reads is written bare. The harness's and the JDK's types (Assertions,
+// Mockito, Objects) are not production types and record nothing.
+func (c *javaTestRefCollector) addStaticImports() {
+	for _, typeName := range c.staticTypes {
+		for top := typeName; top != ""; top = parentName(top) {
+			if dir, ok := c.prodTypes[top]; ok {
+				c.seen[dir+"."+lastTypeComponent(top)+strings.TrimPrefix(typeName, top)] = true
+				break
+			}
+		}
 	}
 }
 
