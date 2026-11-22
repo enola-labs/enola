@@ -807,6 +807,13 @@ func (e *LayerExplainer) explainRepo(store *facts.Store, repo string) []facts.In
 					rest = append(rest, m)
 				}
 			}
+			// The leftover languages must be a real part of the repository. In a
+			// Next.js monorepo they were sample apps under examples/, 45 of 1702
+			// modules, and the pattern they matched described nothing a reader of
+			// that repository works on.
+			if float64(len(rest)) < minClassifiedShare*float64(len(modules)) {
+				return nil
+			}
 			return scorePattern(def, rest)
 		}
 		return nil

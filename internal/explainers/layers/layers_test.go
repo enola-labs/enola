@@ -1590,3 +1590,33 @@ func TestSelectPatterns_UngatedKeepsTheUnclaimedLanguages(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectPatterns_UngatedNeedsARealShareOfTheRepository(t *testing.T) {
+	store := facts.NewStore()
+	var web []string
+	for i := 0; i < 20; i++ {
+		web = append(web, fmt.Sprintf("apps/web/src/routes/r%d", i), fmt.Sprintf("apps/web/src/lib/l%d", i))
+	}
+	for _, m := range makeModulesLang("typescript", web...) {
+		store.Add(m)
+	}
+	for _, m := range makeModulesLang("dart", "examples/app/lib/domain/services", "examples/app/lib/infrastructure/repositories", "examples/app/lib/application/usecase", "examples/app/lib/presentation/pages") {
+		store.Add(m)
+	}
+	store.Add(facts.Fact{Kind: facts.KindDependency, File: "examples/app/lib/domain/services/store.dart",
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "examples/app/lib/infrastructure/repositories"}}})
+	store.Add(frameworkFact("sveltekit"))
+	store.BuildGraph()
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	for _, in := range insights {
+		if in.Title == "Architecture pattern: hexagonal" {
+			t.Errorf("hexagonal reported over 4 of 44 modules")
+		}
+		if strings.HasPrefix(in.Title, "Architecture") {
+			t.Log(in.Title, in.Description)
+		}
+	}
+}
