@@ -3848,7 +3848,12 @@ import (
 // load_iter, load_stream) seed io_direct when the file's use declarations bring
 // diesel into scope (diesel, diesel_async, an in-repo crate depending on either, or
 // RunQueryDsl) and the call's one argument can be a connection.
-const cacheVersion = "v696"
+// v697: Swift: a Package.swift's targets include those added to the Package binding
+// after its literal (`<binding>.targets.append(contentsOf: [...])`, `.append(.target(...))`,
+// `+= [...]`, also inside an `if`), with the literal's per-kind directory defaults: they
+// get SPM module facts, seed the module resolver, and their dependencies resolve to
+// target directories.
+const cacheVersion = "v697"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
