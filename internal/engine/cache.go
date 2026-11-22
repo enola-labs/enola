@@ -3790,7 +3790,12 @@ import (
 // node kinds. Test refs record a capitalized identifier in those places. A value's
 // type is tried first as a type nested in each enclosing class (`Level.NONE` inside
 // the class declaring `enum class Level`), and an expression body is a value.
-const cacheVersion = "v682"
+// v683: Java: an annotation is a use of its type. What it annotates (a type, a
+// method, a field's or a local's enclosing declaration) gets a names edge to the
+// annotation type when the name resolves, as javac resolves it, to a type the
+// repository declares; JDK and framework annotations record nothing. The Java
+// test-ref walk records an annotation a test applies when it names a production type.
+const cacheVersion = "v683"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

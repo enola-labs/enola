@@ -275,6 +275,7 @@ var versionCoverage = map[int][]string{
 	680: {"TestRustTestGlobsScopeToCargoTestTrees", "TestRustExtractTestRefsEmitsOnlyTestRefFacts", "TestRustExtractTestRefsSameAsCfgTestModuleWalk", "TestRustTestCodeImplAndConstBodiesAreTestRefs"},
 	681: {"TestManifestTestTargetDefaultsToTestsDir", "TestManifestSkipsDependenciesOfAnUnindexedTestTarget"},
 	682: {"TestKotlinTestRefsDropHarnessAndOwnDeclarations", "TestKotlinObjectUsedAsAValueInAnExpressionIsNamed", "TestKotlinTestRefsCaptureProductionReferences", "TestKotlinNestedTypeOfAnEnclosingClassIsNamed"},
+	683: {"TestJavaAnnotationUseNamesTheAnnotationType", "TestJavaAnnotationUseDoesNotBindFrameworkNames", "TestJavaTestRefsCountRepositoryAnnotations"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -234,6 +234,9 @@ func TestOnlyIndex(dirs map[string][]string) map[string]string {
 // IsTestSource reports whether a file lives in a test source set. See isTestSource.
 func IsTestSource(relFile string) bool { return isTestSource(relFile) }
 
+// ReadPackage returns the package a JVM source file declares. See readPackage.
+func ReadPackage(absFile string) (string, bool) { return readPackage(absFile) }
+
 // SplitSiblings maps each directory of a package declared in more than one to the
 // others, for SplitTarget.
 func SplitSiblings(dirs map[string][]string) map[string][]string {
