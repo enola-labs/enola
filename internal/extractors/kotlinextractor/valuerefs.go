@@ -79,6 +79,9 @@ func (w *astWalker) noteValueRef(node *sitter.Node) {
 			return
 		}
 		segs = kotlinTypeSegments(node, w.src)
+		if isAnnotationType(node) && w.defaultAnnotation(segs) {
+			return
+		}
 	case "type_test":
 		if ut := findChildByKind(node, "user_type"); ut != nil {
 			for i := uint(0); i < ut.NamedChildCount(); i++ {
@@ -223,8 +226,9 @@ func resolveValueRefs(all []facts.Fact) {
 	}
 }
 
-// noteAnnotationRefs records the types an annotation's arguments name, against the
-// current owner: `@ExtendWith(StartStopExtension::class)` registers the extension,
+// noteAnnotationRefs records what a declaration's annotations name, against the
+// current owner: the annotation type itself, and the types its arguments name.
+// `@ExtendWith(StartStopExtension::class)` registers the extension,
 // `@RunWith(Parameterized::class)` the runner. The grammar reads `X::class` as a
 // path, so the value positions inside the arguments are all there is to read.
 func (w *astWalker) noteAnnotationRefs(holder *sitter.Node) {
@@ -233,7 +237,7 @@ func (w *astWalker) noteAnnotationRefs(holder *sitter.Node) {
 	}
 	for i := uint(0); i < holder.ChildCount(); i++ {
 		if ann := holder.Child(i); kindOf(ann) == "annotation" {
-			w.noteAnnotationArgs(ann)
+			w.noteAnnotation(ann)
 		}
 	}
 }

@@ -3803,7 +3803,23 @@ import (
 // falling back to its last segment.
 // v685: Svelte: a component tag in markup is a reference, from the rendering
 // component to the declaration its script imported under that name.
-const cacheVersion = "v685"
+// v686: Java: a class literal (`X.class`), a static member read through a type
+// (`X.NAME`) and a declared parameter or field type, type arguments included, name
+// the repository type javac resolves the name to; a variable or type parameter of
+// that name names nothing.
+// v687: Kotlin: an annotation on a function, class, object or property is a use of
+// its type. What it annotates gets a names edge to the annotation type where the
+// repository declares it; an annotation imported from outside the repository, or one
+// Kotlin imports by default (@Deprecated, @JvmStatic, @Volatile) and the file does
+// not import itself, records nothing.
+// v688: SvelteKit: an app in a workspace package (its own svelte.config.* or
+// @sveltejs/kit dependency) under a root that is not one is SvelteKit for its own
+// files: $lib and its config aliases resolve there, its +page/+layout/+error/+server
+// files are routes, and its components and load functions carry framework sveltekit.
+// v689: a derived module edge sits at a file of its source module, so readers place
+// it there and not at the parent directory, and an import of a file now connects
+// the module holding that file, so a pair an import connects is not derived again.
+const cacheVersion = "v689"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

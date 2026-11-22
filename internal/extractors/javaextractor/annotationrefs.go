@@ -12,13 +12,16 @@ import (
 // annotates it reads as dead, or as test-only when a test happens to apply it.
 //
 // The walker cannot resolve the name alone. It writes the candidate FQNs, in
-// javac's lookup order, into one relation of kind relAnnotationRef, and
+// javac's lookup order, into one relation of kind relTypeRef, and
 // canonicalizeTargets keeps the first candidate the repository declares as a
 // RelNames edge, or drops the relation. An annotation no candidate of which the
 // repository declares (@Override, @Test, Spring's stereotypes) records nothing.
 // RelNames, not a call or an import: a use of the type that keeps it out of the
 // dead-code report and stays out of coupling metrics.
-const relAnnotationRef = "java_annotation_ref"
+//
+// Class literals, static member reads and declared parameter and field types
+// (typerefs.go) record their type the same way.
+const relTypeRef = "java_type_ref"
 
 // javaLangAnnotations are the annotations java.lang declares. They are never looked
 // up in the repository's packages: binding @Override to a repository type that
@@ -37,6 +40,11 @@ func (w *astWalker) relateAnnotations(n *sitter.Node, owner int) {
 	switch kindOf(n) {
 	case "annotation", "marker_annotation":
 		w.relateAnnotation(n, owner)
+	case "class_literal":
+		// `@Import(Config.class)`: an annotation argument naming a type.
+		w.relateClassLiteral(n, owner)
+	case "field_access":
+		w.relateStaticRead(n, owner)
 	case "class_body", "block", "lambda_expression":
 		return
 	}
@@ -54,24 +62,28 @@ func (w *astWalker) relateAnnotation(n *sitter.Node, owner int) {
 	if nameNode == nil {
 		return
 	}
-	cands := annotationCandidates(nodeText(nameNode, w.src), w.pkg, w.typeStack, w.importMap, w.wildcards)
-	if len(cands) == 0 {
+	w.relateCandidates(owner, typeCandidates(nodeText(nameNode, w.src), w.pkg, w.typeStack, w.importMap, w.wildcards))
+}
+
+// relateCandidates records one type use by owner as its candidate FQNs, once.
+func (w *astWalker) relateCandidates(owner int, cands []string) {
+	if owner == noOwner || len(cands) == 0 {
 		return
 	}
 	target := strings.Join(cands, "|")
-	if w.out[owner].HasRelation(relAnnotationRef, target) {
+	if w.out[owner].HasRelation(relTypeRef, target) {
 		return
 	}
-	w.relate(owner, relAnnotationRef, target)
+	w.relate(owner, relTypeRef, target)
 }
 
-// annotationCandidates returns the FQNs an annotation name may denote, in the order
+// typeCandidates returns the FQNs a type name may denote, in the order
 // javac looks them up: a member type of an enclosing class, a single-type import,
 // the file's own package, then each on-demand import. A single-type import ends the
 // search, since it shadows the package and the on-demand imports. A qualified name
 // is a package-qualified FQN when it starts lower case, and otherwise a member type
 // reached through a type resolved the same way.
-func annotationCandidates(name, pkg string, enclosing []string, imports map[string]string, wildcards []string) []string {
+func typeCandidates(name, pkg string, enclosing []string, imports map[string]string, wildcards []string) []string {
 	name = strings.Join(strings.Fields(name), "")
 	if name == "" {
 		return nil
@@ -107,14 +119,14 @@ func qualifyIn(pkg, name string) string {
 	return pkg + "." + name
 }
 
-// resolveAnnotationRefs rewrites a fact's relAnnotationRef relations to a RelNames
+// resolveTypeRefs rewrites a fact's relTypeRef relations to a RelNames
 // edge at the first candidate typeIndex declares, and drops the rest: an annotation
-// from outside the repository, the annotation type naming itself, or a type the
+// or type from outside the repository, a type naming itself, or a type the
 // fact already names.
-func resolveAnnotationRefs(f *facts.Fact, typeIndex map[string]string) {
+func resolveTypeRefs(f *facts.Fact, typeIndex map[string]string) {
 	kept := f.Relations[:0]
 	for _, r := range f.Relations {
-		if r.Kind != relAnnotationRef {
+		if r.Kind != relTypeRef {
 			kept = append(kept, r)
 			continue
 		}

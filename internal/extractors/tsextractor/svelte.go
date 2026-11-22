@@ -3,9 +3,11 @@ package tsextractor
 import (
 	"bytes"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -76,6 +78,15 @@ func detectSvelteKit(repoPath string) bool {
 
 func detectSvelteKitRoot(repoPath, tsRoot string) bool {
 	return detectSvelteKitAt(tsRoot) || (tsRoot != repoPath && detectSvelteKitAt(repoPath))
+}
+
+// isSvelteKitMarker reports a file whose presence can make its directory a SvelteKit app.
+func isSvelteKitMarker(name string) bool {
+	switch name {
+	case "package.json", "svelte.config.js", "svelte.config.ts", "svelte.config.mjs":
+		return true
+	}
+	return false
 }
 
 func detectSvelteKitAt(dir string) bool {
@@ -178,21 +189,41 @@ func withSvelteKitAliasFallbacks(repoPath string, roots []tsAliasRoot) []tsAlias
 		roots = []tsAliasRoot{{dir: "", aliases: map[string]tsAlias{}}}
 	}
 	for i := range roots {
-		if roots[i].aliases == nil {
-			roots[i].aliases = map[string]tsAlias{}
-		}
-		configDir := filepath.Join(repoPath, filepath.FromSlash(roots[i].dir)) //factpath:host
-		for _, name := range []string{"svelte.config.js", "svelte.config.ts", "svelte.config.mjs"} {
-			for key, target := range staticSvelteKitAliases(filepath.Join(configDir, name)) {
-				addSvelteAlias(roots[i].aliases, roots[i].dir, key, target)
-			}
-		}
-		if _, ok := roots[i].aliases["$lib/"]; !ok {
-			target := factpath.Join(roots[i].dir, "src/lib") + "/"
-			roots[i].aliases["$lib/"] = tsAlias{replacement: target}
-		}
+		addSvelteKitAliasFallbacks(repoPath, &roots[i])
 	}
 	return roots
+}
+
+// withSvelteKitPackageAliasFallbacks does the same for the SvelteKit packages of
+// a workspace whose root is not one. A package with no alias root of its own gets
+// one, starting from the aliases of the root it compiled under before, so only
+// the package's files see $lib and its config's aliases.
+func withSvelteKitPackageAliasFallbacks(repoPath string, roots []tsAliasRoot, dirs []string) []tsAliasRoot {
+	for _, dir := range dirs {
+		i := slices.IndexFunc(roots, func(r tsAliasRoot) bool { return r.dir == dir })
+		if i < 0 {
+			roots = append(roots, tsAliasRoot{dir: dir, aliases: maps.Clone(aliasesForDir(roots, dir))})
+			i = len(roots) - 1
+		}
+		addSvelteKitAliasFallbacks(repoPath, &roots[i])
+	}
+	return roots
+}
+
+func addSvelteKitAliasFallbacks(repoPath string, root *tsAliasRoot) {
+	if root.aliases == nil {
+		root.aliases = map[string]tsAlias{}
+	}
+	configDir := filepath.Join(repoPath, filepath.FromSlash(root.dir)) //factpath:host
+	for _, name := range []string{"svelte.config.js", "svelte.config.ts", "svelte.config.mjs"} {
+		for key, target := range staticSvelteKitAliases(filepath.Join(configDir, name)) {
+			addSvelteAlias(root.aliases, root.dir, key, target)
+		}
+	}
+	if _, ok := root.aliases["$lib/"]; !ok {
+		target := factpath.Join(root.dir, "src/lib") + "/"
+		root.aliases["$lib/"] = tsAlias{replacement: target}
+	}
 }
 
 func addSvelteAlias(aliases map[string]tsAlias, root, key, target string) {

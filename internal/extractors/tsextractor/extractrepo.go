@@ -28,6 +28,8 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// config even before `svelte-kit sync` has generated a tsconfig.
 	if fw.isSvelteKit {
 		aliasRoots = withSvelteKitAliasFallbacks(repoPath, aliasRoots)
+	} else if len(fw.svelteKitDirs) > 0 {
+		aliasRoots = withSvelteKitPackageAliasFallbacks(repoPath, aliasRoots, fw.svelteKitDirs)
 	}
 	// Workspace members are imported by package name. Added after every configured
 	// alias, so a tsconfig or bundler mapping of the same name still wins.
@@ -70,7 +72,6 @@ func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, 
 	isTypeORM, isDrizzle, isPrisma := detectORMs(repoPath, tsRoot, files)
 	fw := tsFrameworks{
 		isNextJS:    detectNextJSRoot(repoPath, tsRoot),
-		nextDirs:    nextJSPackageDirs(repoPath),
 		isVue:       detectVueRoot(repoPath, tsRoot),
 		isNuxt:      detectNuxtRoot(repoPath, tsRoot),
 		isSvelteKit: detectSvelteKitRoot(repoPath, tsRoot),
@@ -79,6 +80,16 @@ func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, 
 		isAngular:   detectAngularRoot(repoPath, tsRoot),
 		isReact:     hasPkgDependency(tsRoot, "react") || (tsRoot != repoPath && hasPkgDependency(repoPath, "react")),
 		orms:        ormFlags{typeORM: isTypeORM, drizzle: isDrizzle},
+	}
+	// Workspace packages that are apps of their own: Next.js, and SvelteKit (an
+	// app in svelte/ beside a backend, with its own svelte.config.js) where the
+	// root is not one. Root detection reads one directory and cannot see them.
+	dirs := frameworkPackageDirs(repoPath,
+		frameworkApp{isNextMarker, detectNextJSAt},
+		frameworkApp{isSvelteKitMarker, detectSvelteKitAt})
+	fw.nextDirs = dirs[0]
+	if !fw.isSvelteKit {
+		fw.svelteKitDirs = dirs[1]
 	}
 	fw.nextRoots = nextJSRoots(repoPath, tsRoot, fw.nextDirs)
 	fw.appDirs = reachAppDirs(repoPath, fw)

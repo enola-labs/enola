@@ -302,7 +302,7 @@ func (c *javaTestRefCollector) addAnnotation(n *sitter.Node) {
 	if nameNode == nil || len(c.prodTypes) == 0 {
 		return
 	}
-	for _, cand := range annotationCandidates(nodeText(nameNode, c.src), c.pkg, nil, c.imports, c.wildcards) {
+	for _, cand := range typeCandidates(nodeText(nameNode, c.src), c.pkg, nil, c.imports, c.wildcards) {
 		if !c.prodTypes[cand] && !c.prodTypes[parentName(cand)] {
 			continue
 		}

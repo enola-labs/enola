@@ -354,3 +354,21 @@ func TestInheritsAHandlerHTTPHandlerResolves(t *testing.T) {
 		}
 	}
 }
+
+// A page the browser navigates to at the same path as an API route (a SvelteKit
+// +page beside a server the spec documents) is not a code route: it does not make
+// the API route's handler ambiguous.
+func TestPageAtTheSamePathIsNotACodeRoute(t *testing.T) {
+	api := facts.Fact{Kind: facts.KindRoute, Name: "/albums", File: "server/src/controllers/album.controller.ts",
+		Props:     map[string]any{"method": "GET", facts.PropFramework: "nestjs"},
+		Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "server/src/controllers.AlbumController.getAllAlbums"}}}
+	page := facts.Fact{Kind: facts.KindRoute, Name: "/albums", File: "web/src/routes/albums/+page.svelte",
+		Props:     map[string]any{"method": "GET", "type": "page", facts.PropFramework: "sveltekit"},
+		Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "web/src/routes/albums.AlbumsPage"}}}
+	store := facts.NewStore()
+	store.Add(api, page, op("/albums", "open-api/specs.json", ""))
+	bind(t, store)
+	if got := handledBy(t, store, "/albums", "open-api/specs.json"); got != "server/src/controllers.AlbumController.getAllAlbums" {
+		t.Errorf("handled_by = %q, want the API route's handler", got)
+	}
+}

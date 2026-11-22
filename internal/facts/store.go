@@ -1528,10 +1528,15 @@ func (s *Store) wireLine(f Fact, ws *wireScratch) ([]byte, error) {
 				wr.TargetID, ws.ids = factIDInto(ws.ids, tf.Repo, tf.Kind, tf.Name, tf.IdentityFile())
 			}
 		} else if k, ok := s.targetAliases[r.Target]; ok {
-			// A repository's facts are prefixed together, so any of them answers for k.
+			// A repository's facts are prefixed together, so any of them with a path
+			// answers for k. A pathless one (a synthetic service or cross-repo
+			// dependency) carries no label and says nothing.
 			prefixed := false
-			if in := s.byRepo[k.Repo]; len(in) > 0 {
-				prefixed = s.facts[in[0]].RepoPrefixed
+			for _, i := range s.byRepo[k.Repo] {
+				if s.facts[i].File != "" {
+					prefixed = s.facts[i].RepoPrefixed
+					break
+				}
 			}
 			wr.TargetID, ws.ids = factIDInto(ws.ids, k.Repo, k.Kind, k.Name, identityFile(k.Repo, k.File, prefixed))
 		}

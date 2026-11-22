@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1538,6 +1539,84 @@ func TestClassifyModule_GoCmdIsAProgramsDirectory(t *testing.T) {
 				got = goStd.layers[i].Name
 			}
 			t.Errorf("%s (main=%v) classified as %q, want %s", tc.path, tc.isMain, got, tc.want)
+		}
+	}
+}
+
+// A gated taxonomy claiming one language of a polyglot repository leaves the
+// ungated one to describe the others: a SvelteKit web app beside a mobile app
+// laid out as ports and adapters is both, and the mobile app's violations stay.
+func TestSelectPatterns_UngatedKeepsTheUnclaimedLanguages(t *testing.T) {
+	store := facts.NewStore()
+	for _, m := range makeModulesLang("typescript", "web/src/routes", "web/src/routes/albums", "web/src/lib", "web/src/lib/utils") {
+		store.Add(m)
+	}
+	dart := makeModulesLang("dart", "mobile/lib/domain/services", "mobile/lib/infrastructure/repositories", "mobile/lib/application/usecase", "mobile/lib/presentation/pages")
+	for _, m := range dart {
+		store.Add(m)
+	}
+	store.Add(facts.Fact{Kind: facts.KindDependency, File: "mobile/lib/domain/services/store.dart",
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "mobile/lib/infrastructure/repositories"}}})
+	store.Add(frameworkFact("sveltekit"))
+	store.BuildGraph()
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	var patterns []string
+	violation := false
+	for _, in := range insights {
+		if strings.HasPrefix(in.Title, "Architecture pattern: ") {
+			patterns = append(patterns, strings.TrimPrefix(in.Title, "Architecture pattern: "))
+		}
+		if in.Title == "Layer violation: domain -> adapter (hexagonal)" {
+			violation = true
+		}
+	}
+	sort.Strings(patterns)
+	if strings.Join(patterns, ",") != "hexagonal,sveltekit" {
+		t.Errorf("patterns = %v, want hexagonal and sveltekit", patterns)
+	}
+	if !violation {
+		t.Errorf("the dart domain -> adapter import is no longer reported")
+	}
+	for _, in := range insights {
+		if in.Title == "Architecture pattern: hexagonal" {
+			for _, ev := range in.Evidence {
+				if strings.HasPrefix(ev.Fact, "web/") {
+					t.Errorf("hexagonal classified %s, which sveltekit claimed", ev.Fact)
+				}
+			}
+		}
+	}
+}
+
+func TestSelectPatterns_UngatedNeedsARealShareOfTheRepository(t *testing.T) {
+	store := facts.NewStore()
+	var web []string
+	for i := 0; i < 20; i++ {
+		web = append(web, fmt.Sprintf("apps/web/src/routes/r%d", i), fmt.Sprintf("apps/web/src/lib/l%d", i))
+	}
+	for _, m := range makeModulesLang("typescript", web...) {
+		store.Add(m)
+	}
+	for _, m := range makeModulesLang("dart", "examples/app/lib/domain/services", "examples/app/lib/infrastructure/repositories", "examples/app/lib/application/usecase", "examples/app/lib/presentation/pages") {
+		store.Add(m)
+	}
+	store.Add(facts.Fact{Kind: facts.KindDependency, File: "examples/app/lib/domain/services/store.dart",
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "examples/app/lib/infrastructure/repositories"}}})
+	store.Add(frameworkFact("sveltekit"))
+	store.BuildGraph()
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	for _, in := range insights {
+		if in.Title == "Architecture pattern: hexagonal" {
+			t.Errorf("hexagonal reported over 4 of 44 modules")
+		}
+		if strings.HasPrefix(in.Title, "Architecture") {
+			t.Log(in.Title, in.Description)
 		}
 	}
 }

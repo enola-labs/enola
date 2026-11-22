@@ -288,7 +288,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 	if !facts.IsTestPath(relFile) {
 		result = append(result, astPatternFacts(kinds, root, src, relFile, isTSX, rc.graphqlServer)...)
 	}
-	result = append(result, e.extractImports(kinds, root, src, relFile, aliases, rc.isSvelteKit, rc.files)...)
+	result = append(result, e.extractImports(kinds, root, src, relFile, aliases, rc.svelteKitFile(relFile), rc.files)...)
 
 	ctx := newFileCtx(kinds, root, src, relFile, isTSX, rc, aliases)
 	result = append(result, e.fileDeclarations(kinds, root, ctx)...)
@@ -324,7 +324,7 @@ func (e *TSExtractor) extractNonScript(kinds *tsutil.KindTable, src []byte, relF
 	case isVueFile(relFile):
 		return e.extractVueSFC(kinds, src, relFile, rc.isNuxt, aliases, rc.files, rc.nuxtAutoComponents), true
 	case isSvelteFile(relFile):
-		return e.extractSvelteSFC(kinds, src, relFile, rc.isSvelteKit, aliases, rc.files), true
+		return e.extractSvelteSFC(kinds, src, relFile, rc.svelteKitFile(relFile), aliases, rc.files), true
 	case isGraphQLDocFile(relFile):
 		if facts.IsTestPath(relFile) {
 			return nil, true
@@ -406,8 +406,11 @@ func newFileCtx(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile 
 	dir := factpath.Dir(relFile)
 	importMap, internalImports := buildImportBindings(kinds, root, src, relFile, aliases, rc.files)
 	fw := rc.tsFrameworks
-	if !fw.isNextJS && inNextJSPackage(relFile, fw.nextDirs) {
+	if !fw.isNextJS && inPackageDir(relFile, fw.nextDirs) {
 		fw.isNextJS = true
+	}
+	if !fw.isSvelteKit && inPackageDir(relFile, fw.svelteKitDirs) {
+		fw.isSvelteKit = true
 	}
 	return &extractCtx{
 		tsFrameworks: fw,
@@ -1574,13 +1577,21 @@ func nearestPackageDir(pkgNames map[string]string, dir string) (string, bool) {
 	}
 }
 
-// nextJSPackageDirs returns the repo-relative directories of the packages that are
-// Next.js apps. A workspace whose root package declares no next still holds one
-// (onyx's web/ beside its desktop/ and widget/), and the root-level detection,
-// which reads one directory, cannot see it. The walk skips what
-// collectPackageNames skips, and directories of examples (isExampleDir).
-func nextJSPackageDirs(repoPath string) []string {
-	var out []string
+// frameworkApp says which files can mark a directory as an app of one framework
+// (marker) and confirms it (detect).
+type frameworkApp struct {
+	marker func(name string) bool
+	detect func(dir string) bool
+}
+
+// frameworkPackageDirs returns, per framework, the repo-relative directories below
+// the root that are apps of it, in one walk of the tree. A workspace whose root
+// package declares no next still holds a Next.js app (web/ beside desktop/ and
+// widget/), and the root-level detection, which reads one directory, cannot see
+// it; the same holds for a SvelteKit app. The walk skips what collectPackageNames
+// skips, and directories of examples (isExampleDir).
+func frameworkPackageDirs(repoPath string, apps ...frameworkApp) [][]string {
+	out := make([][]string, len(apps))
 	_ = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -1592,21 +1603,26 @@ func nextJSPackageDirs(repoPath string) []string {
 			}
 			return nil
 		}
-		// A Next.js app is marked by its config as much as by a package.json naming
-		// next: an app in a workspace often has no package.json of its own.
-		if !isNextMarker(d.Name()) {
+		dir := filepath.Dir(path) //factpath:host
+		if dir == repoPath {
 			return nil
 		}
-		dir := filepath.Dir(path) //factpath:host
-		if dir != repoPath && detectNextJSAt(dir) {
-			if rel, err := filepath.Rel(repoPath, dir); err == nil {
-				out = append(out, filepath.ToSlash(rel))
+		// An app is marked by its config as much as by a package.json naming the
+		// framework: an app in a workspace often has no package.json of its own.
+		for i, app := range apps {
+			if app.marker(d.Name()) && app.detect(dir) {
+				if rel, err := filepath.Rel(repoPath, dir); err == nil {
+					out[i] = append(out[i], filepath.ToSlash(rel))
+				}
 			}
 		}
 		return nil
 	})
-	sort.Strings(out)
-	return slices.Compact(out)
+	for i := range out {
+		sort.Strings(out[i])
+		out[i] = slices.Compact(out[i])
+	}
+	return out
 }
 
 // isNextMarker reports a file whose presence can make its directory a Next.js app.
@@ -1632,8 +1648,8 @@ func isExampleDir(name string) bool {
 	return false
 }
 
-// inNextJSPackage reports whether a file belongs to one of the Next.js packages.
-func inNextJSPackage(relFile string, dirs []string) bool {
+// inPackageDir reports whether a file belongs to one of the package directories.
+func inPackageDir(relFile string, dirs []string) bool {
 	for _, d := range dirs {
 		if strings.HasPrefix(relFile, d+"/") {
 			return true

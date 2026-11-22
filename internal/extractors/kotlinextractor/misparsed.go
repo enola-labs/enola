@@ -178,7 +178,7 @@ func (w *astWalker) emitRecoveredClass(at *sitter.Node, keyword, name, modifiers
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
 	for _, a := range annNodes {
-		w.noteAnnotationArgs(a)
+		w.noteAnnotation(a)
 	}
 	w.pushType(name, collectMethodNames(body, w.src))
 	if body != nil {
@@ -220,7 +220,7 @@ func (w *astWalker) noteSplitAnnotations(p *pendingAnnotations) {
 	}
 	for _, n := range p.nodes {
 		if kindOf(n) == "annotation" {
-			w.noteAnnotationArgs(n)
+			w.noteAnnotation(n)
 			continue
 		}
 		var walk func(x *sitter.Node)
