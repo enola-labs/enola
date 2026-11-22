@@ -174,7 +174,8 @@ func testRefsFromFile(src []byte, relFile string) []facts.Fact {
 	defer tree.Close()
 
 	root := tree.RootNode()
-	c := &javaTestRefCollector{src: src, seen: map[string]bool{}, declared: map[string]bool{}}
+	c := &javaTestRefCollector{src: src, seen: map[string]bool{},
+		declared: map[string]bool{}, declaredTypes: map[string]bool{}}
 	c.collectDeclared(root)
 	c.walk(root)
 	if len(c.seen) == 0 {
@@ -207,12 +208,16 @@ type javaTestRefCollector struct {
 	src  []byte
 	seen map[string]bool
 	// declared holds the names the test file declares itself: its test classes,
-	// helper methods and fakes. A bare call to one of them, or a call on one as the
-	// receiver, is the test calling its own code, and must not vouch for a
-	// production symbol that happens to share the name. A member reached through a
+	// helper methods and fakes. A bare call to one of them, or a call on a declared
+	// type as the receiver, is the test calling its own code, and must not vouch for
+	// a production symbol that happens to share the name. A member reached through a
 	// receiver is kept whatever the file declares, because a fake overriding the
 	// production member it stands in for declares the same name.
 	declared map[string]bool
+	// declaredTypes is the subset of declared that names a type. Only a type can be
+	// a receiver: in `histogram.setPercentiles(...)` inside a test method named
+	// histogram(), the receiver is a local, not the method.
+	declaredTypes map[string]bool
 }
 
 func (c *javaTestRefCollector) collectDeclared(n *sitter.Node) {
@@ -221,6 +226,9 @@ func (c *javaTestRefCollector) collectDeclared(n *sitter.Node) {
 		"record_declaration", "annotation_type_declaration", "method_declaration":
 		if name := n.ChildByFieldName("name"); name != nil {
 			c.declared[nodeText(name, c.src)] = true
+			if kindOf(n) != "method_declaration" {
+				c.declaredTypes[nodeText(name, c.src)] = true
+			}
 		}
 	}
 	for i := uint(0); i < n.NamedChildCount(); i++ {
@@ -241,7 +249,7 @@ func (c *javaTestRefCollector) add(name string) {
 // a local whose type is not known here. A harness or JDK receiver, or one the file
 // declares, drops both: see javaTestHarnessNames.
 func (c *javaTestRefCollector) addMember(recv, member string) {
-	if recv == "" || member == "" || javaTestIgnored(recv) || c.declared[recv] {
+	if recv == "" || member == "" || javaTestIgnored(recv) || c.declaredTypes[recv] {
 		return
 	}
 	if javaTestHarnessNames[member] {

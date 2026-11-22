@@ -112,6 +112,12 @@ class RepoTest {
         Assertions.assertTrue(s.isEmpty());
     }
 
+    @Test
+    void histogram() {
+        HistogramConfig histogram = new HistogramConfig();
+        histogram.setPercentiles(null);
+    }
+
     private void helper() {}
     private void prepare() {}
 }
@@ -133,7 +139,9 @@ class FakeClock { int ticks; void reset() {} }
 			t.Errorf("harness or own name %q recorded; have %v", banned, sortedTargets(got))
 		}
 	}
-	for _, want := range []string{"Store", "store.load", "load", "save", "repo.items", "items", "clock.ticks", "ticks"} {
+	for _, want := range []string{"Store", "store.load", "load", "save", "repo.items", "items", "clock.ticks", "ticks",
+		"histogram.setPercentiles", "setPercentiles", // a local named like a test method is still a receiver
+	} {
 		if !got[want] {
 			t.Errorf("missing reference %q; have %v", want, sortedTargets(got))
 		}
