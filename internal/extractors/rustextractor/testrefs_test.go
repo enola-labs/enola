@@ -2,6 +2,7 @@ package rustextractor
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 
@@ -115,4 +116,75 @@ func TestRustExtractTestRefsSameAsCfgTestModuleWalk(t *testing.T) {
 	if a, b := pick(whole), pick(refs); a != b || a == "<none>" {
 		t.Errorf("test_ref differs:\n Extract:         %s\n ExtractTestRefs: %s", a, b)
 	}
+}
+
+// TestRustTestCodeImplAndConstBodiesAreTestRefs: test code is more than its test
+// functions. A fixture implementing a production trait, its methods' calls into
+// production code, and a constant built by a production function are all uses, in
+// an inline #[cfg(test)] module and in an ignored integration test alike. They used
+// to be skipped, so production code reached only from them read as dead. The trait
+// is named as a type reference is, by its last segment, which the orphan detector
+// matches.
+func TestRustTestCodeImplAndConstBodiesAreTestRefs(t *testing.T) {
+	fixture := "struct Fake;\n" +
+		"impl crate::Codec for Fake {\n    fn encode(&self) { crate::engine::spin(); self.own(); }\n}\n" +
+		"impl Fake {\n    fn own(&self) {}\n}\n" +
+		"const SEED: u8 = crate::make_seed();\n" +
+		"static NAME: &str = crate::seed_name();\n"
+	files := map[string]string{
+		"Cargo.toml":    "[package]\nname = \"pkg\"\n",
+		"src/lib.rs":    "pub mod engine;\npub trait Codec { fn encode(&self); }\npub fn make_seed() -> u8 { 0 }\npub fn seed_name() -> &'static str { \"\" }\n#[cfg(test)]\nmod tests {\n" + fixture + "}\n",
+		"src/engine.rs": "pub fn spin() {}\n",
+		"tests/it.rs":   strings.ReplaceAll(fixture, "crate::", "pkg::"),
+	}
+	repo, all := writeRustRepo(t, files)
+	var prod []string
+	for _, f := range all {
+		if f != "tests/it.rs" {
+			prod = append(prod, f)
+		}
+	}
+	whole, err := New().Extract(context.Background(), repo, prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs, err := New().ExtractTestRefs(context.Background(), repo, []string{"tests/it.rs"}, prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		file string
+		ff   []facts.Fact
+	}{{"src/lib.rs", whole}, {"tests/it.rs", refs}} {
+		have := map[string]bool{}
+		for _, f := range tc.ff {
+			if f.Kind == facts.KindTestRef && f.File == tc.file {
+				for _, r := range f.Relations {
+					have[r.Target] = true
+				}
+			}
+			if f.Kind == facts.KindSymbol && f.File == tc.file && strings.Contains(f.Name, "Fake") {
+				t.Errorf("%s: test fixture emitted symbol %s", tc.file, f.Name)
+			}
+		}
+		for _, want := range []string{"Codec", "src.spin", "src.make_seed", "src.seed_name"} {
+			if !have[want] {
+				t.Errorf("%s: test_ref lacks %s; has %v", tc.file, want, sortedTargets(have))
+			}
+		}
+		for tg := range have {
+			if strings.HasSuffix(tg, ".encode") || tg == "encode" {
+				t.Errorf("%s: the fixture's own method %s vouches for the production trait method", tc.file, tg)
+			}
+		}
+	}
+}
+
+func sortedTargets(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

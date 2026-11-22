@@ -3768,7 +3768,9 @@ import (
 // method no class or struct of the repository owns, else to a top-level function.
 // v680: Rust tests are ignored and listed as test globs by default (tests/ and
 // benches/ trees), and Rust implements plugin.TestRefExtractor: each such file emits
-// one test_ref fact, walked as a #[cfg(test)] module file is, and no symbols.
+// one test_ref fact, walked as a #[cfg(test)] module file is, and no symbols. Test
+// code's impl blocks and constants contribute their references too: the trait a
+// fixture implements, and the calls its methods and constant values make.
 const cacheVersion = "v680"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
