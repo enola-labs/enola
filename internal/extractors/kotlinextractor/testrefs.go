@@ -155,7 +155,8 @@ func testRefsFromFile(src []byte, relFile string) []facts.Fact {
 	defer tree.Close()
 
 	root := tree.RootNode()
-	c := &kotlinTestRefCollector{src: src, seen: map[string]bool{}, declared: map[string]bool{}}
+	c := &kotlinTestRefCollector{src: src, seen: map[string]bool{},
+		declared: map[string]bool{}, declaredTypes: map[string]bool{}}
 	c.collectDeclared(root)
 	c.walk(root)
 	if len(c.seen) == 0 {
@@ -188,12 +189,16 @@ type kotlinTestRefCollector struct {
 	src  []byte
 	seen map[string]bool
 	// declared holds the names the test file declares itself: its test classes,
-	// helper functions and fakes. A bare call to one of them, or a call on one as
-	// the receiver, is the test calling its own code, and must not vouch for a
-	// production symbol that happens to share the name. A member reached through a
-	// receiver is kept whatever the file declares, because a fake overriding the
-	// production member it stands in for declares the same name.
+	// helper functions and fakes. A bare call to one of them, or a call on a
+	// declared type as the receiver, is the test calling its own code, and must not
+	// vouch for a production symbol that happens to share the name. A member reached
+	// through a receiver is kept whatever the file declares, because a fake
+	// overriding the production member it stands in for declares the same name.
 	declared map[string]bool
+	// declaredTypes is the subset of declared that names a class or an object. Only
+	// a type can be a receiver: in `histogram.setPercentiles(...)` inside a test
+	// function named histogram(), the receiver is a local, not the function.
+	declaredTypes map[string]bool
 }
 
 func (c *kotlinTestRefCollector) collectDeclared(n *sitter.Node) {
@@ -201,6 +206,9 @@ func (c *kotlinTestRefCollector) collectDeclared(n *sitter.Node) {
 	case "class_declaration", "object_declaration", "function_declaration":
 		if name := findChildByKind(n, "identifier"); name != nil {
 			c.declared[nodeText(name, c.src)] = true
+			if kindOf(n) != "function_declaration" {
+				c.declaredTypes[nodeText(name, c.src)] = true
+			}
 		}
 	}
 	for i := uint(0); i < n.NamedChildCount(); i++ {
@@ -218,10 +226,10 @@ func (c *kotlinTestRefCollector) add(name string) {
 
 // addMember records a member reached through a plain identifier receiver as
 // `Recv.member` and as the bare member, which is what matches when the receiver is
-// a local whose type is not known here. A harness receiver or one the file
+// a local whose type is not known here. A harness receiver or a type the file
 // declares drops both: see kotlinTestHarnessNames.
 func (c *kotlinTestRefCollector) addMember(recv, member string) {
-	if recv == "" || member == "" || kotlinTestHarnessNames[recv] || c.declared[recv] {
+	if recv == "" || member == "" || kotlinTestHarnessNames[recv] || c.declaredTypes[recv] {
 		return
 	}
 	if kotlinTestHarnessNames[member] {
@@ -270,6 +278,15 @@ func (c *kotlinTestRefCollector) walk(n *sitter.Node) {
 		for i := uint(0); i < n.NamedChildCount(); i++ {
 			if ch := n.NamedChild(i); last == nil || ch.Id() != last.Id() {
 				c.walk(ch)
+			}
+		}
+		return
+	case "identifier":
+		// An object or a constant used as a value: passed on, compared, paired with
+		// `to`. A lower-case name in those places is a local.
+		if p := n.Parent(); p != nil && kotlinValuePosition(n, p) {
+			if name := nodeText(n, c.src); isCapitalized(name) {
+				c.add(name)
 			}
 		}
 		return

@@ -624,10 +624,12 @@ func resolveSplitPackages(all []facts.Fact, siblings map[string][]string) {
 				notes[k].typ = split(notes[k].typ)
 			}
 		}
-		if refs, ok := f.PropAny(propValueRefs).([][]string); ok {
-			for _, cands := range refs {
-				for k := range cands {
-					cands[k] = split(cands[k])
+		for _, prop := range []string{propValueRefs, propReceiverRefs} {
+			if refs, ok := f.PropAny(prop).([][]string); ok {
+				for _, cands := range refs {
+					for k := range cands {
+						cands[k] = split(cands[k])
+					}
 				}
 			}
 		}

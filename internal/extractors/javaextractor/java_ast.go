@@ -56,6 +56,10 @@ type astWalker struct {
 	// (e.g. "Store" -> "com.example.data.Store"). Used to resolve bare type
 	// references in supertypes, constructor calls, and injected parameters.
 	importMap map[string]string
+	// wildcards are the packages (or types) the file imports on demand, in source
+	// order: `import com.example.rest.*;` adds "com.example.rest". Annotation names
+	// fall back to them (annotationrefs.go).
+	wildcards []string
 
 	// typeStack holds the simple names of the enclosing type declarations, so a
 	// method declared in class Foo is named "<dir>.Foo.method". methodStack is
@@ -677,6 +681,9 @@ func (w *astWalker) handleImport(node *sitter.Node) {
 	// Record a non-static, non-wildcard import's simple name so bare type
 	// references resolve to its FQN. Static imports name a member, not a type;
 	// wildcard imports carry no simple name.
+	if isWildcard && !isStatic {
+		w.wildcards = append(w.wildcards, importPath)
+	}
 	if isStatic || isWildcard {
 		return
 	}
@@ -764,6 +771,11 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	w.out = append(w.out, f)
 	owner := len(w.out) - 1
 	w.pushOwner(owner)
+
+	// The type's own annotations, a record's components' included, are resolved
+	// outside its scope: javac does not look up their names among its members.
+	w.relateAnnotations(modifiers, owner)
+	w.relateAnnotations(node.ChildByFieldName("parameters"), owner)
 
 	// Enter the type scope.
 	body := classBody(node)
@@ -904,6 +916,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
+	w.relateAnnotations(modifiers, ownerIdx)
+	w.relateAnnotations(node.ChildByFieldName("type"), ownerIdx)
+	w.relateAnnotations(node.ChildByFieldName("parameters"), ownerIdx)
 	// Set up per-method complexity tracking. walkForCalls is re-entrant (it
 	// dispatches nested type declarations back through handleMethod), so save and
 	// restore the outer state.
@@ -1244,6 +1259,11 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.repeatDepth--
 		}
 		return
+	case "annotation", "marker_annotation":
+		// On a field, a local, a lambda parameter or an enum constant: a use by the
+		// enclosing declaration. Its arguments are walked below, nested annotations
+		// included.
+		w.relateAnnotation(node, w.currentOwner())
 	case "object_creation_expression":
 		if t := w.targetForType(node.ChildByFieldName("type")); t != "" {
 			w.relate(w.currentOwner(), facts.RelInstantiates, t)

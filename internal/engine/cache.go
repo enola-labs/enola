@@ -3782,7 +3782,28 @@ import (
 // v681: Swift: an SPM testTarget with no path: is the directory Tests/<name>,
 // SwiftPM's default, not Sources/<name>, in its module fact, its dependency facts
 // and the module a file under it declares into.
-const cacheVersion = "v681"
+// v682: Kotlin test refs: only a class or object the test file declares drops a
+// receiver's members; a local named like a test function is still a receiver.
+// Kotlin: an object used as a value in a binary, `in`, range, index or spread
+// expression, a `to` pair, or as the receiver of a call to a member it does not
+// declare (`Key.takeIf {}`) is named; the value parents listed another grammar's
+// node kinds. Test refs record a capitalized identifier in those places. A value's
+// type is tried first as a type nested in each enclosing class (`Level.NONE` inside
+// the class declaring `enum class Level`), and an expression body is a value.
+// v683: Java: an annotation is a use of its type. What it annotates (a type, a
+// method, a field's or a local's enclosing declaration) gets a names edge to the
+// annotation type when the name resolves, as javac resolves it, to a type the
+// repository declares; JDK and framework annotations record nothing. The Java
+// test-ref walk records an annotation a test applies when it names a production type.
+// v684: Scala: an import reaching through an object (`import Parsers._`,
+// `import a.Registry.{next}`) names that object, from the enclosing declaration or
+// from a file-scope file_ref fact; the type arguments of a type application
+// (`Props[Logger]()`, `classOf[T]`) name their types; and a qualified type
+// (`util.Logger`) resolves by its whole path, relative to the file's package, before
+// falling back to its last segment.
+// v685: Svelte: a component tag in markup is a reference, from the rendering
+// component to the declaration its script imported under that name.
+const cacheVersion = "v685"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

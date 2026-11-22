@@ -197,6 +197,7 @@ func (e *ScalaExtractor) Extract(ctx context.Context, repoPath string, files []s
 	allFacts = append(allFacts, hoconTopics(repoPath, scalaFiles)...)
 
 	canonicalizeTargets(allFacts, packageIndex, filePkg)
+	allFacts = dropEmptyFileRefs(allFacts)
 	// After canonicalization, so the closure walks edges that point at real facts:
 	// run before it and every cross-file call target would still be a bare name and
 	// the propagation would stop at the first hop.
@@ -234,4 +235,17 @@ func (e *ScalaExtractor) Extract(ctx context.Context, repoPath string, files []s
 type fileResult struct {
 	facts []facts.Fact
 	pkg   string
+}
+
+// dropEmptyFileRefs removes a file-scope reference fact whose every edge resolved to
+// nothing this repository declares: it would say the file references nothing.
+func dropEmptyFileRefs(all []facts.Fact) []facts.Fact {
+	out := all[:0]
+	for _, f := range all {
+		if f.Kind == facts.KindFileRef && len(f.Relations) == 0 {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
