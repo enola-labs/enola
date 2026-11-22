@@ -274,7 +274,7 @@ var versionCoverage = map[int][]string{
 	679: {"TestJavaTestGlobsScopeToTestSourceSets", "TestJavaTestRefsCaptureProductionReferences", "TestJavaTestRefsDropHarnessAndOwnDeclarations", "TestJavaExtractTestRefsEmitsOnlyTestRefFacts"},
 	680: {"TestRustTestGlobsScopeToCargoTestTrees", "TestRustExtractTestRefsEmitsOnlyTestRefFacts", "TestRustExtractTestRefsSameAsCfgTestModuleWalk", "TestRustTestCodeImplAndConstBodiesAreTestRefs"},
 	681: {"TestManifestTestTargetDefaultsToTestsDir", "TestManifestSkipsDependenciesOfAnUnindexedTestTarget"},
-	685: {"TestExtract_SvelteMarkupComponentTagReferencesImport", "TestExtract_SvelteKitMarkupComponentTagThroughLibAlias", "TestExtract_SvelteMarkupComponentTagRenamedDefaultImport", "TestExtract_SvelteMarkupComponentTagNeedsAnImport"},
+	685: {"TestExtract_SvelteMarkupComponentTagReferencesImport", "TestExtract_SvelteKitMarkupComponentTagThroughLibAlias", "TestExtract_SvelteMarkupComponentTagRenamedDefaultImport", "TestExtract_SvelteMarkupComponentTagNeedsAnImport", "TestExtract_SvelteMarkupComponentTagIgnoresExpressionGenerics"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

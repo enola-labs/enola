@@ -358,7 +358,30 @@ func svelteMarkupOnly(src []byte) []byte {
 // (so a nested ${...} is still walked as an expression, which is what we want),
 // at the cost of not perfectly balancing a stray literal '{' or '}' inside one.
 func scanMustacheExpressions(markup []byte) [][]byte {
-	var exprs [][]byte
+	spans := mustacheSpans(markup)
+	exprs := make([][]byte, 0, len(spans))
+	for _, sp := range spans {
+		exprs = append(exprs, markup[sp[0]:sp[1]])
+	}
+	return exprs
+}
+
+// withoutMustacheExpressions returns markup with the inside of every top-level
+// {...} expression removed, leaving only element and text structure.
+func withoutMustacheExpressions(markup []byte) []byte {
+	var out []byte
+	pos := 0
+	for _, sp := range mustacheSpans(markup) {
+		out = append(out, markup[pos:sp[0]]...)
+		pos = sp[1]
+	}
+	return append(out, markup[pos:]...)
+}
+
+// mustacheSpans returns the [start,end) byte ranges of the content of every
+// top-level {...} expression, as scanMustacheExpressions describes.
+func mustacheSpans(markup []byte) [][2]int {
+	var spans [][2]int
 	depth := 0
 	start := 0
 	var quote byte
@@ -388,12 +411,12 @@ func scanMustacheExpressions(markup []byte) [][]byte {
 			if depth > 0 {
 				depth--
 				if depth == 0 {
-					exprs = append(exprs, markup[start:i])
+					spans = append(spans, [2]int{start, i})
 				}
 			}
 		}
 	}
-	return exprs
+	return spans
 }
 
 // extractSvelteMarkupRefs scans a Svelte SFC's template for identifiers referenced
@@ -455,12 +478,13 @@ var (
 // an HTML element, so `<CrateRow>` renders whatever the script bound to CrateRow.
 // Only a name an import of this repository bound is resolved: a component from a
 // package, or a capitalised word with no import, names nothing here. Script,
-// style and comment text is never markup.
+// style and comment text is never markup, and neither is a {...} expression,
+// where `Array<Role>` is a type argument.
 func svelteComponentTagRefs(rawSrc []byte, imported map[string]string, self string) []string {
 	if len(imported) == 0 {
 		return nil
 	}
-	markup := htmlCommentRe.ReplaceAll(svelteMarkupOnly(rawSrc), nil)
+	markup := withoutMustacheExpressions(htmlCommentRe.ReplaceAll(svelteMarkupOnly(rawSrc), nil))
 	seen := map[string]bool{}
 	var targets []string
 	for _, m := range svelteComponentTagRe.FindAllSubmatch(markup, -1) {

@@ -631,3 +631,23 @@ func TestExtract_SvelteMarkupComponentTagNeedsAnImport(t *testing.T) {
 		}
 	}
 }
+
+func TestExtract_SvelteMarkupComponentTagIgnoresExpressionGenerics(t *testing.T) {
+	ff := extractSvelte(t, map[string]string{
+		"src/lib/roles.ts": `export enum Role { Owner, Editor }`,
+		"src/lib/Picker.svelte": `<script lang="ts">
+  import { Role } from './roles'
+  let options = []
+</script>
+<select>{(options as Array<Role>).length}</select>
+`,
+	}, false)
+
+	picker, ok := findFact(ff, "src/lib.Picker")
+	if !ok {
+		t.Fatal("expected Picker component")
+	}
+	if picker.HasRelation(facts.RelCalls, "src/lib.Role") {
+		t.Errorf("a type argument inside an expression is no component tag: %+v", picker.Relations)
+	}
+}
