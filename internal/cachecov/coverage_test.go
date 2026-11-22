@@ -288,6 +288,7 @@ var versionCoverage = map[int][]string{
 	693: {"TestCollectCountsDerivedModuleEdges", "TestImporterOf"},
 	694: {"TestSwiftTestRefsCaptureProductionReferences", "TestSwiftTestRefsDropHarnessAndOwnDeclarations", "TestSwiftExtractTestRefsEmitsOnlyTestRefFacts"},
 	695: {"TestPHPTestRefsCaptureProductionReferences", "TestPHPTestRefsResolveThroughNamespace", "TestPHPTestRefsPest", "TestPHPTestRefsDropHarnessReceivers", "TestPHPExtractTestRefsScopesToPHP"},
+	696: {"TestRustIODirect_DieselQueryMethods", "TestRustIODirect_DieselNamesWithoutDieselNotIO"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
