@@ -92,7 +92,10 @@ final class SessionTests: BaseTestCase {
 // attributes, system types and the test file's own helpers never vouch for a
 // production symbol of the same name.
 func TestSwiftTestRefsDropHarnessAndOwnDeclarations(t *testing.T) {
-	src := `import Testing
+	src := `#if canImport(XCTest)
+import XCTest
+#endif
+import Testing
 @testable import Feature
 
 extension DateGenerator {
@@ -117,6 +120,7 @@ extension DateGenerator {
     $0.date = .runLoop(1)
     $0.date()
     runner.start()
+    XCTAssertEqual(courses[0].activities[0].name, "x")
     FakeStore.make()
     let s: String = ""
   }
@@ -134,6 +138,8 @@ extension DateGenerator {
 		"FakeStore.make", "make", // a call on a type the file declares
 		"setUp", "self", "super", "String", "Self",
 		"fake.loaded", "loaded", // a property read through a local
+		"XCTest", "canImport", // a conditional import
+		"courses", "activities", // subscripts read their base, they call nothing
 	} {
 		if got[banned] {
 			t.Errorf("harness or own name %q recorded; have %v", banned, sortedTargets(got))

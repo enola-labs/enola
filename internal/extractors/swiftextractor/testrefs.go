@@ -72,7 +72,7 @@ func (e *SwiftExtractor) ExtractTestRefs(ctx context.Context, repoPath string, t
 // often the real use than the harness one.
 var swiftTestHarnessNames = map[string]bool{
 	// XCTest.
-	"XCTAssert": true, "XCTAssertEqual": true, "XCTAssertNotEqual": true,
+	"XCTest": true, "XCTAssert": true, "XCTAssertEqual": true, "XCTAssertNotEqual": true,
 	"XCTAssertTrue": true, "XCTAssertFalse": true, "XCTAssertNil": true,
 	"XCTAssertNotNil": true, "XCTAssertIdentical": true, "XCTAssertNotIdentical": true,
 	"XCTAssertGreaterThan": true, "XCTAssertGreaterThanOrEqual": true,
@@ -260,15 +260,20 @@ func (c *swiftTestRefCollector) walk(n *sitter.Node) {
 		return
 	}
 	switch kindOf(n) {
-	case "import_declaration", "attribute":
-		// An import alone is not a use, and a test's attributes (@Test, @MainActor,
-		// @testable) are the harness.
+	case "import_declaration", "attribute", "directive":
+		// An import alone is not a use, a test's attributes (@Test, @MainActor,
+		// @testable) are the harness, and `#if canImport(XCTest)` names a module.
 		return
 	case "call_expression", "macro_invocation":
 		// `#expect(...)` and `#require(...)` are the harness: only their arguments
-		// can reach production code.
+		// can reach production code. A subscript (`items[0]`) parses as a call and
+		// is a read of its base, not a call.
 		callee := firstNamedChild(n)
-		if kindOf(n) == "call_expression" {
+		switch {
+		case kindOf(n) == "macro_invocation":
+		case isSubscriptCall(n, c.src):
+			c.walk(callee)
+		default:
 			c.addCallee(callee)
 		}
 		for i := uint(0); i < n.NamedChildCount(); i++ {
