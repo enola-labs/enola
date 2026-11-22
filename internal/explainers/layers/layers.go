@@ -796,7 +796,22 @@ func (e *LayerExplainer) explainRepo(store *facts.Store, repo string) []facts.In
 	}
 
 	// Report the architecture pattern of each language cohort.
-	for _, best := range e.selectPatterns(patterns) {
+	rescore := func(p *archPattern, claimed map[string]bool) *archPattern {
+		for _, def := range patternDefs {
+			if def.name != p.Name || len(def.appliesTo) > 0 || !def.gateOK(frameworks) {
+				continue
+			}
+			rest := make([]facts.Fact, 0, len(modules))
+			for _, m := range modules {
+				if lang, _ := m.PropAny("language").(string); !claimed[lang] {
+					rest = append(rest, m)
+				}
+			}
+			return scorePattern(def, rest)
+		}
+		return nil
+	}
+	for _, best := range e.selectPatterns(patterns, rescore) {
 		// Sort the classified modules so the evidence order is deterministic —
 		// ranging best.Modules directly would follow Go's randomized map order.
 		mods := make([]string, 0, len(best.Modules))
@@ -1033,127 +1048,132 @@ func describePattern(p *archPattern, conf conformance, repoModules int) string {
 
 func (e *LayerExplainer) detectPatterns(allModules []facts.Fact, frameworks map[string]bool) []*archPattern {
 	var patterns []*archPattern
-
 	for di := range patternDefs {
-		def := patternDefs[di]
-
 		// Skip patterns whose framework gate is not satisfied. This is what stops
 		// a plain OOP repo from matching the generic "nextjs" directory names.
-		if !def.gateOK(frameworks) {
+		if !patternDefs[di].gateOK(frameworks) {
 			continue
 		}
-
-		// Score over the modules this taxonomy could describe, not over the whole
-		// repository. Everything below — matchCount, the signature gate, both
-		// denominators — is then a measurement of the cohort.
-		modules, cohortLangs := def.cohort(allModules)
-		if len(modules) == 0 {
-			continue
-		}
-
-		pattern := &archPattern{
-			Name:        def.name,
-			Specificity: def.specificity(),
-			Layers:      make(map[string]*layerDef),
-			Modules:     make(map[string]string),
-			Dirs:        moduleDirsOf(modules),
-			Languages:   cohortLangs,
-		}
-
-		matchCount := 0
-		for _, mod := range modules {
-			if i, ok := classifyModule(layerPath(mod), mod.PropString("package") == "main", def); ok {
-				pattern.Layers[def.layers[i].Name] = &def.layers[i]
-				pattern.Modules[mod.Name] = def.layers[i].Name
-				matchCount++
-			}
-		}
-
-		// Anything the taxonomy did not name but the framework autoloads is
-		// still a layer. Without this a Rails app's own vocabulary — app/tools,
-		// app/agents, app/schemas — is unclassified, and those are usually
-		// exactly the directories a house rule is written about.
-		autoLayers := 0
-		if def.autoloadRoot != "" {
-			for _, mod := range modules {
-				if _, classified := pattern.Modules[mod.Name]; classified {
-					continue
-				}
-				name, ok := autoloadedLayer(layerPath(mod), def.autoloadRoot)
-				if !ok {
-					continue
-				}
-				if _, exists := pattern.Layers[name]; !exists {
-					pattern.Layers[name] = &layerDef{
-						Name: name, Patterns: []string{name}, Level: def.autoloadLevel,
-					}
-					autoLayers++
-				}
-				pattern.Modules[mod.Name] = name
-				matchCount++
-			}
-		}
-
-		if matchCount == 0 || len(modules) == 0 {
-			continue
-		}
-
-		// Count the classified modules that sit in a layer carrying a direction.
-		// A module in a neutral layer is named but not ordered, so it is evidence
-		// that the taxonomy fits and no evidence at all about the layering.
-		graded := 0
-		for _, layerName := range pattern.Modules {
-			if def := pattern.Layers[layerName]; def != nil && !def.Neutral {
-				graded++
-			}
-		}
-		// All three counts are over DISTINCT module names, because the classified
-		// one has to be: pattern.Modules is keyed by name, so two extractors
-		// emitting the same directory (a grammar directory read by two of them, in
-		// this repository) collapse there and not in a running total. Mixing the
-		// bases made enola's own snapshot say 119 of 129 modules were classified
-		// and 117 of those ordered — reading as two wiring modules where there
-		// were none, only two duplicates.
-		pattern.Scanned, pattern.Classified, pattern.Graded = distinctModules(modules), len(pattern.Modules), graded
-
-		// Require enough distinctive signature layers when the pattern declares
-		// them, so a match built only from generic names (e.g. just model + ui)
-		// or from a single stray directory does not qualify.
-		if len(def.signatureLayers) > 0 &&
-			countSignatureLayers(pattern, def.signatureLayers) < def.minSignatureLayers {
-			continue
-		}
-
-		// Confidence is how much of the repository the claimed ORDER describes,
-		// and nothing else.
-		//
-		// It used to be `coverage*0.6 + layerCoverage*0.4`, where layerCoverage was
-		// the share of the taxonomy's OWN layer names that appeared. That second
-		// term rewarded a narrow taxonomy for being narrow and punished a wide one
-		// for being wide: a modular CMS matching all four names of the four-layer
-		// .NET taxonomy across 3% of its modules scored 0.42 — higher than several
-		// repositories the taxonomy genuinely describes — because 0.4 of the score
-		// was already banked before a single module was counted. The blend also had
-		// no meaning a reader could state. This one does: 0.24 means the ordered
-		// layers account for 24% of the modules measured.
-		//
-		// Ceiling is deliberately below 1.0: confidence 1.0 is reserved for a
-		// structural fact, and a pattern match is a coverage ratio over directory
-		// names — a well-supported guess, never a certainty.
-		pattern.Confidence = float64(graded) / float64(pattern.Scanned)
-		if pattern.Confidence > common.MaxHeuristicConfidence {
-			pattern.Confidence = common.MaxHeuristicConfidence
-		}
-
-		// Everything that matched two layers enters the comparison. The coverage
-		// floor is applied to the WINNER instead, in explainRepo — see
-		// minClassifiedShare for why the difference matters.
-		if len(pattern.Layers) >= 2 {
+		if pattern := scorePattern(patternDefs[di], allModules); pattern != nil {
 			patterns = append(patterns, pattern)
 		}
 	}
-
 	return patterns
+}
+
+// scorePattern measures one taxonomy over the modules it could describe, and
+// returns nil when it does not match: no module classified, too few signature
+// layers, or fewer than two layers.
+func scorePattern(def patternDef, allModules []facts.Fact) *archPattern {
+	// Score over the modules this taxonomy could describe, not over the whole
+	// repository. Everything below — matchCount, the signature gate, both
+	// denominators — is then a measurement of the cohort.
+	modules, cohortLangs := def.cohort(allModules)
+	if len(modules) == 0 {
+		return nil
+	}
+
+	pattern := &archPattern{
+		Name:        def.name,
+		Specificity: def.specificity(),
+		Layers:      make(map[string]*layerDef),
+		Modules:     make(map[string]string),
+		Dirs:        moduleDirsOf(modules),
+		Languages:   cohortLangs,
+	}
+
+	matchCount := 0
+	for _, mod := range modules {
+		if i, ok := classifyModule(layerPath(mod), mod.PropString("package") == "main", def); ok {
+			pattern.Layers[def.layers[i].Name] = &def.layers[i]
+			pattern.Modules[mod.Name] = def.layers[i].Name
+			matchCount++
+		}
+	}
+
+	// Anything the taxonomy did not name but the framework autoloads is
+	// still a layer. Without this a Rails app's own vocabulary — app/tools,
+	// app/agents, app/schemas — is unclassified, and those are usually
+	// exactly the directories a house rule is written about.
+	autoLayers := 0
+	if def.autoloadRoot != "" {
+		for _, mod := range modules {
+			if _, classified := pattern.Modules[mod.Name]; classified {
+				continue
+			}
+			name, ok := autoloadedLayer(layerPath(mod), def.autoloadRoot)
+			if !ok {
+				continue
+			}
+			if _, exists := pattern.Layers[name]; !exists {
+				pattern.Layers[name] = &layerDef{
+					Name: name, Patterns: []string{name}, Level: def.autoloadLevel,
+				}
+				autoLayers++
+			}
+			pattern.Modules[mod.Name] = name
+			matchCount++
+		}
+	}
+
+	if matchCount == 0 || len(modules) == 0 {
+		return nil
+	}
+
+	// Count the classified modules that sit in a layer carrying a direction.
+	// A module in a neutral layer is named but not ordered, so it is evidence
+	// that the taxonomy fits and no evidence at all about the layering.
+	graded := 0
+	for _, layerName := range pattern.Modules {
+		if def := pattern.Layers[layerName]; def != nil && !def.Neutral {
+			graded++
+		}
+	}
+	// All three counts are over DISTINCT module names, because the classified
+	// one has to be: pattern.Modules is keyed by name, so two extractors
+	// emitting the same directory (a grammar directory read by two of them, in
+	// this repository) collapse there and not in a running total. Mixing the
+	// bases made enola's own snapshot say 119 of 129 modules were classified
+	// and 117 of those ordered — reading as two wiring modules where there
+	// were none, only two duplicates.
+	pattern.Scanned, pattern.Classified, pattern.Graded = distinctModules(modules), len(pattern.Modules), graded
+
+	// Require enough distinctive signature layers when the pattern declares
+	// them, so a match built only from generic names (e.g. just model + ui)
+	// or from a single stray directory does not qualify.
+	if len(def.signatureLayers) > 0 &&
+		countSignatureLayers(pattern, def.signatureLayers) < def.minSignatureLayers {
+		return nil
+	}
+
+	// Confidence is how much of the repository the claimed ORDER describes,
+	// and nothing else.
+	//
+	// It used to be `coverage*0.6 + layerCoverage*0.4`, where layerCoverage was
+	// the share of the taxonomy's OWN layer names that appeared. That second
+	// term rewarded a narrow taxonomy for being narrow and punished a wide one
+	// for being wide: a modular CMS matching all four names of the four-layer
+	// .NET taxonomy across 3% of its modules scored 0.42 — higher than several
+	// repositories the taxonomy genuinely describes — because 0.4 of the score
+	// was already banked before a single module was counted. The blend also had
+	// no meaning a reader could state. This one does: 0.24 means the ordered
+	// layers account for 24% of the modules measured.
+	//
+	// Ceiling is deliberately below 1.0: confidence 1.0 is reserved for a
+	// structural fact, and a pattern match is a coverage ratio over directory
+	// names — a well-supported guess, never a certainty.
+	pattern.Confidence = float64(graded) / float64(pattern.Scanned)
+	if pattern.Confidence > common.MaxHeuristicConfidence {
+		pattern.Confidence = common.MaxHeuristicConfidence
+	}
+
+	// Everything that matched two layers enters the comparison. The coverage
+	// floor is applied to the WINNER instead, in explainRepo — see
+	// minClassifiedShare for why the difference matters.
+	if len(pattern.Layers) < 2 {
+		return nil
+	}
+	return pattern
 }
 
 // distinctModules counts the distinct module NAMES in a scope. Two extractors
@@ -1257,8 +1277,11 @@ func countSignatureLayers(pattern *archPattern, signature []string) int {
 //
 // Overlapping cohorts are still one question with one answer: the ungated
 // hexagonal taxonomy describes every language, so it is reported only where no
-// gated taxonomy claimed those modules first.
-func (e *LayerExplainer) selectPatterns(patterns []*archPattern) []*archPattern {
+// gated taxonomy claimed those modules first. rescore, when given, measures an
+// ungated pattern again over the languages left unclaimed (nil when it no longer
+// matches there), so a gated statement about one half of a polyglot repository
+// does not silence the ungated one about the other half.
+func (e *LayerExplainer) selectPatterns(patterns []*archPattern, rescore ...func(*archPattern, map[string]bool) *archPattern) []*archPattern {
 	ranked := append([]*archPattern(nil), patterns...)
 	sort.SliceStable(ranked, func(i, j int) bool {
 		if ranked[i].Specificity != ranked[j].Specificity {
@@ -1274,7 +1297,12 @@ func (e *LayerExplainer) selectPatterns(patterns []*archPattern) []*archPattern 
 	var out []*archPattern
 	for _, p := range ranked {
 		if overlaps(p.Languages, claimed) {
-			continue
+			if p.Specificity != 0 || len(rescore) == 0 {
+				continue
+			}
+			if p = rescore[0](p, claimed); p == nil || len(p.Languages) == 0 || overlaps(p.Languages, claimed) {
+				continue
+			}
 		}
 		// The floor is applied per cohort, and a floored winner still CLAIMS its
 		// languages: suppression must not promote, and a worse-fitting taxonomy
