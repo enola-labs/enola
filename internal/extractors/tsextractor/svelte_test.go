@@ -530,3 +530,124 @@ func TestIsSvelteFile(t *testing.T) {
 		}
 	}
 }
+
+// --- Component tags in markup ---
+//
+// A Svelte component is used by writing its tag in the importing component's
+// markup. The script parser never sees that tag, so a component rendered only
+// there had no incoming edge. The tag is resolved through the script's imports,
+// the way the Vue template pass does it, and hangs off the rendering component.
+
+func TestExtract_SvelteMarkupComponentTagReferencesImport(t *testing.T) {
+	ff := extractSvelte(t, map[string]string{
+		"src/lib/CrateRow.svelte": `<li>row</li>`,
+		"src/lib/CrateList.svelte": `<script lang="ts">
+  import CrateRow from './CrateRow.svelte'
+  let { crates } = $props()
+</script>
+
+<ol>
+  {#each crates as crate}
+    <CrateRow {crate} />
+  {/each}
+</ol>
+`,
+	}, false)
+
+	list, ok := findFact(ff, "src/lib.CrateList")
+	if !ok {
+		t.Fatalf("expected CrateList component; got %v", factNames(ff))
+	}
+	if !list.HasRelation(facts.RelCalls, "src/lib.CrateRow") {
+		t.Errorf("<CrateRow> in markup did not reference the imported component; relations: %+v", list.Relations)
+	}
+}
+
+func TestExtract_SvelteKitMarkupComponentTagThroughLibAlias(t *testing.T) {
+	ff := extractSvelte(t, map[string]string{
+		"src/lib/components/CrateList.svelte": `<ol></ol>`,
+		"src/routes/crates/+page.svelte": `<script lang="ts">
+  import CrateList from '$lib/components/CrateList.svelte'
+  let { data } = $props()
+</script>
+
+<CrateList crates={data.crates}></CrateList>
+`,
+	}, true)
+
+	page, ok := findFact(ff, "src/routes/crates.CratesPage")
+	if !ok {
+		t.Fatalf("expected page component; got %v", factNames(ff))
+	}
+	if !page.HasRelation(facts.RelCalls, "src/lib/components.CrateList") {
+		t.Errorf("<CrateList> through $lib did not reference the component; relations: %+v", page.Relations)
+	}
+}
+
+func TestExtract_SvelteMarkupComponentTagRenamedDefaultImport(t *testing.T) {
+	ff := extractSvelte(t, map[string]string{
+		"src/lib/UserCard.svelte": `<article></article>`,
+		"src/lib/Dashboard.svelte": `<script>
+  import Card from './UserCard.svelte'
+</script>
+<Card />
+`,
+	}, false)
+
+	dash, ok := findFact(ff, "src/lib.Dashboard")
+	if !ok {
+		t.Fatal("expected Dashboard component")
+	}
+	if !dash.HasRelation(facts.RelCalls, "src/lib.UserCard") {
+		t.Errorf("renamed default import did not resolve to its file component: %+v", dash.Relations)
+	}
+	if dash.HasRelation(facts.RelCalls, "src/lib.Card") {
+		t.Errorf("renamed default import invented a Card declaration: %+v", dash.Relations)
+	}
+}
+
+func TestExtract_SvelteMarkupComponentTagNeedsAnImport(t *testing.T) {
+	ff := extractSvelte(t, map[string]string{
+		"src/lib/Modal.svelte":  `<div></div>`,
+		"src/lib/Header.svelte": `<header></header>`,
+		"src/lib/Page.svelte": `<script>
+  import { Icon } from 'some-icon-package'
+  import Header from './Header.svelte'
+</script>
+<!-- <Modal /> is not rendered here -->
+<Icon />
+<p>Use a Modal for this</p>
+<style>.Modal { color: red }</style>
+`,
+	}, false)
+
+	page, ok := findFact(ff, "src/lib.Page")
+	if !ok {
+		t.Fatal("expected Page component")
+	}
+	for _, r := range page.Relations {
+		if r.Kind == facts.RelCalls {
+			t.Errorf("unexpected markup reference %q: an unimported, commented, external or never-rendered name is no use", r.Target)
+		}
+	}
+}
+
+func TestExtract_SvelteMarkupComponentTagIgnoresExpressionGenerics(t *testing.T) {
+	ff := extractSvelte(t, map[string]string{
+		"src/lib/roles.ts": `export enum Role { Owner, Editor }`,
+		"src/lib/Picker.svelte": `<script lang="ts">
+  import { Role } from './roles'
+  let options = []
+</script>
+<select>{(options as Array<Role>).length}</select>
+`,
+	}, false)
+
+	picker, ok := findFact(ff, "src/lib.Picker")
+	if !ok {
+		t.Fatal("expected Picker component")
+	}
+	if picker.HasRelation(facts.RelCalls, "src/lib.Role") {
+		t.Errorf("a type argument inside an expression is no component tag: %+v", picker.Relations)
+	}
+}

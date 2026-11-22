@@ -3801,7 +3801,9 @@ import (
 // (`Props[Logger]()`, `classOf[T]`) name their types; and a qualified type
 // (`util.Logger`) resolves by its whole path, relative to the file's package, before
 // falling back to its last segment.
-const cacheVersion = "v684"
+// v685: Svelte: a component tag in markup is a reference, from the rendering
+// component to the declaration its script imported under that name.
+const cacheVersion = "v685"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

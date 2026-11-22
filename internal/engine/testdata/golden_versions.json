@@ -1,5 +1,5 @@
 {
-  "cache_version": "v684",
+  "cache_version": "v685",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -155,7 +155,7 @@
     },
     "scala_sample": {
       "input": "0856141cda28eb050f696a6d9012bb30d9d752244ea1356122765b859cd2d9e1",
-      "facts": "5437618d6307361f4aa57ad0a861685d7627cd47653dcc63c2d7bca4ae24e0fc"
+      "facts": "38daa10ed0a0b1a6a55f04b77b802c258f31ad41b07b335bf17cace956e0b1ca"
     },
     "stimulus_sample": {
       "input": "d30d60afa302408655733ba1f31009b9c7e3a9242d1b7242046aa91ca469c710",

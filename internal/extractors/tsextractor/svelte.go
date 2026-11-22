@@ -358,7 +358,30 @@ func svelteMarkupOnly(src []byte) []byte {
 // (so a nested ${...} is still walked as an expression, which is what we want),
 // at the cost of not perfectly balancing a stray literal '{' or '}' inside one.
 func scanMustacheExpressions(markup []byte) [][]byte {
-	var exprs [][]byte
+	spans := mustacheSpans(markup)
+	exprs := make([][]byte, 0, len(spans))
+	for _, sp := range spans {
+		exprs = append(exprs, markup[sp[0]:sp[1]])
+	}
+	return exprs
+}
+
+// withoutMustacheExpressions returns markup with the inside of every top-level
+// {...} expression removed, leaving only element and text structure.
+func withoutMustacheExpressions(markup []byte) []byte {
+	var out []byte
+	pos := 0
+	for _, sp := range mustacheSpans(markup) {
+		out = append(out, markup[pos:sp[0]]...)
+		pos = sp[1]
+	}
+	return append(out, markup[pos:]...)
+}
+
+// mustacheSpans returns the [start,end) byte ranges of the content of every
+// top-level {...} expression, as scanMustacheExpressions describes.
+func mustacheSpans(markup []byte) [][2]int {
+	var spans [][2]int
 	depth := 0
 	start := 0
 	var quote byte
@@ -388,12 +411,12 @@ func scanMustacheExpressions(markup []byte) [][]byte {
 			if depth > 0 {
 				depth--
 				if depth == 0 {
-					exprs = append(exprs, markup[start:i])
+					spans = append(spans, [2]int{start, i})
 				}
 			}
 		}
 	}
-	return exprs
+	return spans
 }
 
 // extractSvelteMarkupRefs scans a Svelte SFC's template for identifiers referenced
@@ -445,13 +468,49 @@ func extractSvelteMarkupRefs(rawSrc []byte, relFile string) *facts.Fact {
 	}
 }
 
+var (
+	svelteComponentTagRe = regexp.MustCompile(`<([A-Z][A-Za-z0-9_$]*)`)
+	htmlCommentRe        = regexp.MustCompile(`(?s)<!--.*?-->`)
+)
+
+// svelteComponentTagRefs returns, sorted, the declarations named by the component
+// tags in an SFC's markup. Svelte reads a capitalised tag as a component, never
+// an HTML element, so `<CrateRow>` renders whatever the script bound to CrateRow.
+// Only a name an import of this repository bound is resolved: a component from a
+// package, or a capitalised word with no import, names nothing here. Script,
+// style and comment text is never markup, and neither is a {...} expression,
+// where `Array<Role>` is a type argument.
+func svelteComponentTagRefs(rawSrc []byte, imported map[string]string, self string) []string {
+	if len(imported) == 0 {
+		return nil
+	}
+	markup := withoutMustacheExpressions(htmlCommentRe.ReplaceAll(svelteMarkupOnly(rawSrc), nil))
+	seen := map[string]bool{}
+	var targets []string
+	for _, m := range svelteComponentTagRe.FindAllSubmatch(markup, -1) {
+		target := imported[string(m[1])]
+		if target == "" || target == self || seen[target] {
+			continue
+		}
+		seen[target] = true
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	return targets
+}
+
 // extractSvelteSFC extracts architectural facts from a Svelte Single File Component.
 func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, relFile string, isSvelteKit bool, aliases map[string]tsAlias, files *tsFileIndex) []facts.Fact {
 	var result []facts.Fact
 	blocks := extractSvelteScriptBlocks(rawSrc)
 
+	imported := map[string]string{}
 	for _, block := range blocks {
-		result = append(result, e.extractSvelteScriptBlock(kinds, block, relFile, isSvelteKit, aliases, files)...)
+		blockFacts, internal := e.extractSvelteScriptBlock(kinds, block, relFile, isSvelteKit, aliases, files)
+		result = append(result, blockFacts...)
+		for local, target := range internal {
+			imported[local] = target
+		}
 	}
 
 	if ref := extractSvelteMarkupRefs(rawSrc, relFile); ref != nil {
@@ -492,6 +551,23 @@ func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, r
 		})
 	}
 
+	// A component tag in the markup renders the component the script imported
+	// under that name. Hang the reference off this component, as the Vue template
+	// pass does.
+	if targets := svelteComponentTagRefs(rawSrc, imported, factName); len(targets) > 0 {
+		for i := range result {
+			if result[i].Kind != facts.KindSymbol || result[i].Name != factName {
+				continue
+			}
+			for _, target := range targets {
+				if !result[i].HasRelation(facts.RelCalls, target) {
+					result[i].Relations = append(result[i].Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
+				}
+			}
+			break
+		}
+	}
+
 	if isSvelteKit {
 		if routeFact := detectSvelteKitRoute(relFile); routeFact != nil {
 			result = append(result, *routeFact)
@@ -501,7 +577,10 @@ func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, r
 	return result
 }
 
-func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *svelteScriptBlock, relFile string, isSvelteKit bool, aliases map[string]tsAlias, files *tsFileIndex) []facts.Fact {
+// extractSvelteScriptBlock also returns the block's imports of this repository's
+// modules, local name to the symbol the imported file declares, for the markup's
+// component tags.
+func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *svelteScriptBlock, relFile string, isSvelteKit bool, aliases map[string]tsAlias, files *tsFileIndex) ([]facts.Fact, map[string]string) {
 	isTSX := block.Lang == "tsx"
 	lang := typescript.LanguageTypescript()
 	if isTSX {
@@ -511,7 +590,7 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(lang)); err != nil {
-		return nil
+		return nil, nil
 	}
 
 	tree := parser.Parse(block.Content, nil)
@@ -521,6 +600,7 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 
 	var result []facts.Fact
 	result = append(result, e.extractImports(kinds, root, block.Content, relFile, aliases, isSvelteKit, files)...)
+	componentImports := buildVueImportBindings(kinds, root, block.Content, relFile, aliases, files.knownFiles()).internal
 
 	importMap, internalImports := buildImportBindings(kinds, root, block.Content, relFile, aliases, files)
 	ctx := &extractCtx{
@@ -559,5 +639,5 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 		}
 	}
 
-	return result
+	return result, componentImports
 }
