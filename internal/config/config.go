@@ -363,6 +363,14 @@ func Default() *Config {
 			"**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs",
 			"**/tests/**/*-test.gts",
+			// Mocha's default spec is test/*.{js,cjs,mjs}, with no suffix in the name, and
+			// QUnit suites in a Rails app's plugins keep the same test/ directory. Only
+			// JavaScript: across the corpus every .js, .mjs and .cjs file under a test/
+			// directory is a test, helper or fixture, while TypeScript there includes
+			// production code (a runtime's own node:test reporters).
+			"**/test/**/*.js",
+			"**/test/**/*.mjs",
+			"**/test/**/*.cjs",
 			// Ruby, unlike Go and TS, has no co-located test convention: RSpec
 			// requires spec/, Minitest defaults to test/. Demand the directory as
 			// well as the filename — a bare "**/*_test.rb" also swallows production
@@ -491,9 +499,22 @@ func Default() *Config {
 			// Keep in sync with TestGlobs below.
 			"**/src/test/**/*.kt",
 			"**/src/[a-z]*Test/**/*.kt",
+			// Android per-variant test sets (src/testDemo, src/androidTestProd).
+			"**/src/test[A-Z]*/**/*.kt",
+			"**/src/androidTest[A-Z]*/**/*.kt",
 			"**/*Tests/**/*.swift",
 			"**/tests/**/*.php",
 			"**/test/**/*.php",
+			// Java tests, scoped to the Maven and Gradle test source sets as Kotlin's are:
+			// src/test, src/<name>Test (androidTest, integrationTest), and the sets whose
+			// name continues after `test` or `androidTest` in upper case: Gradle's
+			// testFixtures (test code since v617) and Android flavor sets (testDemo,
+			// androidTestDemo). Recovered as test refs by JavaExtractor.ExtractTestRefs.
+			// Keep in sync with TestGlobs below.
+			"**/src/test/**/*.java",
+			"**/src/[a-z]*Test/**/*.java",
+			"**/src/test[A-Z]*/**/*.java",
+			"**/src/androidTest[A-Z]*/**/*.java",
 			// Dart tests. Directory-scoped, following the Ruby and C# precedent: pub's
 			// convention puts them under a package's `test/` (and `integration_test/`)
 			// directory, and a bare `**/*_test.dart` would additionally swallow
@@ -632,6 +653,7 @@ func Default() *Config {
 			"**/__tests__/**/*.jsx", "**/__tests__/**/*.mjs", "**/__tests__/**/*.cjs",
 			"**/tests/**/*-test.js", "**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs", "**/tests/**/*-test.gts",
+			"**/test/**/*.js", "**/test/**/*.mjs", "**/test/**/*.cjs",
 			"**/spec/**/*_spec.rb", "**/test/**/*_test.rb",
 			// Python has no TestRefExtractor yet, so these four are a deliberate
 			// no-op today: runTestRefExtractors skips non-implementers. They are
@@ -671,6 +693,9 @@ func Default() *Config {
 			// production symbol whose only caller is its test reads as test-only.
 			"**/src/test/**/*.kt",
 			"**/src/[a-z]*Test/**/*.kt",
+			// Android per-variant test sets (src/testDemo, src/androidTestProd).
+			"**/src/test[A-Z]*/**/*.kt",
+			"**/src/androidTest[A-Z]*/**/*.kt",
 			// Swift and PHP have no TestRefExtractor yet, so these are the same
 			// deliberate no-op as Scala's: listed because Ignore above requires the two
 			// lists to agree, and so that implementing ExtractTestRefs for one of them
@@ -679,6 +704,12 @@ func Default() *Config {
 			"**/*Tests/**/*.swift",
 			"**/tests/**/*.php",
 			"**/test/**/*.php",
+			// Java. Live: JavaExtractor implements TestRefExtractor, so a production
+			// symbol whose only caller is its test reads as test-only.
+			"**/src/test/**/*.java",
+			"**/src/[a-z]*Test/**/*.java",
+			"**/src/test[A-Z]*/**/*.java",
+			"**/src/androidTest[A-Z]*/**/*.java",
 			// Dart. Unlike Scala's above, these are live: DartExtractor implements
 			// TestRefExtractor, so a production symbol whose only caller is its test
 			// keeps a reference and does not read as dead.

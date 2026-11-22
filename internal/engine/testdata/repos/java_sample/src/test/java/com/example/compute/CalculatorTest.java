@@ -2,14 +2,16 @@ package com.example.compute;
 
 import org.junit.jupiter.api.Test;
 
-// v58: this file lives under src/test/java/..., so its module fact is tagged
-// module_role=test (production sources under src/main/java get module_role=production).
-// Keeping test source sets out of the production population is what package-metrics
-// relies on this prop for.
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+// v679: this file lives under src/test/java/..., a test source set, so it is ignored
+// for normal indexing and read only for its references: one test_ref fact naming
+// Calculator, FancyCalculator and fib, without JUnit's assertEquals or the test's own names.
 public class CalculatorTest {
 
     @Test
     public void testFib() {
-        // Exercises production compute code from a test-role module.
+        Calculator calc = new FancyCalculator();
+        assertEquals(5, calc.fib(5));
     }
 }
