@@ -363,6 +363,14 @@ func Default() *Config {
 			"**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs",
 			"**/tests/**/*-test.gts",
+			// Mocha's default spec is test/*.{js,cjs,mjs}, with no suffix in the name, and
+			// QUnit suites in a Rails app's plugins keep the same test/ directory. Only
+			// JavaScript: across the corpus every .js, .mjs and .cjs file under a test/
+			// directory is a test, helper or fixture, while TypeScript there includes
+			// production code (a runtime's own node:test reporters).
+			"**/test/**/*.js",
+			"**/test/**/*.mjs",
+			"**/test/**/*.cjs",
 			// Ruby, unlike Go and TS, has no co-located test convention: RSpec
 			// requires spec/, Minitest defaults to test/. Demand the directory as
 			// well as the filename — a bare "**/*_test.rb" also swallows production
@@ -625,6 +633,7 @@ func Default() *Config {
 			"**/__tests__/**/*.jsx", "**/__tests__/**/*.mjs", "**/__tests__/**/*.cjs",
 			"**/tests/**/*-test.js", "**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs", "**/tests/**/*-test.gts",
+			"**/test/**/*.js", "**/test/**/*.mjs", "**/test/**/*.cjs",
 			"**/spec/**/*_spec.rb", "**/test/**/*_test.rb",
 			// Python has no TestRefExtractor yet, so these four are a deliberate
 			// no-op today: runTestRefExtractors skips non-implementers. They are
