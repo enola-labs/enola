@@ -3828,7 +3828,10 @@ import (
 // directory that declares the imported name (Kotlin and Java, across languages);
 // a package's own directory prefers a production module over a test-support one,
 // and a main or shared source set over a platform set.
-const cacheVersion = "v692"
+// v693: package metrics count a derived module edge (named "module-edge: A -> B")
+// as coupling, so afferent, efferent, instability and distance on module facts move
+// wherever calls, not imports, connect two modules.
+const cacheVersion = "v693"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
