@@ -101,3 +101,34 @@ func routeKeys(m map[string]facts.Fact) []string {
 	}
 	return out
 }
+
+// A module named *_test.py outside a test tree is production: a "test connection"
+// feature names its modules this way. Its requests are client routes. The same
+// name inside a tests/ tree stays a test and emits none.
+func TestPythonHTTPClientInProductionModuleNamedLikeATest(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"app/connections/connection_test.py": `import requests
+
+def probe(conn_id):
+    return requests.post(f"/api/connections/{conn_id}/test")
+`,
+		"tests/unit/orders_test.py": `import requests
+
+def test_it():
+    requests.get("/api/orders/1")
+`,
+	})
+	got := clientRoutes(ff)
+	f, ok := got["POST /api/connections/{}/test"]
+	if !ok {
+		t.Fatalf("production module named *_test.py emitted no client route; got %v", routeKeys(got))
+	}
+	if c := f.PropString(facts.PropCaller); c != "app/connections/connection_test.probe" {
+		t.Errorf("caller = %q, want app/connections/connection_test.probe", c)
+	}
+	for k, f := range got {
+		if f.File == "tests/unit/orders_test.py" {
+			t.Errorf("a *_test.py file in a tests/ tree emitted a client route: %s", k)
+		}
+	}
+}

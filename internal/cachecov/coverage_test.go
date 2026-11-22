@@ -286,6 +286,7 @@ var versionCoverage = map[int][]string{
 	691: {"TestJavaStaticImportNamesTheType", "TestJavaStaticImportOfOwnTypeNamesNothing", "TestJavaTestRefsCountStaticImports"},
 	692: {"TestPackageDirPrefersProductionOverTestSupport", "TestResolveImportBindsTheDeclaringDirectory", "TestKotlinImportOfSplitPackageBindsTheDeclaringDirectory", "TestJavaImportOfSplitKotlinPackageBindsTheDeclaringDirectory"},
 	693: {"TestCollectCountsDerivedModuleEdges", "TestImporterOf"},
+	698: {"TestPythonHTTPClientInProductionModuleNamedLikeATest", "TestIsTestPath", "TestPythonExclusions"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -3834,7 +3834,10 @@ import (
 // v693: package metrics count a derived module edge (named "module-edge: A -> B")
 // as coupling, so afferent, efferent, instability and distance on module facts move
 // wherever calls, not imports, connect two modules.
-const cacheVersion = "v693"
+// v698: a Python file named *_test.py is test code only inside a test tree, as the
+// default ignore globs already had it. Outside one it is production: its HTTP calls
+// are client routes, and the analyzers rate its symbols like any other module's.
+const cacheVersion = "v698"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
