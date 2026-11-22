@@ -243,6 +243,12 @@ ignore:
   # Android per-variant test sets (src/testDemo, src/androidTestProd).
   - "**/src/test[A-Z]*/**/*.kt"
   - "**/src/androidTest[A-Z]*/**/*.kt"
+  # Java tests: the same Maven/Gradle source sets, plus src/testFixtures and Android
+  # flavor sets (src/testDemo, src/androidTestDemo). Kept in sync with config.Default().
+  - "**/src/test/**/*.java"
+  - "**/src/[a-z]*Test/**/*.java"
+  - "**/src/test[A-Z]*/**/*.java"
+  - "**/src/androidTest[A-Z]*/**/*.java"
   # Swift / Xcode build and cache
   - "DerivedData/**"
   - "**/DerivedData/**"

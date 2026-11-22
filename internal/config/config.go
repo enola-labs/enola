@@ -505,6 +505,16 @@ func Default() *Config {
 			"**/*Tests/**/*.swift",
 			"**/tests/**/*.php",
 			"**/test/**/*.php",
+			// Java tests, scoped to the Maven and Gradle test source sets as Kotlin's are:
+			// src/test, src/<name>Test (androidTest, integrationTest), and the sets whose
+			// name continues after `test` or `androidTest` in upper case: Gradle's
+			// testFixtures (test code since v617) and Android flavor sets (testDemo,
+			// androidTestDemo). Recovered as test refs by JavaExtractor.ExtractTestRefs.
+			// Keep in sync with TestGlobs below.
+			"**/src/test/**/*.java",
+			"**/src/[a-z]*Test/**/*.java",
+			"**/src/test[A-Z]*/**/*.java",
+			"**/src/androidTest[A-Z]*/**/*.java",
 			// Dart tests. Directory-scoped, following the Ruby and C# precedent: pub's
 			// convention puts them under a package's `test/` (and `integration_test/`)
 			// directory, and a bare `**/*_test.dart` would additionally swallow
@@ -684,6 +694,12 @@ func Default() *Config {
 			"**/*Tests/**/*.swift",
 			"**/tests/**/*.php",
 			"**/test/**/*.php",
+			// Java. Live: JavaExtractor implements TestRefExtractor, so a production
+			// symbol whose only caller is its test reads as test-only.
+			"**/src/test/**/*.java",
+			"**/src/[a-z]*Test/**/*.java",
+			"**/src/test[A-Z]*/**/*.java",
+			"**/src/androidTest[A-Z]*/**/*.java",
 			// Dart. Unlike Scala's above, these are live: DartExtractor implements
 			// TestRefExtractor, so a production symbol whose only caller is its test
 			// keeps a reference and does not read as dead.
