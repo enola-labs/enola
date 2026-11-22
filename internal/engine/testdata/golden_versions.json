@@ -1,5 +1,5 @@
 {
-  "cache_version": "v689",
+  "cache_version": "v693",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -183,7 +183,7 @@
     },
     "ts_ember_sample": {
       "input": "7782a0110102c070a2b05cffef18d5a06f5c29faa2a99cbe3b49c4311f30f826",
-      "facts": "9cc3ebef86c05c9e95b0b8be4a6729471a200824d654be324732cb6b9fa3b356"
+      "facts": "2ac749f8b7c5c2763723e20ddab22f1ede2a1e3a02f3846cc0b8f92beff60461"
     },
     "ts_express_multirepo": {
       "input": "92e40a075e8e1ede4aea6ca042457bec818bff4b931fb64069edfcc78521c918",

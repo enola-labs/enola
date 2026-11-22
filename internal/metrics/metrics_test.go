@@ -678,6 +678,43 @@ func TestImporterOf(t *testing.T) {
 	if got := importerOf("no-arrow-here"); got != "" {
 		t.Errorf("importerOf(malformed): got %q want empty", got)
 	}
+	if got := importerOf("module-edge: app/models -> app/controllers"); got != "app/models" {
+		t.Errorf("importerOf(derived module edge): got %q want app/models", got)
+	}
+}
+
+// TestCollectCountsDerivedModuleEdges: a module edge the module-edges binder derives
+// from resolved symbol edges (a call or constant read with no import behind it, the
+// normal shape in Ruby and PHP) is coupling, and the module graph, layers and
+// dependency depth all count it. Its fact is named "module-edge: <from> -> <to>", so
+// reading the importer as the text left of " -> " produced "module-edge: <from>",
+// which names no module, and the edge never reached Ca or Ce.
+func TestCollectCountsDerivedModuleEdges(t *testing.T) {
+	jsonl := `{"kind":"module","name":"app/models","repo":"r"}
+{"kind":"module","name":"app/controllers","repo":"r"}
+{"kind":"module","name":"app/jobs","repo":"r"}
+{"kind":"dependency","repo":"r","name":"app/controllers -> app/models","file":"app/controllers/_coupling.rb","relations":[{"kind":"imports","target":"app/models"}]}
+{"kind":"dependency","repo":"r","name":"module-edge: app/models -> app/controllers","file":"app/models/user.rb","props":{"coupling_kind":"symbol-rollup","derived":"symbol-rollup"},"relations":[{"kind":"imports","target":"app/controllers"}]}
+{"kind":"dependency","repo":"r","name":"module-edge: app/models -> app/jobs","file":"app/models/user.rb","props":{"coupling_kind":"symbol-rollup","derived":"symbol-rollup"},"relations":[{"kind":"imports","target":"app/jobs"}]}
+`
+	store := facts.NewStore()
+	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
+		t.Fatalf("ReadJSONL: %v", err)
+	}
+	pkgs, edges, _ := collectAll(store)
+	got := make(map[string]PackageMetric)
+	for _, m := range compute(pkgs, edges) {
+		got[m.Package] = m
+	}
+	if m := got["app/models"]; m.Ce != 2 || m.Ca != 1 {
+		t.Errorf("app/models: Ce=%d Ca=%d, want Ce=2 (both derived edges) Ca=1", m.Ce, m.Ca)
+	}
+	if m := got["app/controllers"]; m.Ca != 1 || m.Ce != 1 {
+		t.Errorf("app/controllers: Ca=%d Ce=%d, want Ca=1 (the derived edge) Ce=1", m.Ca, m.Ce)
+	}
+	if m := got["app/jobs"]; m.Ca != 1 {
+		t.Errorf("app/jobs: Ca=%d, want 1 (the derived edge)", m.Ca)
+	}
 }
 
 // --- new/57 / GAP-MC-05: the same defect fixed/56 fixed in perf, still live here ---

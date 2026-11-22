@@ -3819,7 +3819,10 @@ import (
 // v689: a derived module edge sits at a file of its source module, so readers place
 // it there and not at the parent directory, and an import of a file now connects
 // the module holding that file, so a pair an import connects is not derived again.
-const cacheVersion = "v689"
+// v693: package metrics count a derived module edge (named "module-edge: A -> B")
+// as coupling, so afferent, efferent, instability and distance on module facts move
+// wherever calls, not imports, connect two modules.
+const cacheVersion = "v693"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
