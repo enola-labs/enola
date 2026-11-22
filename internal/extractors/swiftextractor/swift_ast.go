@@ -610,8 +610,9 @@ func (w *astWalker) walkFileScopeCalls(root *sitter.Node) {
 		return
 	}
 
-	// Drop the file-ref fact if none of the statements produced a call edge.
-	if w.fileRefIdx >= 0 && len(w.out[w.fileRefIdx].Relations) == 0 {
+	// Drop the file-ref fact if none of the statements produced a call edge or a
+	// rooted call for resolveRootedCalls (which drops it if that comes to nothing).
+	if f := &w.out[w.fileRefIdx]; len(f.Relations) == 0 && f.PropAny(propRootedCalls) == nil {
 		w.out = append(w.out[:w.fileRefIdx], w.out[w.fileRefIdx+1:]...)
 		w.fileRefIdx = -1
 	}
@@ -1291,7 +1292,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// and also credit the invoked method by short name (post-pass).
 				w.addOwnerEdge(facts.RelCalls, root)
 				w.recordCallMetrics(root, node)
-				w.addTentativeMethodCall(name)
+				w.noteRootedCall(callee, root, name)
 				// Type.member(), Outer.Type.member(): a static call on a type binds to
 				// its method.
 				if typ := staticReceiver(callee.ChildByFieldName("target"), w.src); typ != "" {
@@ -1301,8 +1302,14 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// Member call on a lowercase / property-chain receiver
 				// (coordinator?.show(), delegate?.tap(), self.prop.foo()). Emit a
 				// tentative bare short-name edge, resolved or dropped in the
-				// post-pass. Preserve the existing in-loop perf metric.
-				w.addTentativeMethodCall(name)
+				// post-pass. Preserve the existing in-loop perf metric. A chain rooted
+				// at a framework type (URL.documentsDirectory.appending()) is a
+				// rooted call.
+				if isCapitalized(root) {
+					w.noteRootedCall(callee, root, name)
+				} else {
+					w.addTentativeMethodCall(name)
+				}
 				w.noteTypedCall(w.receiverType(callee), name)
 				if w.loopDepth > 0 && !swiftCheapMethods[name] {
 					tgt := name

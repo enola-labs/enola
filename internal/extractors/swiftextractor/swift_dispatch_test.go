@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -26,6 +28,7 @@ func extractRepo(t *testing.T, files map[string]string) []facts.Fact {
 		}
 		names = append(names, rel)
 	}
+	sort.Strings(names) // the walk sees files in path order, as a snapshot does
 	ff, err := New().Extract(context.Background(), repo, names)
 	if err != nil {
 		t.Fatal(err)
@@ -129,8 +132,13 @@ class C {
 	if !hasRelation(f, facts.RelCalls, "AppComposition") {
 		t.Errorf("expected calls AppComposition (root type); relations=%v", f.Relations)
 	}
-	if !hasRelation(f, facts.RelCalls, "makeRepo") {
-		t.Errorf("expected tentative calls makeRepo (method); relations=%v", f.Relations)
+	// The method is noted with its root, for resolveRootedCalls to bind once the
+	// repository's declarations are known.
+	notes, _ := f.PropAny(propRootedCalls).([]swiftRootedCall)
+	if !slices.ContainsFunc(notes, func(n swiftRootedCall) bool {
+		return n.root == "AppComposition" && n.method == "makeRepo" && slices.Equal(n.via, []string{"shared"})
+	}) {
+		t.Errorf("expected rooted call AppComposition.makeRepo; notes=%v", notes)
 	}
 }
 
@@ -291,7 +299,7 @@ func TestResolveMethodCalls(t *testing.T) {
 		},
 	}}
 
-	resolveMethodCalls(ff, methodIndex, funcIndex)
+	resolveMethodCalls(ff, &swiftIndexes{prod: swiftNameIndex{methods: methodIndex, funcs: funcIndex}})
 
 	got := ff[0].Relations
 	want := []facts.Relation{

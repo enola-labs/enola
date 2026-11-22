@@ -59,7 +59,7 @@ func TestResolveInheritedCalls_SubclassBaseMethod(t *testing.T) {
 		t.Fatalf("expected dangling pkg.foo before resolution; got %v", callTargets(b))
 	}
 
-	resolveInheritedCalls(ff)
+	resolveInheritedCalls(ff, &swiftHierarchies{facts: ff})
 
 	b, _ = findFact(ff, "pkg.B.bar")
 	if !containsStr(callTargets(b), "pkg.A.foo") {
@@ -76,7 +76,7 @@ func TestResolveInheritedCalls_ProtocolExtensionMethod(t *testing.T) {
 		"extension P {\n  func px() {}\n}\n" +
 		"struct S: P {\n  func use() { px() }\n}"
 	ff := extractAST(t, src, false)
-	resolveInheritedCalls(ff)
+	resolveInheritedCalls(ff, &swiftHierarchies{facts: ff})
 
 	s, ok := findFact(ff, "pkg.S.use")
 	if !ok {
@@ -98,7 +98,7 @@ func TestResolveInheritedCalls_NearestAncestorWins(t *testing.T) {
 		methodFactI("d.B.foo", "B"),
 		methodFactI("d.C.run", "C", "foo"),
 	}
-	resolveInheritedCalls(ff)
+	resolveInheritedCalls(ff, &swiftHierarchies{facts: ff})
 	if got := callTargets(ff[5]); !containsStr(got, "d.B.foo") || containsStr(got, "foo") {
 		t.Errorf("nearest-ancestor resolution: want d.B.foo, got %v", got)
 	}
@@ -112,7 +112,7 @@ func TestResolveInheritedCalls_NoAncestorLeftAlone(t *testing.T) {
 		classFactI("d.A"),
 		methodFactI("d.B.run", "B", "someFrameworkThing"),
 	}
-	resolveInheritedCalls(ff)
+	resolveInheritedCalls(ff, &swiftHierarchies{facts: ff})
 	if got := callTargets(ff[2]); !containsStr(got, "someFrameworkThing") {
 		t.Errorf("unresolvable dangling call must be left as-is; got %v", got)
 	}
@@ -126,7 +126,7 @@ func TestResolveInheritedCalls_SupertypeCycleTerminates(t *testing.T) {
 		methodFactI("d.A.foo", "A"),
 		methodFactI("d.B.run", "B", "foo"),
 	}
-	resolveInheritedCalls(ff) // must terminate
+	resolveInheritedCalls(ff, &swiftHierarchies{facts: ff}) // must terminate
 	if got := callTargets(ff[3]); !containsStr(got, "d.A.foo") {
 		t.Errorf("cycle-safe resolution: want d.A.foo, got %v", got)
 	}
@@ -142,7 +142,7 @@ func TestResolveInheritedCalls_ResolvedEdgesUntouched(t *testing.T) {
 		methodFactI("d.Other.foo", "Other"),
 		methodFactI("d.B.run", "B", "d.Other.foo"), // already resolved to a real fact
 	}
-	resolveInheritedCalls(ff)
+	resolveInheritedCalls(ff, &swiftHierarchies{facts: ff})
 	if got := callTargets(ff[4]); !containsStr(got, "d.Other.foo") || containsStr(got, "d.A.foo") {
 		t.Errorf("resolved edge must be untouched; want d.Other.foo, got %v", got)
 	}

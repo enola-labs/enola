@@ -3761,7 +3761,12 @@ import (
 // v676: Kotlin implements plugin.TestRefExtractor: each ignored Kotlin test file
 // emits one test_ref fact carrying the calls, member reads, callable references and
 // types it names, without the test harness's vocabulary or the file's own helpers.
-const cacheVersion = "v676"
+// v677: Swift: a reference from a production file binds only to declarations
+// outside test targets (a directory ending in Tests): a type, a member call's
+// unique method, a typed receiver's method or an inherited one. A member call rooted
+// at a type the repository does not declare (Bundle.module.path()) binds only to a
+// method no class or struct of the repository owns, else to a top-level function.
+const cacheVersion = "v677"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
