@@ -545,9 +545,13 @@ func (w *astWalker) walkTestItem(c *sitter.Node) {
 		}
 	case "use_declaration":
 		w.handleUse(c)
-	case "impl_item", "struct_item", "enum_item", "trait_item",
-		"type_item", "const_item", "static_item", "function_signature_item":
-		// Test-only fixtures: intentionally not emitted or descended into.
+	case "impl_item":
+		w.walkTestImpl(c)
+	case "const_item", "static_item":
+		// A fixture constant built by a production call uses that call.
+		w.walkForCalls(c.ChildByFieldName("value"))
+	case "struct_item", "enum_item", "trait_item", "type_item", "function_signature_item":
+		// Test-only declarations: intentionally not emitted or descended into.
 	default:
 		w.walkForCalls(c)
 	}
@@ -2654,5 +2658,31 @@ func setAttributedStart(f *facts.Fact, node *sitter.Node) {
 			continue
 		}
 		return
+	}
+}
+
+// walkTestImpl walks an impl block inside test code for its references only: the
+// trait it implements (a fixture standing in for a production trait uses it) and the
+// calls its methods and associated constants make. The fixture's own type is pushed
+// as it is for a production impl, so `self.helper()` names the fixture's method and
+// not a production symbol of the same name.
+func (w *astWalker) walkTestImpl(node *sitter.Node) {
+	w.scanTypeNames(node.ChildByFieldName("trait"))
+	body := node.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	typeName := simpleTypeName(node.ChildByFieldName("type"), w.src)
+	if typeName != "" {
+		w.pushType(typeName, collectFnNames(body, w.src))
+		defer w.popType()
+	}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		switch c := body.NamedChild(i); kindOf(c) {
+		case "function_item":
+			w.walkForCalls(c.ChildByFieldName("body"))
+		case "const_item":
+			w.walkForCalls(c.ChildByFieldName("value"))
+		}
 	}
 }
