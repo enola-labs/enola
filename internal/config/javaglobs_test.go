@@ -22,27 +22,25 @@ func TestJavaTestGlobsScopeToTestSourceSets(t *testing.T) {
 	for _, tc := range []struct {
 		path string
 		test bool
-		// flavor marks a Gradle flavor set, which facts.IsTestPath does not yet name.
-		flavor bool
 	}{
-		{"dubbo-common/src/test/java/org/apache/dubbo/common/URLTest.java", true, false},
-		{"src/test/java/demo/support/Fixtures.java", true, false},
-		{"app/src/androidTest/java/demo/ui/ScreenTest.java", true, false},
-		{"service/src/integrationTest/java/demo/ApiIT.java", true, false},
-		{"core/src/testFixtures/java/demo/FakeClock.java", true, false},
-		{"app/src/testDemo/java/demo/DemoTest.java", true, true},
-		{"app/src/androidTestDemo/java/demo/DemoScreenTest.java", true, true},
-		{"api/src/main/java/demo/model/ABTest.java", false, false},
-		{"app/src/main/java/demo/test/Seed.java", false, false},
-		{"src/main/java/org/junit/TestCase.java", false, false},
-		{"app/src/debug/java/demo/DebugMenu.java", false, false},
+		{"dubbo-common/src/test/java/org/apache/dubbo/common/URLTest.java", true},
+		{"src/test/java/demo/support/Fixtures.java", true},
+		{"app/src/androidTest/java/demo/ui/ScreenTest.java", true},
+		{"service/src/integrationTest/java/demo/ApiIT.java", true},
+		{"core/src/testFixtures/java/demo/FakeClock.java", true},
+		{"app/src/testDemo/java/demo/DemoTest.java", true},
+		{"app/src/androidTestDemo/java/demo/DemoScreenTest.java", true},
+		{"api/src/main/java/demo/model/ABTest.java", false},
+		{"app/src/main/java/demo/test/Seed.java", false},
+		{"src/main/java/org/junit/TestCase.java", false},
+		{"app/src/debug/java/demo/DebugMenu.java", false},
 	} {
 		ignored := pathglob.MatchAny(tc.path, def.Ignore)
 		globbed := pathglob.MatchAny(tc.path, def.TestGlobs)
 		if ignored != tc.test || globbed != tc.test {
 			t.Errorf("%s: ignored=%v testGlob=%v, want both %v", tc.path, ignored, globbed, tc.test)
 		}
-		if tc.test && !tc.flavor && !facts.IsTestPath(tc.path) {
+		if tc.test && !facts.IsTestPath(tc.path) {
 			t.Errorf("%s: matched by the test globs but facts.IsTestPath calls it production", tc.path)
 		}
 		if got, want := walkFate(bundled, tc.path), walkFate(def, tc.path); got != want {

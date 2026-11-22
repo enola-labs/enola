@@ -1,5 +1,5 @@
 $ enola log --since <TIME> .
 exit: 0
 --- stdout
-a0c1e82  <TIME>  (9522ef6c8541, backfill)  1 new finding · +4 facts · +4 edges
+7f92590  <TIME>  (9522ef6c8541, backfill)  1 new finding · +4 facts · +4 edges
 --- stderr

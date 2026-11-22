@@ -3766,6 +3766,10 @@ import (
 // unique method, a typed receiver's method or an inherited one. A member call rooted
 // at a type the repository does not declare (Bundle.module.path()) binds only to a
 // method no class or struct of the repository owns, else to a top-level function.
+// v678: Android per-variant test source sets (src/test<Variant>, src/androidTest<Variant>)
+// are test code, and their Kotlin files are ignored and listed as test globs; so are
+// JavaScript files under a test/ directory (Mocha's default), which the TypeScript
+// extractor reads for test refs.
 // v679: Java tests are ignored and listed as test globs by default (Maven and Gradle
 // src/test, src/<name>Test, src/testFixtures and Android flavor sets), and Java
 // implements plugin.TestRefExtractor: each ignored Java test file emits one test_ref
