@@ -3834,7 +3834,11 @@ import (
 // v693: package metrics count a derived module edge (named "module-edge: A -> B")
 // as coupling, so afferent, efferent, instability and distance on module facts move
 // wherever calls, not imports, connect two modules.
-const cacheVersion = "v693"
+// v694: Swift implements plugin.TestRefExtractor: each ignored Swift test file
+// emits one test_ref fact carrying the calls, member reads, implicit members, key
+// path components and types it names, without the XCTest, Swift Testing and
+// Point-Free harness vocabulary or the file's own declarations.
+const cacheVersion = "v694"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
