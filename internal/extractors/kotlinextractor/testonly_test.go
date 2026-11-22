@@ -15,7 +15,7 @@ import (
 // constructor parameters are observed.
 func extractFileAST(src []byte, relFile string, isAndroid bool, sourceRoot, basePackage string, packageIndex map[string]string) []facts.Fact {
 	var out []facts.Fact
-	withTree(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex, func(_ *sitter.Node, walked []facts.Fact) {
+	withTree(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex, nil, func(_ *sitter.Node, walked []facts.Fact) {
 		out = walked
 	})
 	return out

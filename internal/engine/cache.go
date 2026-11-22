@@ -3819,7 +3819,11 @@ import (
 // v689: a derived module edge sits at a file of its source module, so readers place
 // it there and not at the parent directory, and an import of a file now connects
 // the module holding that file, so a pair an import connects is not derived again.
-const cacheVersion = "v689"
+// v692: JVM: an import of a package declared in several directories binds to the
+// directory that declares the imported name (Kotlin and Java, across languages);
+// a package's own directory prefers a production module over a test-support one,
+// and a main or shared source set over a platform set.
+const cacheVersion = "v692"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
