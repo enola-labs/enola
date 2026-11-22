@@ -2630,3 +2630,21 @@ func TestGoIOPackage_NameNotSubstring(t *testing.T) {
 		}
 	}
 }
+
+func TestAnalyze_RustCallInLoop_IteratorNameOfAnIOMethodNotFlagged(t *testing.T) {
+	// A model's `User::find(conn, id)` and `Query::all(conn)` run queries, so they
+	// carry performs_io and their names reach the short-name index. An unresolved
+	// `.iter().find(..)`, `.all(..)` or an atomic `.load(..)` in a loop is the
+	// Iterator or atomic method, not that query.
+	for _, name := range []string{"find", "all", "any", "position", "load", "store", "first", "last"} {
+		funcs := []funcInfo{
+			{Name: "svc/feed.match_targets", File: "crates/feed/src/lib.rs", Line: 20,
+				Exported: true, LoopDepth: 1, LoopCount: 1, ScalingLoopDepth: 1, HasScalingDepth: true,
+				CallsInLoop: []string{name}, CallsInScalingLoop: []string{name}, HasScalingLoopCalls: true},
+			{Name: "crates/db/src/models.User." + name, File: "crates/db/src/models/user.rs", Line: 3, PerformsIO: true},
+		}
+		if f, ok := findFinding(analyze(funcs, nil, nil), "svc/feed.match_targets", "call-in-loop"); ok {
+			t.Errorf("unresolved in-loop %q read as the query of the same name: %+v", name, f)
+		}
+	}
+}
