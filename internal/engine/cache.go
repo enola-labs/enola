@@ -3812,7 +3812,11 @@ import (
 // repository declares it; an annotation imported from outside the repository, or one
 // Kotlin imports by default (@Deprecated, @JvmStatic, @Volatile) and the file does
 // not import itself, records nothing.
-const cacheVersion = "v687"
+// v688: SvelteKit: an app in a workspace package (its own svelte.config.* or
+// @sveltejs/kit dependency) under a root that is not one is SvelteKit for its own
+// files: $lib and its config aliases resolve there, its +page/+layout/+error/+server
+// files are routes, and its components and load functions carry framework sveltekit.
+const cacheVersion = "v688"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

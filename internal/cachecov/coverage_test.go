@@ -280,6 +280,7 @@ var versionCoverage = map[int][]string{
 	685: {"TestExtract_SvelteMarkupComponentTagReferencesImport", "TestExtract_SvelteKitMarkupComponentTagThroughLibAlias", "TestExtract_SvelteMarkupComponentTagRenamedDefaultImport", "TestExtract_SvelteMarkupComponentTagNeedsAnImport", "TestExtract_SvelteMarkupComponentTagIgnoresExpressionGenerics"},
 	686: {"TestJavaClassLiteralNamesTheType", "TestJavaStaticMemberReadNamesTheType", "TestJavaParameterAndFieldTypesNameTheType", "TestJavaTypeRefsDoNotBindShadowedNames"},
 	687: {"TestKotlinDeclarationAnnotationNamesItsType", "TestKotlinDeclarationAnnotationDoesNotBindFrameworkNames"},
+	688: {"TestExtract_SvelteKitAppInWorkspaceMember"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

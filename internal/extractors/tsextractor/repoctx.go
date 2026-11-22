@@ -15,12 +15,22 @@ type tsFrameworks struct {
 	appDirs []string
 	orms    ormFlags
 	// nextDirs are the packages of a workspace that are Next.js apps, repo-relative,
-	// where the repository's own root is not one (see nextJSPackageDirs).
+	// where the repository's own root is not one (see frameworkPackageDirs).
 	nextDirs []string
 	// nextRoots are the directories a Next.js app's pages/ and app/ routers live in,
 	// repo-relative ("" for the repository root): each Next.js package, and the root
 	// or the TypeScript root when that is one.
 	nextRoots []string
+	// svelteKitDirs are the packages of a workspace that are SvelteKit apps,
+	// repo-relative, where the repository's own root and TypeScript root are not
+	// one (see frameworkPackageDirs). Empty when isSvelteKit already holds.
+	svelteKitDirs []string
+}
+
+// svelteKitFile reports whether relFile belongs to a SvelteKit app: the whole
+// repository, or one of its SvelteKit packages.
+func (fw tsFrameworks) svelteKitFile(relFile string) bool {
+	return fw.isSvelteKit || inPackageDir(relFile, fw.svelteKitDirs)
 }
 
 type repoCtx struct {

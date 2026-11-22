@@ -11,6 +11,7 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/linkers/binders/httphandler"
 	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
+	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
@@ -154,7 +155,9 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// fresh one did not yet, and the two bound different operations.
 	resolver := httphandler.NewResolver(store)
 	for _, f := range store.ByKind(facts.KindRoute) {
-		if f.PropString(facts.PropSource) == facts.RouteSourceOpenAPI || f.PropString(facts.PropRole) == facts.RoleClient {
+		// A page the browser navigates to is not an endpoint the spec documents, and
+		// one at an API route's path would make that route's handler ambiguous.
+		if f.PropString(facts.PropSource) == facts.RouteSourceOpenAPI || f.PropString(facts.PropRole) == facts.RoleClient || routeindex.IsUIRoute(f) {
 			continue
 		}
 		var targets []string
