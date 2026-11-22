@@ -3795,7 +3795,13 @@ import (
 // annotation type when the name resolves, as javac resolves it, to a type the
 // repository declares; JDK and framework annotations record nothing. The Java
 // test-ref walk records an annotation a test applies when it names a production type.
-const cacheVersion = "v683"
+// v684: Scala: an import reaching through an object (`import Parsers._`,
+// `import a.Registry.{next}`) names that object, from the enclosing declaration or
+// from a file-scope file_ref fact; the type arguments of a type application
+// (`Props[Logger]()`, `classOf[T]`) name their types; and a qualified type
+// (`util.Logger`) resolves by its whole path, relative to the file's package, before
+// falling back to its last segment.
+const cacheVersion = "v684"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
