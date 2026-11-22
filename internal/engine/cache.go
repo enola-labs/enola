@@ -3782,7 +3782,9 @@ import (
 // v681: Swift: an SPM testTarget with no path: is the directory Tests/<name>,
 // SwiftPM's default, not Sources/<name>, in its module fact, its dependency facts
 // and the module a file under it declares into.
-const cacheVersion = "v681"
+// v685: Svelte: a component tag in markup is a reference, from the rendering
+// component to the declaration its script imported under that name.
+const cacheVersion = "v685"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

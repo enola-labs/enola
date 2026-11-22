@@ -445,13 +445,48 @@ func extractSvelteMarkupRefs(rawSrc []byte, relFile string) *facts.Fact {
 	}
 }
 
+var (
+	svelteComponentTagRe = regexp.MustCompile(`<([A-Z][A-Za-z0-9_$]*)`)
+	htmlCommentRe        = regexp.MustCompile(`(?s)<!--.*?-->`)
+)
+
+// svelteComponentTagRefs returns, sorted, the declarations named by the component
+// tags in an SFC's markup. Svelte reads a capitalised tag as a component, never
+// an HTML element, so `<CrateRow>` renders whatever the script bound to CrateRow.
+// Only a name an import of this repository bound is resolved: a component from a
+// package, or a capitalised word with no import, names nothing here. Script,
+// style and comment text is never markup.
+func svelteComponentTagRefs(rawSrc []byte, imported map[string]string, self string) []string {
+	if len(imported) == 0 {
+		return nil
+	}
+	markup := htmlCommentRe.ReplaceAll(svelteMarkupOnly(rawSrc), nil)
+	seen := map[string]bool{}
+	var targets []string
+	for _, m := range svelteComponentTagRe.FindAllSubmatch(markup, -1) {
+		target := imported[string(m[1])]
+		if target == "" || target == self || seen[target] {
+			continue
+		}
+		seen[target] = true
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	return targets
+}
+
 // extractSvelteSFC extracts architectural facts from a Svelte Single File Component.
 func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, relFile string, isSvelteKit bool, aliases map[string]tsAlias, files *tsFileIndex) []facts.Fact {
 	var result []facts.Fact
 	blocks := extractSvelteScriptBlocks(rawSrc)
 
+	imported := map[string]string{}
 	for _, block := range blocks {
-		result = append(result, e.extractSvelteScriptBlock(kinds, block, relFile, isSvelteKit, aliases, files)...)
+		blockFacts, internal := e.extractSvelteScriptBlock(kinds, block, relFile, isSvelteKit, aliases, files)
+		result = append(result, blockFacts...)
+		for local, target := range internal {
+			imported[local] = target
+		}
 	}
 
 	if ref := extractSvelteMarkupRefs(rawSrc, relFile); ref != nil {
@@ -492,6 +527,23 @@ func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, r
 		})
 	}
 
+	// A component tag in the markup renders the component the script imported
+	// under that name. Hang the reference off this component, as the Vue template
+	// pass does.
+	if targets := svelteComponentTagRefs(rawSrc, imported, factName); len(targets) > 0 {
+		for i := range result {
+			if result[i].Kind != facts.KindSymbol || result[i].Name != factName {
+				continue
+			}
+			for _, target := range targets {
+				if !result[i].HasRelation(facts.RelCalls, target) {
+					result[i].Relations = append(result[i].Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
+				}
+			}
+			break
+		}
+	}
+
 	if isSvelteKit {
 		if routeFact := detectSvelteKitRoute(relFile); routeFact != nil {
 			result = append(result, *routeFact)
@@ -501,7 +553,10 @@ func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, r
 	return result
 }
 
-func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *svelteScriptBlock, relFile string, isSvelteKit bool, aliases map[string]tsAlias, files *tsFileIndex) []facts.Fact {
+// extractSvelteScriptBlock also returns the block's imports of this repository's
+// modules, local name to the symbol the imported file declares, for the markup's
+// component tags.
+func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *svelteScriptBlock, relFile string, isSvelteKit bool, aliases map[string]tsAlias, files *tsFileIndex) ([]facts.Fact, map[string]string) {
 	isTSX := block.Lang == "tsx"
 	lang := typescript.LanguageTypescript()
 	if isTSX {
@@ -511,7 +566,7 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(lang)); err != nil {
-		return nil
+		return nil, nil
 	}
 
 	tree := parser.Parse(block.Content, nil)
@@ -521,6 +576,7 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 
 	var result []facts.Fact
 	result = append(result, e.extractImports(kinds, root, block.Content, relFile, aliases, isSvelteKit, files)...)
+	componentImports := buildVueImportBindings(kinds, root, block.Content, relFile, aliases, files.knownFiles()).internal
 
 	importMap, internalImports := buildImportBindings(kinds, root, block.Content, relFile, aliases, files)
 	ctx := &extractCtx{
@@ -559,5 +615,5 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 		}
 	}
 
-	return result
+	return result, componentImports
 }
