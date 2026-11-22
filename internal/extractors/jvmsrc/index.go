@@ -437,17 +437,3 @@ func GeneratedImport(importPath string, index map[string]string) bool {
 	}
 	return false
 }
-
-// ResolveImport maps a JVM import FQN to the directory of the package that holds
-// it, using a package index from BuildPackageIndex. It walks from the longest
-// dotted prefix down to the shortest, so that `de.foo.bar.Baz` resolves via the
-// package `de.foo.bar` and a nested-type import `de.foo.bar.Outer.Inner` still
-// resolves once a known package prefix is found. Any remaining segments (the
-// type / nested-type name) are appended as path components so the caller's
-// module-resolution still lands on the package directory and the produced fact
-// name matches the "<dir>.<Type>" symbol convention. Returns ok=false when no
-// prefix is a known package (i.e. an external dependency), and for an import of
-// generated code (see GeneratedImport).
-func ResolveImport(importPath string, index map[string]string) (string, bool) {
-	return ResolveImportNamed(importPath, index, nil)
-}
