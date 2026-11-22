@@ -3782,7 +3782,9 @@ import (
 // v681: Swift: an SPM testTarget with no path: is the directory Tests/<name>,
 // SwiftPM's default, not Sources/<name>, in its module fact, its dependency facts
 // and the module a file under it declares into.
-const cacheVersion = "v681"
+// v682: Kotlin test refs: only a class or object the test file declares drops a
+// receiver's members; a local named like a test function is still a receiver.
+const cacheVersion = "v682"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

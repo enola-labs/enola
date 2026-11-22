@@ -100,6 +100,11 @@ class RepoTest {
     composeTestRule.onNodeWithText("x").performClick()
   }
 
+  @Test fun histogram() {
+    val histogram = HistogramConfig()
+    histogram.setPercentiles(null)
+  }
+
   private fun helper() {}
 }
 
@@ -118,7 +123,9 @@ class FakeStore { val wasCalled = true; fun reset() {} }
 			t.Errorf("harness or own name %q recorded; have %v", banned, sortedKeys(got))
 		}
 	}
-	for _, want := range []string{"store.load", "load", "save", "repo.items", "items"} {
+	for _, want := range []string{"store.load", "load", "save", "repo.items", "items",
+		"histogram.setPercentiles", "setPercentiles", // a local named like a test function is still a receiver
+	} {
 		if !got[want] {
 			t.Errorf("missing reference %q; have %v", want, sortedKeys(got))
 		}
