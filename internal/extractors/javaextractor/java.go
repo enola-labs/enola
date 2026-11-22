@@ -205,6 +205,7 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex map[string]string
 			resolveImport(f, typeDir, packageDir)
 			continue
 		}
+		resolveAnnotationRefs(f, typeIndex)
 		for j := range f.Relations {
 			r := &f.Relations[j]
 			switch r.Kind {

@@ -3782,7 +3782,12 @@ import (
 // v681: Swift: an SPM testTarget with no path: is the directory Tests/<name>,
 // SwiftPM's default, not Sources/<name>, in its module fact, its dependency facts
 // and the module a file under it declares into.
-const cacheVersion = "v681"
+// v683: Java: an annotation is a use of its type. What it annotates (a type, a
+// method, a field's or a local's enclosing declaration) gets a names edge to the
+// annotation type when the name resolves, as javac resolves it, to a type the
+// repository declares; JDK and framework annotations record nothing. The Java
+// test-ref walk records an annotation a test applies when it names a production type.
+const cacheVersion = "v683"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

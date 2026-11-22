@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
+	"github.com/enola-labs/enola/internal/extractors/jvmsrc"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
@@ -29,9 +31,10 @@ import (
 // orphan detector matches a test-ref target both exactly and by its last segment.
 // That is the shape the Kotlin, Scala, C# and Ruby passes emit.
 //
-// The engine scopes testFiles to .java files through plugin.FileOwner. prodFiles is
-// unused: nothing here decides whether a referenced module exists.
-func (e *JavaExtractor) ExtractTestRefs(ctx context.Context, repoPath string, testFiles, _ []string) ([]facts.Fact, error) {
+// The engine scopes testFiles to .java files through plugin.FileOwner. prodFiles
+// decides one thing: whether an annotation a test applies names a production type
+// (javaProdTypes), since an annotation is otherwise the harness (@Test, @Mock).
+func (e *JavaExtractor) ExtractTestRefs(ctx context.Context, repoPath string, testFiles, prodFiles []string) ([]facts.Fact, error) {
 	var javaFiles []string
 	for _, relFile := range testFiles {
 		if isJavaFile(relFile) {
@@ -41,6 +44,7 @@ func (e *JavaExtractor) ExtractTestRefs(ctx context.Context, repoPath string, te
 	if len(javaFiles) == 0 {
 		return nil, nil
 	}
+	prodTypes := javaProdTypes(ctx, repoPath, prodFiles)
 
 	perFile := parallel.MapFiles(ctx, javaFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
@@ -48,7 +52,7 @@ func (e *JavaExtractor) ExtractTestRefs(ctx context.Context, repoPath string, te
 			log.Printf("[java-extractor] error reading test file %s: %v", relFile, err)
 			return nil
 		}
-		return testRefsFromFile(src, relFile)
+		return testRefsFromFileIn(src, relFile, prodTypes)
 	})
 
 	var out []facts.Fact
@@ -157,11 +161,37 @@ func javaTestIgnored(name string) bool {
 	return javaTestHarnessNames[name] || javaLangTypes[name] || javaTestBuiltins[name]
 }
 
-// testRefsFromFile collects one test file's references into a single KindTestRef
+// javaProdTypes is the set of top-level type FQNs the production Java sources
+// declare: each file's package plus its base name, the public type javac requires
+// the file to be named after. Only an annotation type's existence is asked of it,
+// and an annotation type is public to be applied from a test in the first place.
+func javaProdTypes(ctx context.Context, repoPath string, prodFiles []string) map[string]bool {
+	var javaFiles []string
+	for _, relFile := range prodFiles {
+		if isJavaFile(relFile) {
+			javaFiles = append(javaFiles, relFile)
+		}
+	}
+	fqns := parallel.MapFiles(ctx, javaFiles, func(relFile string) string {
+		pkg, _ := jvmsrc.ReadPackage(filepath.Join(repoPath, relFile))
+		return qualifyIn(pkg, strings.TrimSuffix(filepath.Base(relFile), filepath.Ext(relFile)))
+	})
+	out := make(map[string]bool, len(fqns))
+	for _, fqn := range fqns {
+		out[fqn] = true
+	}
+	return out
+}
+
+func testRefsFromFile(src []byte, relFile string) []facts.Fact {
+	return testRefsFromFileIn(src, relFile, nil)
+}
+
+// testRefsFromFileIn collects one test file's references into a single KindTestRef
 // fact. The fact Name is the file path, which never equals a symbol name, so the
 // fact introduces no self-reference: the contract the orphan detector's fold
 // relies on.
-func testRefsFromFile(src []byte, relFile string) []facts.Fact {
+func testRefsFromFileIn(src []byte, relFile string, prodTypes map[string]bool) []facts.Fact {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(java.Language())); err != nil {
@@ -175,7 +205,9 @@ func testRefsFromFile(src []byte, relFile string) []facts.Fact {
 
 	root := tree.RootNode()
 	c := &javaTestRefCollector{src: src, seen: map[string]bool{},
-		declared: map[string]bool{}, declaredTypes: map[string]bool{}}
+		declared: map[string]bool{}, declaredTypes: map[string]bool{},
+		prodTypes: prodTypes, imports: map[string]string{}}
+	c.collectHeader(root)
 	c.collectDeclared(root)
 	c.walk(root)
 	if len(c.seen) == 0 {
@@ -218,6 +250,67 @@ type javaTestRefCollector struct {
 	// a receiver: in `histogram.setPercentiles(...)` inside a test method named
 	// histogram(), the receiver is a local, not the method.
 	declaredTypes map[string]bool
+	// The file's package and imports, and the production types they may name: an
+	// annotation counts only when its name resolves to one of those (addAnnotation).
+	prodTypes map[string]bool
+	pkg       string
+	imports   map[string]string
+	wildcards []string
+}
+
+// collectHeader reads the package and the non-static imports: what an annotation
+// name resolves against.
+func (c *javaTestRefCollector) collectHeader(root *sitter.Node) {
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		n := root.NamedChild(i)
+		switch kindOf(n) {
+		case "package_declaration":
+			if p := firstNamedChild(n); p != nil {
+				c.pkg = nodeText(p, c.src)
+			}
+		case "import_declaration":
+			var path string
+			static, wildcard := false, false
+			for j := uint(0); j < n.ChildCount(); j++ {
+				switch ch := n.Child(j); kindOf(ch) {
+				case "static":
+					static = true
+				case "asterisk":
+					wildcard = true
+				case "scoped_identifier", "identifier":
+					path = nodeText(ch, c.src)
+				}
+			}
+			switch {
+			case path == "" || static:
+			case wildcard:
+				c.wildcards = append(c.wildcards, path)
+			default:
+				c.imports[lastTypeComponent(path)] = path
+			}
+		}
+	}
+}
+
+// addAnnotation records an annotation the test applies when its name resolves, as
+// javac would resolve it, to a production type of the repository (or a member type
+// of one). Anything else is the harness or a library: @Test, @Mock, @DisplayName.
+// The recorded target is the type's simple name, the shape of every other type
+// reference this pass emits.
+func (c *javaTestRefCollector) addAnnotation(n *sitter.Node) {
+	nameNode := n.ChildByFieldName("name")
+	if nameNode == nil || len(c.prodTypes) == 0 {
+		return
+	}
+	for _, cand := range annotationCandidates(nodeText(nameNode, c.src), c.pkg, nil, c.imports, c.wildcards) {
+		if !c.prodTypes[cand] && !c.prodTypes[parentName(cand)] {
+			continue
+		}
+		if simple := lastTypeComponent(cand); !c.declared[simple] {
+			c.seen[simple] = true
+		}
+		return
+	}
 }
 
 func (c *javaTestRefCollector) collectDeclared(n *sitter.Node) {
@@ -272,9 +365,13 @@ func (c *javaTestRefCollector) walk(n *sitter.Node) {
 		return
 	}
 	switch kindOf(n) {
-	case "package_declaration", "import_declaration", "marker_annotation", "annotation":
-		// An import alone is not a use, and a test's annotations (@Test,
-		// @BeforeEach, @ExtendWith) are the harness.
+	case "package_declaration", "import_declaration":
+		// An import alone is not a use.
+		return
+	case "marker_annotation", "annotation":
+		// Mostly the harness (@Test, @BeforeEach, @ExtendWith); a repository's own
+		// annotation type is a use. The arguments are not walked.
+		c.addAnnotation(n)
 		return
 	case "method_invocation":
 		c.addInvocation(n)
