@@ -194,7 +194,7 @@ func TestManifestSkipsDependenciesOfAnUnindexedTestTarget(t *testing.T) {
 		}
 		return got
 	}
-	const testDep = "Packages/Mods/Sources/AppShellTests -> Packages/Mods/Sources/AppShell"
+	const testDep = "Packages/Mods/Tests/AppShellTests -> Packages/Mods/Sources/AppShell"
 	const prodDep = "Packages/Mods/Sources/AppShell -> Packages/Mods/Sources/AppComposition"
 	prodFile := "Packages/Mods/Sources/AppShell/AppShellPlaceholder.swift"
 
@@ -206,14 +206,92 @@ func TestManifestSkipsDependenciesOfAnUnindexedTestTarget(t *testing.T) {
 		t.Errorf("production dependency file = %q, want %q", got[prodDep], prodFile)
 	}
 	for name, f := range got {
-		if strings.HasPrefix(fileDir(f), "Packages/Mods/Sources/AppShellTests") || f == manifestRel {
+		if strings.HasPrefix(fileDir(f), "Packages/Mods/Tests/AppShellTests") || f == manifestRel {
 			t.Errorf("%s: file %q", name, f)
 		}
 	}
 
-	testFile := "Packages/Mods/Sources/AppShellTests/AppShellTests.swift"
-	got = run(map[string]string{"Packages/Mods/Sources/AppShell": prodFile, "Packages/Mods/Sources/AppShellTests": testFile})
+	testFile := "Packages/Mods/Tests/AppShellTests/AppShellTests.swift"
+	got = run(map[string]string{"Packages/Mods/Sources/AppShell": prodFile, "Packages/Mods/Tests/AppShellTests": testFile})
 	if got[testDep] != testFile {
 		t.Errorf("indexed test target's dependency file = %q, want %q", got[testDep], testFile)
+	}
+}
+
+// TestManifestTestTargetDefaultsToTestsDir pins SwiftPM's default layout: a
+// `.testTarget(name: X)` with no `path:` lives in `Tests/X`, every other target
+// kind in `Sources/X`, and an explicit `path:` wins for both. The module fact, the
+// resolver seed and the dependency edges all name the test target's real directory,
+// so a test file indexed under `Tests/X` joins the target instead of sitting beside
+// an empty `Sources/X` module.
+func TestManifestTestTargetDefaultsToTestsDir(t *testing.T) {
+	const manifest = `// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "Mods",
+    targets: [
+        .target(name: "Core"),
+        .testTarget(name: "CoreTests", dependencies: ["Core"]),
+        .testTarget(name: "PinnedTests", dependencies: ["Core"], path: "Checks/Pinned")
+    ]
+)
+`
+	const manifestRel = "Packages/Mods/Package.swift"
+	wantDirs := map[string]string{
+		"Core":        "Packages/Mods/Sources/Core",
+		"CoreTests":   "Packages/Mods/Tests/CoreTests",
+		"PinnedTests": "Packages/Mods/Checks/Pinned",
+	}
+
+	roots := manifestTargetRoots([]byte(manifest), manifestRel)
+	for name, want := range wantDirs {
+		if roots[name] != want {
+			t.Errorf("manifestTargetRoots[%s] = %q, want %q", name, roots[name], want)
+		}
+	}
+
+	modules := map[string]string{}
+	for _, f := range parsePackageManifest([]byte(manifest), manifestRel, nil) {
+		if f.Kind == facts.KindModule {
+			modules[f.Props["spm_target"].(string)] = f.Name
+		}
+	}
+	for name, want := range wantDirs {
+		if modules[name] != want {
+			t.Errorf("module fact for %s = %q, want %q", name, modules[name], want)
+		}
+	}
+
+	// End to end, with the test file indexed: its symbols declare into the test
+	// target's module and the target's dependency sits in that file.
+	repo := t.TempDir()
+	mustWrite(t, repo, manifestRel, manifest)
+	coreFile := "Packages/Mods/Sources/Core/Core.swift"
+	testFile := "Packages/Mods/Tests/CoreTests/CoreTests.swift"
+	mustWrite(t, repo, coreFile, "public enum CoreThing {}\n")
+	mustWrite(t, repo, testFile, "import Core\nfinal class CoreThingCheck {}\n")
+	all, err := New().Extract(context.Background(), repo, []string{manifestRel, coreFile, testFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findFact(all, "Packages/Mods/Tests/CoreTests.CoreThingCheck"); !ok {
+		t.Error("test file's class did not declare into Packages/Mods/Tests/CoreTests")
+	}
+	const dep = "Packages/Mods/Tests/CoreTests -> Packages/Mods/Sources/Core"
+	found := false
+	for _, f := range all {
+		if f.Kind == facts.KindDependency && f.Name == dep {
+			found = true
+			if f.File != testFile {
+				t.Errorf("%s: file %q, want %q", dep, f.File, testFile)
+			}
+		}
+		if f.Kind == facts.KindModule && f.Name == "Packages/Mods/Sources/CoreTests" {
+			t.Errorf("module fact for a directory that does not exist: %s", f.Name)
+		}
+	}
+	if !found {
+		t.Errorf("missing dependency %s", dep)
 	}
 }

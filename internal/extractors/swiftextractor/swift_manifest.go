@@ -13,7 +13,7 @@ import (
 // manifestTarget is a target declared in a Package.swift manifest.
 type manifestTarget struct {
 	name   string
-	dir    string // module directory: <pkgDir>/Sources/<name>, or a path: override
+	dir    string // module directory: <pkgDir>/Sources/<name> (Tests/<name> for a test target), or a path: override
 	deps   []manifestDep
 	line   int
 	isTest bool // declared via testTarget(...) → module_role=test
@@ -80,10 +80,7 @@ func parsePackageManifest(src []byte, manifestRel string, dirToFile map[string]s
 			if name == "" {
 				continue
 			}
-			dir := factpath.Join(pkgDir, "Sources", name)
-			if p := argString(tArgs, "path", src); p != "" {
-				dir = filepath.ToSlash(filepath.Join(pkgDir, p))
-			}
+			dir := manifestTargetDir(pkgDir, callName, name, argString(tArgs, "path", src))
 			t := manifestTarget{
 				name:   name,
 				dir:    dir,
@@ -193,7 +190,8 @@ func manifestTargetRoots(src []byte, manifestRel string) map[string]string {
 			if kindOf(elem) != "call_expression" {
 				continue
 			}
-			switch memberCallName(elem, src) {
+			callName := memberCallName(elem, src)
+			switch callName {
 			case "target", "executableTarget", "testTarget", "macro", "plugin", "systemLibrary", "binaryTarget":
 			default:
 				continue
@@ -206,14 +204,23 @@ func manifestTargetRoots(src []byte, manifestRel string) map[string]string {
 			if name == "" {
 				continue
 			}
-			dir := factpath.Join(pkgDir, "Sources", name)
-			if p := argString(tArgs, "path", src); p != "" {
-				dir = filepath.ToSlash(filepath.Join(pkgDir, p))
-			}
-			roots[name] = dir
+			roots[name] = manifestTargetDir(pkgDir, callName, name, argString(tArgs, "path", src))
 		}
 	}
 	return roots
+}
+
+// manifestTargetDir is a target's module directory, repo-relative: its `path:`
+// when the manifest gives one, else SwiftPM's default, `Tests/<name>` for a
+// testTarget and `Sources/<name>` for every other kind.
+func manifestTargetDir(pkgDir, callName, name, path string) string {
+	if path != "" {
+		return filepath.ToSlash(filepath.Join(pkgDir, path))
+	}
+	if callName == "testTarget" {
+		return factpath.Join(pkgDir, "Tests", name)
+	}
+	return factpath.Join(pkgDir, "Sources", name)
 }
 
 // parseManifestDeps reads a target's `dependencies:` array. Each element is a

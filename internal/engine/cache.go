@@ -3766,7 +3766,10 @@ import (
 // unique method, a typed receiver's method or an inherited one. A member call rooted
 // at a type the repository does not declare (Bundle.module.path()) binds only to a
 // method no class or struct of the repository owns, else to a top-level function.
-const cacheVersion = "v677"
+// v681: Swift: an SPM testTarget with no path: is the directory Tests/<name>,
+// SwiftPM's default, not Sources/<name>, in its module fact, its dependency facts
+// and the module a file under it declares into.
+const cacheVersion = "v681"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
