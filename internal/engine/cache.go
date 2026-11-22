@@ -3816,7 +3816,10 @@ import (
 // @sveltejs/kit dependency) under a root that is not one is SvelteKit for its own
 // files: $lib and its config aliases resolve there, its +page/+layout/+error/+server
 // files are routes, and its components and load functions carry framework sveltekit.
-const cacheVersion = "v688"
+// v689: a derived module edge sits at a file of its source module, so readers place
+// it there and not at the parent directory, and an import of a file now connects
+// the module holding that file, so a pair an import connects is not derived again.
+const cacheVersion = "v689"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

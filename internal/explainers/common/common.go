@@ -509,30 +509,7 @@ func BuildModuleGraphWhere(store *facts.Store, keep func(dep facts.Fact, target 
 			if keep != nil && !keep(dep, rel.Target) {
 				continue
 			}
-			target := rel.Target
-
-			if strings.HasPrefix(target, ".") {
-				target = ResolveRelativeImport(sourceModule, target)
-			}
-
-			// Resolve the target up to its enclosing module too. Extractors emit
-			// import targets at differing granularity — a bare module dir (Go/Rails),
-			// a module dir + symbol name (Kotlin/Java `import a.b.C` -> "a/b/C"), or a
-			// file stem (TypeScript) — so an exact module-name match drops every
-			// class-/file-suffixed target and silently loses those edges (e.g. all
-			// Kotlin-sourced cycles). Walking up mirrors package_metrics and the source
-			// resolution above; it is a no-op where the target is already a module.
-			//
-			// A Go import names one package exactly. One the snapshot does not hold
-			// (under a directory named vendor, which is not indexed) is no import of
-			// its parent, and walking up drew cycles Go would not compile.
-			if dep.PropString("language") == "go" {
-				if !moduleNames[target] {
-					continue
-				}
-			} else {
-				target = nearestModule(target, moduleNames, testModules)
-			}
+			target := ImportTargetModule(dep, sourceModule, rel.Target, moduleNames, testModules)
 
 			// A target is included only if it names a known internal PRODUCTION module.
 			// This gate is authoritative; we deliberately do NOT pre-filter with
@@ -554,6 +531,34 @@ func BuildModuleGraphWhere(store *facts.Store, keep func(dep facts.Fact, target 
 	}
 
 	return graph
+}
+
+// ImportTargetModule is the module an import target names, as the module graph
+// reads it: a relative target is resolved against the importing module, then
+// walked up to its enclosing module. Extractors emit import targets at differing
+// granularity: a bare module dir (Go/Rails), a module dir + symbol name
+// (Kotlin/Java `import a.b.C` -> "a/b/C"), or a file stem or file (TypeScript,
+// Python, Svelte). So an exact module-name match drops every class-/file-suffixed
+// target and silently loses those edges (e.g. all Kotlin-sourced cycles). Walking
+// up mirrors package_metrics and the source resolution; it is a no-op where the
+// target is already a module.
+//
+// A Go import names one package exactly. One the snapshot does not hold (under a
+// directory named vendor, which is not indexed) is no import of its parent, and
+// walking up drew cycles Go would not compile; it answers "".
+//
+// The answer may name no production module; the caller decides what counts.
+func ImportTargetModule(dep facts.Fact, sourceModule, target string, prod, test map[string]bool) string {
+	if strings.HasPrefix(target, ".") {
+		target = ResolveRelativeImport(sourceModule, target)
+	}
+	if dep.PropString("language") == "go" {
+		if !prod[target] {
+			return ""
+		}
+		return target
+	}
+	return nearestModule(target, prod, test)
 }
 
 // rubyFrameworkBaseClasses are exact Rails/framework base-class names whose high

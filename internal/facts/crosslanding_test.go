@@ -198,3 +198,24 @@ func TestCallTargetID_ACallStillLandsInItsOwnRepository(t *testing.T) {
 		}
 	}
 }
+
+// A repository's synthetic facts (a cross-repo dependency, a service) carry no
+// file and so no label, and may come first among its facts. Whether the
+// repository's paths are prefixed is read from a fact that has a path, or an
+// alias into it named an id no fact has.
+func TestAliasTargetID_IgnoresTheRepositorysPathlessFacts(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindDependency, Name: "sdk -> gateway", Repo: "sdk", Props: map[string]any{"synthetic": "crossrepo"}},
+		Fact{Kind: KindModule, Name: "src", File: "sdk/src", Repo: "sdk", RepoPrefixed: true},
+		Fact{Kind: KindDependency, Name: "src/catalog -> @example/sdk", File: "backend/src/catalog/catalog.ts", Repo: "backend", RepoPrefixed: true,
+			Relations: []Relation{{Kind: RelImports, Target: "@example/sdk"}}},
+	)
+	s.SetTargetAliases(map[string]FactKey{
+		"@example/sdk": {Repo: "sdk", Kind: KindModule, Name: "src", File: "sdk/src"},
+	})
+	got := writtenTargetIDs(t, s)
+	if k := got["src/catalog -> @example/sdk|imports|@example/sdk"]; k != KindModule {
+		t.Errorf("target_id names a %q, want the module the alias names", k)
+	}
+}

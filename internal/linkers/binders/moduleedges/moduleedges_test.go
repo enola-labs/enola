@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -270,7 +271,7 @@ func TestFormatTopTargets_IsStableAndBounded(t *testing.T) {
 }
 
 // An appended repository's files carry its label, and the edge is added after the
-// engine put it there. The edge sits at its source module, so it carries the label
+// engine put it there. The edge sits at a file of its source module, so it carries the label
 // too; a repository indexed alone has bare files and a bare edge.
 func TestBind_EdgeFileFollowsHowTheRepositoryNamesPaths(t *testing.T) {
 	repo := func(label, prefix string) []facts.Fact {
@@ -298,7 +299,7 @@ func TestBind_EdgeFileFollowsHowTheRepositoryNamesPaths(t *testing.T) {
 	if err := New().Bind(context.Background(), union); err != nil {
 		t.Fatal(err)
 	}
-	if got := files(union); got["shop"] != "shop/app/models" || got["blog"] != "blog/app/models" {
+	if got := files(union); got["shop"] != "shop/app/models/m.rb" || got["blog"] != "blog/app/models/m.rb" {
 		t.Errorf("appended repositories: edge files = %v, want each under its label", got)
 	}
 
@@ -307,8 +308,8 @@ func TestBind_EdgeFileFollowsHowTheRepositoryNamesPaths(t *testing.T) {
 	if err := New().Bind(context.Background(), alone); err != nil {
 		t.Fatal(err)
 	}
-	if got := files(alone); got["shop"] != "app/models" {
-		t.Errorf("a repository indexed alone: edge file = %q, want the bare module", got["shop"])
+	if got := files(alone); got["shop"] != "app/models/m.rb" {
+		t.Errorf("a repository indexed alone: edge file = %q, want the bare path of the calling file", got["shop"])
 	}
 }
 
@@ -513,5 +514,57 @@ func TestBind_StoredFunctionCallsDeriveNoEdge(t *testing.T) {
 	}
 	if got["server/options -> admission"] != 1 {
 		t.Errorf("a named call from the same symbol must still roll up: %v", got)
+	}
+}
+
+// An extractor names an import's target at its own granularity: a file stem
+// (`src/core/thing`), a file with its extension (`src/core/thing.svelte`), a
+// relative path. Each connects the module that holds the file, and a pair
+// connected that way is not derived again.
+func TestBind_AFileImportConnectsTheModuleThatHoldsIt(t *testing.T) {
+	for _, target := range []string{"src/core/thing", "src/core/thing.svelte", "../core/thing"} {
+		store := facts.NewStore()
+		store.Add(
+			module("src/api"), module("src/core"),
+			facts.Fact{Kind: facts.KindDependency, Name: "src/api -> " + target, File: "src/api/client.ts", Repo: "app",
+				Props:     map[string]any{"language": "typescript"},
+				Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}}},
+			symbol("ApiClient.fetch", "src/api/client.ts", calls("CoreThing.read")...),
+			symbol("CoreThing.read", "src/core/thing.ts"),
+		)
+		if err := New().Bind(context.Background(), store); err != nil {
+			t.Fatal(err)
+		}
+		if got := derivedEdges(store); len(got) != 0 {
+			t.Errorf("import %q already connects src/api -> src/core: derived %v", target, got)
+		}
+	}
+}
+
+// The module graph places a dependency at the module enclosing its file. A
+// derived edge sitting at its source module's directory was placed at that
+// directory's parent, so the edge left a module that never made the call.
+func TestBind_TheModuleGraphReadsADerivedEdgeFromItsSourceModule(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("app"), module("app/models"), module("app/jobs"),
+		symbol("Order#total", "app/models/order.rb", calls("ImportJob#perform")...),
+		symbol("Order#lines", "app/models/a_order.rb", calls("ImportJob#perform")...),
+		symbol("ImportJob#perform", "app/jobs/import_job.rb"),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	graph := common.BuildModuleGraph(store)
+	if got := graph["app/models"]; len(got) != 1 || got[0] != "app/jobs" {
+		t.Errorf("app/models imports %v, want [app/jobs]", got)
+	}
+	if got := graph["app"]; len(got) != 0 {
+		t.Errorf("app made no call, yet imports %v", got)
+	}
+	for _, f := range store.ByKind(facts.KindDependency) {
+		if f.PropString(DerivedProp) == derivedFromSymbols && (f.File != "app/models/a_order.rb" || f.Line != 0) {
+			t.Errorf("edge sits at %s:%d, want the first file that makes one of its calls", f.File, f.Line)
+		}
 	}
 }
