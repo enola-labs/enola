@@ -296,15 +296,21 @@ func dropUnresolvedTypeNames(f *facts.Fact) {
 	f.Relations = out
 }
 
-// qualMark opens a names target the walker could not settle alone: the qualified
-// path a reference was written with, then what the reference resolves to without
-// it. NUL never occurs in a Scala identifier, and resolveQualified rewrites every
-// such target before the facts leave the extractor.
+// qualMark opens a names target the walker could not settle alone: a flag, the
+// qualified path a reference was written with, then what the reference resolves
+// to without it. NUL never occurs in a Scala identifier, and resolveQualified
+// rewrites every such target before the facts leave the extractor.
 const qualMark = "\x00"
 
 // markQualified encodes a qualified reference and its fallback for resolveQualified.
-func markQualified(qual, fallback string) string {
-	return qualMark + qual + qualMark + fallback
+// absolute says the path may name a type from the root package as well as from the
+// file's own package.
+func markQualified(qual, fallback string, absolute bool) string {
+	flag := "r"
+	if absolute {
+		flag = "a"
+	}
+	return qualMark + flag + qual + qualMark + fallback
 }
 
 // resolveQualified settles a markQualified target. The qualified path wins when it
@@ -312,11 +318,19 @@ func markQualified(qual, fallback string) string {
 // package (`util.Logger` inside package `a.impl` is `a.impl.util.Logger`). Otherwise
 // the fallback is resolved the way an unqualified reference is, which is what the
 // reference resolved to before the path was read; an empty fallback is dropped.
+// The path is tried from the root only when the walker marked it absolute (see
+// valueRef).
 func resolveQualified(target, filePackage string, typeIndex, packageDir map[string]string) string {
-	qual, fallback, _ := strings.Cut(strings.TrimPrefix(target, qualMark), qualMark)
-	candidates := []string{qual}
+	body := strings.TrimPrefix(target, qualMark)
+	absolute := strings.HasPrefix(body, "a")
+	qual, fallback, _ := strings.Cut(body[1:], qualMark)
+	var candidates []string
 	if filePackage != "" {
 		candidates = append(candidates, filePackage+"."+qual)
+	}
+	pkg, name := parentName(qual), lastSegment(qual)
+	if absolute {
+		candidates = append(candidates, qual)
 	}
 	for _, c := range candidates {
 		if canon, ok := typeIndex[c]; ok {
@@ -324,9 +338,9 @@ func resolveQualified(target, filePackage string, typeIndex, packageDir map[stri
 		}
 	}
 	// A Java or Kotlin type in a sibling module (resolveTypeTarget, case 3), only
-	// for a path written in full: a package-relative guess would invent a type in
-	// a package that declares other things.
-	if pkg, name := parentName(qual), lastSegment(qual); pkg != "" && isTypeName(name) {
+	// for an absolute path: a package-relative guess would invent a type in a
+	// package that declares other things.
+	if absolute && pkg != "" && isTypeName(name) {
 		if dir, ok := packageDir[pkg]; ok {
 			return dir + "." + name
 		}

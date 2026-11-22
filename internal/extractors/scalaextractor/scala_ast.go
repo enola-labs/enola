@@ -68,10 +68,18 @@ func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map
 // is resolved after the merge, and when it names nothing this repository declares
 // the reference falls back to name, as an unqualified reference resolves, or to
 // nothing when name is empty (see markQualified).
+//
+// A qualified type is read from the root package only when its qualifier has two
+// segments or more (`lila.user.User`, or `pekko.x.Y` once `import org.apache.pekko`
+// is applied): a one-segment qualifier is as often a value as a package, and `s:
+// schedule.State` is the State type member of the parameter `schedule`, not a type
+// in a root package that happens to be called `schedule`. An import path is always
+// read from the root as well (imported).
 type valueRef struct {
-	owner int
-	name  string
-	qual  string
+	owner    int
+	name     string
+	qual     string
+	imported bool
 }
 
 // resolveValueRefs turns each value reference into a names edge when the name is
@@ -113,7 +121,8 @@ func (w *astWalker) resolveValueRefs() {
 			}
 		}
 		if ref.qual != "" {
-			target = markQualified(w.qualifyHead(ref.qual), target)
+			qual := w.qualifyHead(ref.qual)
+			target = markQualified(qual, target, ref.imported || strings.Contains(parentName(qual), "."))
 		}
 		owner := &w.out[ref.owner]
 		if target == "" || target == owner.Name || owner.HasRelation(facts.RelNames, target) {
@@ -1232,7 +1241,7 @@ func (w *astWalker) noteObjectImport(path string) {
 		w.fileRefIdx = len(w.out) - 1
 		owner = w.fileRefIdx
 	}
-	w.typeRefs = append(w.typeRefs, valueRef{owner: owner, qual: path})
+	w.typeRefs = append(w.typeRefs, valueRef{owner: owner, qual: path, imported: true})
 }
 
 // qualifyHead rewrites the first segment of a qualified path through the file's

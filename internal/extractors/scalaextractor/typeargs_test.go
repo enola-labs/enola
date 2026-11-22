@@ -69,3 +69,25 @@ class Header
 		t.Errorf("util.Header must resolve relative to the package; names = %v", namesTargets(h))
 	}
 }
+
+// `s: schedule.State` names the State type member of the value `schedule`. A root
+// package that happens to be called `schedule` must not receive the edge.
+func TestOneSegmentQualifierIsNotARootPackage(t *testing.T) {
+	ff := runPasses(t, map[string]string{
+		"core/zio/Layer.scala": `package zio
+
+object Layer {
+  def loop(s: schedule.State) = s
+}
+`,
+		"examples/schedule/Example.scala": `package schedule
+
+class State
+`,
+	}, nil)
+	for _, target := range namesTargets(findFact(t, ff, "core/zio.Layer.loop")) {
+		if target == "examples/schedule.State" {
+			t.Errorf("a path-dependent type bound to a root package: %v", target)
+		}
+	}
+}
