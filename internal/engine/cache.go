@@ -3766,11 +3766,6 @@ import (
 // unique method, a typed receiver's method or an inherited one. A member call rooted
 // at a type the repository does not declare (Bundle.module.path()) binds only to a
 // method no class or struct of the repository owns, else to a top-level function.
-// v680: Rust tests are ignored and listed as test globs by default (tests/ and
-// benches/ trees), and Rust implements plugin.TestRefExtractor: each such file emits
-// one test_ref fact, walked as a #[cfg(test)] module file is, and no symbols. Test
-// code's impl blocks and constants contribute their references too: the trait a
-// fixture implements, and the calls its methods and constant values make.
 // v678: Android per-variant test source sets (src/test<Variant>, src/androidTest<Variant>)
 // are test code, and their Kotlin files are ignored and listed as test globs; so are
 // JavaScript files under a test/ directory (Mocha's default), which the TypeScript
@@ -3779,6 +3774,11 @@ import (
 // src/test, src/<name>Test, src/testFixtures and Android flavor sets), and Java
 // implements plugin.TestRefExtractor: each ignored Java test file emits one test_ref
 // fact carrying the calls, member reads, method references and types it names.
+// v680: Rust tests are ignored and listed as test globs by default (tests/ and
+// benches/ trees), and Rust implements plugin.TestRefExtractor: each such file emits
+// one test_ref fact, walked as a #[cfg(test)] module file is, and no symbols. Test
+// code's impl blocks and constants contribute their references too: the trait a
+// fixture implements, and the calls its methods and constant values make.
 const cacheVersion = "v680"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

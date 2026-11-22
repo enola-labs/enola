@@ -1,7 +1,7 @@
 $ enola show HEAD .
 exit: 0
 --- stdout
-# revision 02ec98a · <TIME> · (9522ef6c8541, backfill)
+# revision d60c5a8 · <TIME> · (9522ef6c8541, backfill)
 
 # Architecture diff
 
