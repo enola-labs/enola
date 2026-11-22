@@ -3803,7 +3803,11 @@ import (
 // falling back to its last segment.
 // v685: Svelte: a component tag in markup is a reference, from the rendering
 // component to the declaration its script imported under that name.
-const cacheVersion = "v685"
+// v686: Java: a class literal (`X.class`), a static member read through a type
+// (`X.NAME`) and a declared parameter or field type, type arguments included, name
+// the repository type javac resolves the name to; a variable or type parameter of
+// that name names nothing.
+const cacheVersion = "v686"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

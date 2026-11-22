@@ -100,6 +100,14 @@ type astWalker struct {
 	// (nil outside a method). See receivers.go.
 	fieldTypes []map[string]string
 	localTypes map[string]string
+	// fieldNames are the enclosing classes' field and enum constant names,
+	// innermost last; scopeNode is the method whose locals are in scope, and
+	// scopeVars their names, read on first use; typeParams the type parameters in
+	// scope. A name any of them declares is not a type (typerefs.go).
+	fieldNames []map[string]bool
+	scopeNode  *sitter.Node
+	scopeVars  map[string]bool
+	typeParams []string
 	selfName   string
 	selfShort  string
 	// selfParams is the enclosing method's declared parameter count. A resolved
@@ -771,17 +779,21 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	w.out = append(w.out, f)
 	owner := len(w.out) - 1
 	w.pushOwner(owner)
+	savedTypeParams := len(w.typeParams)
+	w.typeParams = append(w.typeParams, typeParamNames(node.ChildByFieldName("type_parameters"), w.src)...)
 
 	// The type's own annotations, a record's components' included, are resolved
 	// outside its scope: javac does not look up their names among its members.
 	w.relateAnnotations(modifiers, owner)
 	w.relateAnnotations(node.ChildByFieldName("parameters"), owner)
+	w.relateParamTypes(node.ChildByFieldName("parameters"), owner)
 
 	// Enter the type scope.
 	body := classBody(node)
 	w.typeStack = append(w.typeStack, name)
 	fieldTypes := w.collectFieldTypes(body)
 	w.fieldTypes = append(w.fieldTypes, fieldTypes)
+	w.fieldNames = append(w.fieldNames, fieldNamesOf(body, w.src))
 	if len(fieldTypes) > 0 {
 		// For subclasses in other files, which call through these fields
 		// (facts.PropFieldTypes, read by the inherited-calls binder).
@@ -810,6 +822,8 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 
 	w.routeStack = w.routeStack[:len(w.routeStack)-1]
 	w.fieldTypes = w.fieldTypes[:len(w.fieldTypes)-1]
+	w.fieldNames = w.fieldNames[:len(w.fieldNames)-1]
+	w.typeParams = w.typeParams[:savedTypeParams]
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 	w.methodStack = w.methodStack[:len(w.methodStack)-1]
 	w.popOwner()
@@ -916,9 +930,16 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
+	savedTypeParams := len(w.typeParams)
+	w.typeParams = append(w.typeParams, typeParamNames(node.ChildByFieldName("type_parameters"), w.src)...)
+	defer func() { w.typeParams = w.typeParams[:savedTypeParams] }()
 	w.relateAnnotations(modifiers, ownerIdx)
 	w.relateAnnotations(node.ChildByFieldName("type"), ownerIdx)
 	w.relateAnnotations(node.ChildByFieldName("parameters"), ownerIdx)
+	w.relateParamTypes(node.ChildByFieldName("parameters"), ownerIdx)
+	savedScope, savedVars := w.scopeNode, w.scopeVars
+	w.scopeNode, w.scopeVars = node, nil
+	defer func() { w.scopeNode, w.scopeVars = savedScope, savedVars }()
 	// Set up per-method complexity tracking. walkForCalls is re-entrant (it
 	// dispatches nested type declarations back through handleMethod), so save and
 	// restore the outer state.
@@ -1011,6 +1032,7 @@ func (w *astWalker) handleField(node *sitter.Node, owner int) {
 
 	// Field type — used for DI edges when @Autowired/@Inject is present.
 	typeNode := node.ChildByFieldName("type")
+	w.relateTypeUses(typeNode, owner)
 	typeTarget := w.targetForType(typeNode)
 	injected := hasAnnotation(annotations, "Autowired", "Inject", "Resource", "Reference")
 	// A `static final String FOO = "literal"` constant exposes its value so that
@@ -1264,6 +1286,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		// enclosing declaration. Its arguments are walked below, nested annotations
 		// included.
 		w.relateAnnotation(node, w.currentOwner())
+	case "class_literal":
+		w.relateClassLiteral(node, w.currentOwner())
+	case "field_access":
+		w.relateStaticRead(node, w.currentOwner())
 	case "object_creation_expression":
 		if t := w.targetForType(node.ChildByFieldName("type")); t != "" {
 			w.relate(w.currentOwner(), facts.RelInstantiates, t)
