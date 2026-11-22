@@ -254,6 +254,10 @@ ignore:
   # suffix (a feature directory OnboardingABTest/ is production). Kept in sync
   # with config.Default().
   - "**/*Tests/**/*.swift"
+  # Rust tests: Cargo's tests/ and benches/ targets, and tests/ module directories
+  # under src/. Kept in sync with config.Default(), which also lists them as test globs.
+  - "**/tests/**/*.rs"
+  - "**/benches/**/*.rs"
   # Ruby / Rails
   - "**/spec/**/*_spec.rb"
   - "**/test/**/*_test.rb"

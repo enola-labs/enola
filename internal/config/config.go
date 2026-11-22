@@ -502,6 +502,16 @@ func Default() *Config {
 			"**/test/**/*.dart",
 			"**/integration_test/**/*.dart",
 			"**/test_driver/**/*.dart",
+			// Rust. Cargo builds every file under a crate's tests/ and benches/ as an
+			// integration test or bench target, so the directory is tool-reserved. A
+			// tests/ directory under src/ matches as well: it holds a
+			// `#[cfg(test)] mod tests;` module or a `[[test]]` target path, and across
+			// the Rust corpus (six repositories, about 3,500 such files) none is code
+			// the library ships. A `#[cfg(test)]` module written inline is not a file
+			// and is the extractor's: it walks it as test code. Keep in sync with
+			// TestGlobs below.
+			"**/tests/**/*.rs",
+			"**/benches/**/*.rs",
 			// Dart code generation output. This is not tidiness: build_runner output is
 			// the MAJORITY of files in a real Flutter project, and none of it is code a
 			// human navigates. One @freezed model yields a .freezed.dart of hundreds of
@@ -675,6 +685,9 @@ func Default() *Config {
 			"**/test/**/*.dart",
 			"**/integration_test/**/*.dart",
 			"**/test_driver/**/*.dart",
+			// Rust. Live: RustExtractor implements TestRefExtractor.
+			"**/tests/**/*.rs",
+			"**/benches/**/*.rs",
 		},
 		Extractors: []string{"asyncapi", "cpp", "dart", "dotnet", "go", "grpc", "java", "kotlin", "openapi", "php", "python", "typescript", "swift", "ruby", "rust", "scala", "hcl", "ansible", "kubernetes", "helm", "vespa", "dbt", "lookml", "avro", "rego", "mdintent", "manifests"},
 		Explainers: append([]string(nil), KnownExplainers...),

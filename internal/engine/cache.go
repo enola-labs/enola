@@ -3766,7 +3766,10 @@ import (
 // unique method, a typed receiver's method or an inherited one. A member call rooted
 // at a type the repository does not declare (Bundle.module.path()) binds only to a
 // method no class or struct of the repository owns, else to a top-level function.
-const cacheVersion = "v677"
+// v680: Rust tests are ignored and listed as test globs by default (tests/ and
+// benches/ trees), and Rust implements plugin.TestRefExtractor: each such file emits
+// one test_ref fact, walked as a #[cfg(test)] module file is, and no symbols.
+const cacheVersion = "v680"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
