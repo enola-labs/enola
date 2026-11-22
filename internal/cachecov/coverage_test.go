@@ -282,6 +282,7 @@ var versionCoverage = map[int][]string{
 	687: {"TestKotlinDeclarationAnnotationNamesItsType", "TestKotlinDeclarationAnnotationDoesNotBindFrameworkNames"},
 	688: {"TestExtract_SvelteKitAppInWorkspaceMember", "TestSelectPatterns_UngatedKeepsTheUnclaimedLanguages"},
 	689: {"TestBind_AFileImportConnectsTheModuleThatHoldsIt", "TestBind_TheModuleGraphReadsADerivedEdgeFromItsSourceModule", "TestAliasTargetID_IgnoresTheRepositorysPathlessFacts"},
+	690: {"TestDotnetClean_FolderTakesItsProjectsLayer", "TestDotnetClean_ProjectLayerKeepsRealViolations", "TestDotnetClean_UnnamedProjectFallsBackToFolders"},
 	691: {"TestJavaStaticImportNamesTheType", "TestJavaStaticImportOfOwnTypeNamesNothing", "TestJavaTestRefsCountStaticImports"},
 	692: {"TestPackageDirPrefersProductionOverTestSupport", "TestResolveImportBindsTheDeclaringDirectory", "TestKotlinImportOfSplitPackageBindsTheDeclaringDirectory", "TestJavaImportOfSplitKotlinPackageBindsTheDeclaringDirectory"},
 	693: {"TestCollectCountsDerivedModuleEdges", "TestImporterOf"},

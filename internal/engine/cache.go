@@ -3819,6 +3819,9 @@ import (
 // v689: a derived module edge sits at a file of its source module, so readers place
 // it there and not at the parent directory, and an import of a file now connects
 // the module holding that file, so a pair an import connects is not derived again.
+// v690: layers: dotnet-clean classifies a module by the layer its MSBuild project's name
+// names, falling back to the folder name. Explainer-only, no facts change; the bump
+// only keeps the version range contiguous for this batch.
 // v691: Java: a static import (`import static T.member;`, `import static T.*;`) is
 // a use of the type T: the importing file's file_ref fact gets a names edge to T
 // where the repository declares it, and a test's static import records T as a
