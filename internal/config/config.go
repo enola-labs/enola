@@ -491,6 +491,9 @@ func Default() *Config {
 			// Keep in sync with TestGlobs below.
 			"**/src/test/**/*.kt",
 			"**/src/[a-z]*Test/**/*.kt",
+			// Android per-variant test sets (src/testDemo, src/androidTestProd).
+			"**/src/test[A-Z]*/**/*.kt",
+			"**/src/androidTest[A-Z]*/**/*.kt",
 			"**/*Tests/**/*.swift",
 			"**/tests/**/*.php",
 			"**/test/**/*.php",
@@ -661,6 +664,9 @@ func Default() *Config {
 			// production symbol whose only caller is its test reads as test-only.
 			"**/src/test/**/*.kt",
 			"**/src/[a-z]*Test/**/*.kt",
+			// Android per-variant test sets (src/testDemo, src/androidTestProd).
+			"**/src/test[A-Z]*/**/*.kt",
+			"**/src/androidTest[A-Z]*/**/*.kt",
 			// Swift and PHP have no TestRefExtractor yet, so these are the same
 			// deliberate no-op as Scala's: listed because Ignore above requires the two
 			// lists to agree, and so that implementing ExtractTestRefs for one of them

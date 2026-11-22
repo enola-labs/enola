@@ -235,6 +235,9 @@ ignore:
   # Kept in sync with config.Default(), which also lists them as test globs.
   - "**/src/test/**/*.kt"
   - "**/src/[a-z]*Test/**/*.kt"
+  # Android per-variant test sets (src/testDemo, src/androidTestProd).
+  - "**/src/test[A-Z]*/**/*.kt"
+  - "**/src/androidTest[A-Z]*/**/*.kt"
   # Swift / Xcode build and cache
   - "DerivedData/**"
   - "**/DerivedData/**"

@@ -165,11 +165,29 @@ func isTestSourceSetSeg(prev, seg string) bool {
 	if seg == "testFixtures" {
 		return true
 	}
+	// The Android plugin's per-variant test sets: test<Variant> and
+	// androidTest<Variant> (src/testDemo, src/testDemoDebug, src/androidTestProd).
+	// Gradle capitalises the variant, so src/testable stays production.
+	if isVariantOf(seg, "test") || isVariantOf(seg, "androidTest") {
+		return true
+	}
 	name, ok := strings.CutSuffix(seg, "Test")
 	if !ok || name == "" || seg[0] < 'a' || seg[0] > 'z' {
 		return false
 	}
 	return !strings.ContainsFunc(name, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	})
+}
+
+// isVariantOf reports whether seg is a Gradle source set named set followed by a
+// capitalised variant name of letters and digits: testDemo for set "test".
+func isVariantOf(seg, set string) bool {
+	variant, ok := strings.CutPrefix(seg, set)
+	if !ok || variant == "" || variant[0] < 'A' || variant[0] > 'Z' {
+		return false
+	}
+	return !strings.ContainsFunc(variant, func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
 	})
 }
