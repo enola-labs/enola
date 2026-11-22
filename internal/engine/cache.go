@@ -3779,7 +3779,10 @@ import (
 // one test_ref fact, walked as a #[cfg(test)] module file is, and no symbols. Test
 // code's impl blocks and constants contribute their references too: the trait a
 // fixture implements, and the calls its methods and constant values make.
-const cacheVersion = "v680"
+// v681: Swift: an SPM testTarget with no path: is the directory Tests/<name>,
+// SwiftPM's default, not Sources/<name>, in its module fact, its dependency facts
+// and the module a file under it declares into.
+const cacheVersion = "v681"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
