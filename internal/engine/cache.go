@@ -3835,9 +3835,10 @@ import (
 // as coupling, so afferent, efferent, instability and distance on module facts move
 // wherever calls, not imports, connect two modules.
 // v694: Swift implements plugin.TestRefExtractor: each ignored Swift test file
-// emits one test_ref fact carrying the calls, member reads, implicit members, key
-// path components and types it names, without the XCTest, Swift Testing and
-// Point-Free harness vocabulary or the file's own declarations.
+// emits one test_ref fact carrying the calls, implicit member calls, reads through
+// a type and the types it names, without the XCTest, Swift Testing and Point-Free
+// harness vocabulary or the file's own declarations. A property read through a
+// local names nothing: its bare name would credit every type declaring it.
 const cacheVersion = "v694"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

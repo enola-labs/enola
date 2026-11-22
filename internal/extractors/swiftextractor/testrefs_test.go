@@ -34,9 +34,9 @@ func sortedTargets(m map[string]bool) []string {
 }
 
 // TestSwiftTestRefsCaptureProductionReferences pins what the pass is for: a helper
-// written for the module's tests, a type the tests construct or conform a fake to,
-// a static member, an implicit member and a property asserted through `$0` all
-// keep an inbound edge once test targets are ignored.
+// written for the module's tests, a type the tests construct, name or conform a
+// fake to, and a method called through a local all keep an inbound edge once test
+// targets are ignored.
 func TestSwiftTestRefsCaptureProductionReferences(t *testing.T) {
 	src := `@testable import Alamofire
 import XCTest
@@ -65,19 +65,24 @@ final class SessionTests: BaseTestCase {
 		"validate",              // a call on a call's result
 		"URLEncodedFormEncoder", // a construction used as a receiver
 		"encode",
-		"RetryResult", "RetryResult.retry", "retry", // a static member and its type
-		"AF", "AF.download", "download", "state", // a global's member, a property read
-		"resumed",                  // an implicit member
+		"RetryResult", "RetryResult.retry", // a static member read names its type
+		"AF", "AF.download", "download", // a global's member call
 		"AuthenticationCredential", // a protocol a fake conforms to
 		"BaseTestCase",             // a superclass the test target shares
 		"RetryPolicy", "Payload",   // a nested type in an annotation, a type argument
-		"EncodingCharacters", "MultipartFormData", // a metatype
-		"task", "step", "first", // TestStore actions and a `$0` state assertion
+		"EncodingCharacters", "MultipartFormData", // a metatype names the nested type
 		"makeInterceptor", // a bare call inside a #require macro
-		"ResponseDisposition", "allow",
+		"Request", "ResponseDisposition",
 	} {
 		if !got[want] {
 			t.Errorf("missing reference %q; have %v", want, sortedTargets(got))
+		}
+	}
+	// A read that is not a call names no bare member: `.resumed`, `$0.step` and a
+	// property of a call's result would credit every type declaring the name.
+	for _, banned := range []string{"state", "resumed", "step", "first", "task", "retry", "allow"} {
+		if got[banned] {
+			t.Errorf("bare member read %q recorded; have %v", banned, sortedTargets(got))
 		}
 	}
 }
@@ -110,6 +115,8 @@ extension DateGenerator {
     self.helper()
     super.setUp()
     $0.date = .runLoop(1)
+    $0.date()
+    runner.start()
     FakeStore.make()
     let s: String = ""
   }
@@ -126,16 +133,17 @@ extension DateGenerator {
 		"FakeStore", "Fixture", "sample", "helper", "runLoop", "loads", // the file's own declarations
 		"FakeStore.make", "make", // a call on a type the file declares
 		"setUp", "self", "super", "String", "Self",
+		"fake.loaded", "loaded", // a property read through a local
 	} {
 		if got[banned] {
 			t.Errorf("harness or own name %q recorded; have %v", banned, sortedTargets(got))
 		}
 	}
 	for _, want := range []string{
-		"DateGenerator", // the production type an extension in the test extends
-		"Store",         // the production protocol a fake conforms to
-		"fake.loaded", "loaded",
-		"date",
+		"DateGenerator",         // the production type an extension in the test extends
+		"Store",                 // the production protocol a fake conforms to
+		"runner.start", "start", // a member call on a local
+		"date", // a call through a closure's shorthand argument
 	} {
 		if !got[want] {
 			t.Errorf("missing reference %q; have %v", want, sortedTargets(got))

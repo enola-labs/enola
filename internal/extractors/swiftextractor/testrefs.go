@@ -207,7 +207,7 @@ func (c *swiftTestRefCollector) ignoredName(name string) bool {
 	return swiftTestHarnessNames[name] || strings.HasPrefix(name, "$") || strings.HasPrefix(name, "`")
 }
 
-// add records a bare name: a call, a construction, a type, an implicit member.
+// add records a bare name: a call, a construction, a type.
 func (c *swiftTestRefCollector) add(name string) {
 	if c.ignoredName(name) || isSystemType(name) || c.declared[name] {
 		return
@@ -215,30 +215,44 @@ func (c *swiftTestRefCollector) add(name string) {
 	c.seen[name] = true
 }
 
-// addMember records a member reached through a plain identifier receiver as
-// `Recv.member` and as the bare member, which is what matches when the receiver is
-// a local whose type is not known here. A capitalized receiver is a type, or a
-// global the module declares, and is a use of its own. A harness receiver or a
-// type the file declares drops all of them: see swiftTestHarnessNames.
-func (c *swiftTestRefCollector) addMember(recv, member string) {
-	if strings.HasPrefix(recv, "$") && !c.ignoredName(member) {
-		// A closure's shorthand argument: `$0.step` in a state assertion reads the
-		// production property, through a receiver with no name of its own.
-		c.seen[member] = true
+// addMember records a member reached through a plain identifier receiver.
+//
+// A call records `Recv.member` and the bare member, which is what matches when the
+// receiver is a local whose type is not known here. A read that is not a call
+// records no bare member: a property name (`id`, `viewModel`, `database`) is
+// shared by many unrelated types, the orphan detector credits a type with any use
+// of its members, and a bare read would turn every type declaring the name into
+// test-only code. A read through a capitalized receiver names that type
+// (`Mode.fast`, `Policy.self`), and a capitalized member of it a nested type.
+//
+// A harness receiver or a type the file declares drops all of it: see
+// swiftTestHarnessNames.
+func (c *swiftTestRefCollector) addMember(recv, member string, call bool) {
+	if strings.HasPrefix(recv, "$") {
+		// A closure's shorthand argument: a call through it is still a call.
+		if call && !c.ignoredName(member) {
+			c.seen[member] = true
+		}
 		return
 	}
 	if c.ignoredName(recv) || c.declaredTypes[recv] || (isCapitalized(recv) && isSystemType(recv)) {
 		return
 	}
 	if isCapitalized(recv) {
-		// `Policy.self`, `Mode.fast`: the type is used whatever the member is.
 		c.add(recv)
+	} else if !call {
+		return
 	}
 	if c.ignoredName(member) {
 		return
 	}
 	c.seen[recv+"."+member] = true
-	c.seen[member] = true
+	switch {
+	case call:
+		c.seen[member] = true
+	case isCapitalized(member):
+		c.add(member)
+	}
 }
 
 func (c *swiftTestRefCollector) walk(n *sitter.Node) {
@@ -266,16 +280,14 @@ func (c *swiftTestRefCollector) walk(n *sitter.Node) {
 	case "navigation_expression":
 		// A member read that is not a call: a property, a static value, an enum
 		// case, a key path's component.
-		c.addNavigation(n)
+		c.addNavigation(n, false)
 		return
 	case "prefix_expression":
-		// `.member`: an implicit member expression (an enum case or a static value
-		// the context's type declares). `-x`, `!x` are operators on a value.
-		if op := n.ChildByFieldName("operation"); op != nil && nodeText(op, c.src) == "." {
-			if t := n.ChildByFieldName("target"); t != nil && kindOf(t) == "simple_identifier" {
-				c.add(nodeText(t, c.src))
-				return
-			}
+		// `.member` read without a call: an enum case or a static value of a type
+		// the context infers. Like any other bare read it names nothing here (see
+		// addMember). `-x`, `!x` are operators on a value and are walked.
+		if implicitMember(n, c.src) != "" {
+			return
 		}
 	case "simple_identifier":
 		// A type or a global used as a value: passed on, compared, assigned. A
@@ -310,16 +322,25 @@ func (c *swiftTestRefCollector) addCallee(fn *sitter.Node) {
 	case "simple_identifier":
 		// A bare call, or a construction (`Session(configuration:)`).
 		c.add(nodeText(fn, c.src))
+	case "navigation_expression":
+		c.addNavigation(fn, true)
+	case "prefix_expression":
+		// An implicit member call: a static factory (`.mock(...)`) of the type the
+		// context infers. `.init(...)` is a construction of that unnamed type.
+		if name := implicitMember(fn, c.src); name != "" {
+			c.add(name)
+			return
+		}
+		c.walk(fn)
 	default:
-		// A member call, an implicit member call (`.init(...)`, `.mock(...)`), or a
-		// call on a call's result.
+		// A call on a call's result or on a parenthesised expression.
 		c.walk(fn)
 	}
 }
 
 // addNavigation records `recv.member`, descending into a receiver that is itself
 // an expression so `factory.create().save()` records both calls.
-func (c *swiftTestRefCollector) addNavigation(nav *sitter.Node) {
+func (c *swiftTestRefCollector) addNavigation(nav *sitter.Node, call bool) {
 	recv := nav.ChildByFieldName("target")
 	member := swiftNavigationMember(nav, c.src)
 	if recv == nil || member == "" {
@@ -328,18 +349,31 @@ func (c *swiftTestRefCollector) addNavigation(nav *sitter.Node) {
 	}
 	switch kindOf(recv) {
 	case "simple_identifier":
-		c.addMember(nodeText(recv, c.src), member)
+		c.addMember(nodeText(recv, c.src), member, call)
 	case "self_expression", "super_expression":
 		// The test class's own member, or the XCTestCase lifecycle.
 	default:
-		// A member is kept even when the file declares the same name: a fake
+		// A called member is kept even when the file declares the same name: a fake
 		// implementing `apply` does not make `interceptor.adapter.apply()` the
 		// fake's call.
-		if !c.ignoredName(member) {
+		if call && !c.ignoredName(member) {
 			c.seen[member] = true
 		}
 		c.walk(recv)
 	}
+}
+
+// implicitMember returns the name of an implicit member expression (`.member`),
+// or "" when n is another prefix operator.
+func implicitMember(n *sitter.Node, src []byte) string {
+	op := n.ChildByFieldName("operation")
+	if op == nil || nodeText(op, src) != "." {
+		return ""
+	}
+	if t := n.ChildByFieldName("target"); t != nil && kindOf(t) == "simple_identifier" {
+		return nodeText(t, src)
+	}
+	return ""
 }
 
 // swiftNavigationMember returns the name a navigation_expression's suffix selects,
