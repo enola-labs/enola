@@ -287,6 +287,7 @@ var versionCoverage = map[int][]string{
 	692: {"TestPackageDirPrefersProductionOverTestSupport", "TestResolveImportBindsTheDeclaringDirectory", "TestKotlinImportOfSplitPackageBindsTheDeclaringDirectory", "TestJavaImportOfSplitKotlinPackageBindsTheDeclaringDirectory"},
 	693: {"TestCollectCountsDerivedModuleEdges", "TestImporterOf"},
 	694: {"TestSwiftTestRefsCaptureProductionReferences", "TestSwiftTestRefsDropHarnessAndOwnDeclarations", "TestSwiftExtractTestRefsEmitsOnlyTestRefFacts"},
+	695: {"TestPHPTestRefsCaptureProductionReferences", "TestPHPTestRefsResolveThroughNamespace", "TestPHPTestRefsPest", "TestPHPTestRefsDropHarnessReceivers", "TestPHPExtractTestRefsScopesToPHP"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

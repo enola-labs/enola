@@ -3839,7 +3839,12 @@ import (
 // a type and the types it names, without the XCTest, Swift Testing and Point-Free
 // harness vocabulary or the file's own declarations. A property read through a
 // local names nothing: its bare name would credit every type declaring it.
-const cacheVersion = "v694"
+// v695: PHP: the extractor implements plugin.TestRefExtractor. Each ignored PHP test
+// file (tests/, test/) yields one test_ref fact: classes resolved through the file's
+// namespace and `use` imports, static calls as `Class::method`, instance calls by
+// bare method name; `$this->` calls, harness names, attributes and the file's own
+// declarations dropped. Production code only tests call reads test-only, not dead.
+const cacheVersion = "v695"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
