@@ -287,18 +287,53 @@ func SplitTarget(target string, siblings map[string][]string, exists func(string
 }
 
 // preferDir reports whether candidate should replace existing as the directory
-// for a package declared in more than one place. A main source set (…/src/main/…)
-// is preferred over a build-variant source set; otherwise the lexicographically
-// smaller path wins (deterministic).
+// for a package declared in more than one place. In order: a test source set is
+// never the package's directory; a production module ranks above a test-support or
+// build-definition one (`okhttp-testing-support/src/main` declares the library's
+// root package for its fakes, and binding the library's imports there pointed every
+// consumer at the test kit); a main or shared source set ranks above a platform
+// one, and both above a build variant (see sourceSetRank); otherwise the
+// lexicographically smaller path wins (deterministic).
 func preferDir(candidate, existing string) bool {
 	if cTest, eTest := isTestSource(candidate), isTestSource(existing); cTest != eTest {
 		return eTest // a test source set is never the package's directory
 	}
-	cMain, eMain := isMainSourceSet(candidate), isMainSourceSet(existing)
-	if cMain != eMain {
-		return cMain // promote a main source set over a variant one
+	cProd, eProd := ModuleRole(candidate) == facts.ModuleRoleProduction, ModuleRole(existing) == facts.ModuleRoleProduction
+	if cProd != eProd {
+		return cProd
+	}
+	if cRank, eRank := sourceSetRank(candidate), sourceSetRank(existing); cRank != eRank {
+		return cRank > eRank
 	}
 	return candidate < existing
+}
+
+// sourceSetRank orders the source sets a package can be split across: 2 for the
+// main set (src/main) and a Kotlin Multiplatform shared set (src/commonMain,
+// src/commonJvmAndroid), whose code every platform compiles; 1 for a platform set
+// (src/jvmMain, src/androidMain), which holds the `actual` half of a shared
+// declaration; 0 for anything else, a build variant (src/debug) or a flavor.
+func sourceSetRank(dir string) int {
+	if isMainSourceSet(dir) {
+		return 2
+	}
+	rank := 0
+	p := "/" + filepath.ToSlash(dir) + "/"
+	for {
+		i := strings.Index(p, "/src/")
+		if i < 0 {
+			return rank
+		}
+		p = p[i+len("/src/"):]
+		set, _, _ := strings.Cut(p, "/")
+		switch {
+		case strings.HasPrefix(set, "common"):
+			return 2
+		case strings.HasSuffix(set, "Main"):
+			rank = 1
+		}
+		p = "/" + p
+	}
 }
 
 // isMainSourceSet reports whether a directory lives in a Gradle main source set

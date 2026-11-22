@@ -3824,7 +3824,11 @@ import (
 // where the repository declares it, and a test's static import records T as a
 // test_ref by its declaration's name. A JDK or library type, or a type the file
 // declares itself, records nothing.
-const cacheVersion = "v691"
+// v692: JVM: an import of a package declared in several directories binds to the
+// directory that declares the imported name (Kotlin and Java, across languages);
+// a package's own directory prefers a production module over a test-support one,
+// and a main or shared source set over a platform set.
+const cacheVersion = "v692"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
