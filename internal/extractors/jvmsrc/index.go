@@ -449,21 +449,5 @@ func GeneratedImport(importPath string, index map[string]string) bool {
 // prefix is a known package (i.e. an external dependency), and for an import of
 // generated code (see GeneratedImport).
 func ResolveImport(importPath string, index map[string]string) (string, bool) {
-	if GeneratedImport(importPath, index) {
-		return "", false
-	}
-	p := strings.TrimSuffix(importPath, ".*")
-	segs := strings.Split(p, ".")
-	for i := len(segs); i > 0; i-- {
-		pkg := strings.Join(segs[:i], ".")
-		dir, ok := index[pkg]
-		if !ok {
-			continue
-		}
-		if rest := segs[i:]; len(rest) > 0 {
-			return dir + "/" + strings.Join(rest, "/"), true
-		}
-		return dir, true
-	}
-	return "", false
+	return ResolveImportNamed(importPath, index, nil)
 }
