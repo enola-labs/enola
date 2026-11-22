@@ -131,10 +131,10 @@ func TestDetectBasePackage_GroovyAndKotlinDSL(t *testing.T) {
 // emitted, while a third-party import stays external.
 func TestResolveKotlinImport_InternalVsExternal(t *testing.T) {
 	const root, base = "app/src/main/java/", "com.example.app"
-	if _, ext := resolveKotlinImport("com.example.app.ui.common.setMargin", nil, root, base); ext {
+	if _, ext := resolveKotlinImport("com.example.app.ui.common.setMargin", nil, nil, root, base); ext {
 		t.Error("in-repo import should resolve as internal (external=false)")
 	}
-	if _, ext := resolveKotlinImport("retrofit2.Retrofit", nil, root, base); !ext {
+	if _, ext := resolveKotlinImport("retrofit2.Retrofit", nil, nil, root, base); !ext {
 		t.Error("third-party import should stay external (external=true)")
 	}
 }
@@ -149,11 +149,11 @@ func TestResolveKotlinImport_GeneratedClassIsNotAnEdge(t *testing.T) {
 		"com.example.app.ui.home": "ui/src/main/java/com/example/app/ui/home",
 	}
 	for _, imp := range []string{"com.example.app.ui.R", "com.example.app.BuildConfig", "com.example.app.databinding.HomeBinding"} {
-		if got, ext := resolveKotlinImport(imp, idx, root, base); !ext {
+		if got, ext := resolveKotlinImport(imp, idx, nil, root, base); !ext {
 			t.Errorf("resolveKotlinImport(%q) = %q internal, want it left external", imp, got)
 		}
 	}
-	if got, ext := resolveKotlinImport("com.example.app.ui.home.HomeScreen", idx, root, base); ext || got != "ui/src/main/java/com/example/app/ui/home/HomeScreen" {
+	if got, ext := resolveKotlinImport("com.example.app.ui.home.HomeScreen", idx, nil, root, base); ext || got != "ui/src/main/java/com/example/app/ui/home/HomeScreen" {
 		t.Errorf("an ordinary import must still resolve: got %q external=%v", got, ext)
 	}
 }

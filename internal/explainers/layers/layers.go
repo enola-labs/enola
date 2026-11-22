@@ -393,6 +393,18 @@ type patternDef struct {
 	// global: a dotted directory in another ecosystem (`cal.com`, `foo.web`) would
 	// otherwise start matching layers it has nothing to do with.
 	dottedSegments bool
+	// projectLayers classifies a module by the build project it compiles into,
+	// from the module's `project` prop, whenever that project's name names a
+	// layer; its directory name decides only when the project's does not. In
+	// .NET the project (assembly) is the unit Clean Architecture orders: its
+	// ProjectReferences are the dependencies the compiler allows, and every
+	// folder inside it shares them. A use-case folder named Application inside
+	// the host project (`Ordering.API/Application`) is part of the host, may use
+	// the Infrastructure project the host references, and read as the
+	// application layer it produced application -> infrastructure findings
+	// against code the layering permits. The rule cuts both ways: a folder named
+	// Infrastructure inside a Domain project is domain, and so are its imports.
+	projectLayers bool
 
 	// signatureLayers, if non-empty, requires at least minSignatureLayers of the
 	// matched layers to be distinctive ones from this set (so a pattern built
@@ -498,7 +510,7 @@ var patternDefs = []patternDef{
 	{name: "spring-layered", layers: springLayers, frameworks: []string{"spring"}, appliesTo: []string{"java", "kotlin"}},
 	{name: "django", layers: djangoLayers, frameworks: []string{"django"}, appliesTo: []string{"python"}},
 	{name: "dotnet-clean", layers: dotnetCleanLayers, frameworks: []string{"aspnetcore", "efcore"},
-		appliesTo: []string{"csharp", "vbnet", "fsharp", "razor", "xaml"}, dottedSegments: true, signatureLayers: []string{"domain", "infrastructure", "application"},
+		appliesTo: []string{"csharp", "vbnet", "fsharp", "razor", "xaml"}, dottedSegments: true, projectLayers: true, signatureLayers: []string{"domain", "infrastructure", "application"},
 		minSignatureLayers: 2},
 	{name: "ember-octane", layers: emberLayers, frameworks: []string{"ember"}, appliesTo: []string{"typescript", "handlebars"}},
 	// No signature gate on either of these, for the reason nextjs has none: the
@@ -1089,8 +1101,20 @@ func scorePattern(def patternDef, allModules []facts.Fact) *archPattern {
 		Languages:   cohortLangs,
 	}
 
+	var projectOf map[string]string
+	if def.projectLayers {
+		projectOf = moduleProjects(modules)
+	}
 	matchCount := 0
 	for _, mod := range modules {
+		if p := projectOf[mod.Name]; p != "" {
+			if i, ok := classifyModule(p, false, def); ok {
+				pattern.Layers[def.layers[i].Name] = &def.layers[i]
+				pattern.Modules[mod.Name] = def.layers[i].Name
+				matchCount++
+				continue
+			}
+		}
 		if i, ok := classifyModule(layerPath(mod), mod.PropString("package") == "main", def); ok {
 			pattern.Layers[def.layers[i].Name] = &def.layers[i]
 			pattern.Modules[mod.Name] = def.layers[i].Name
@@ -1572,10 +1596,10 @@ func (e *LayerExplainer) detectViolations(scoped []facts.Fact, pattern *archPatt
 			// Same assembly, no violation. .NET's layer boundary is the PROJECT, and
 			// two directories inside one compile into the same DLL — the reason the
 			// cycles explainer already says an intra-assembly cycle is a coupling
-			// signal rather than a build problem. Without this, eShop reported
-			// Basket.API/Repositories -> Basket.API/Model as infrastructure -> api,
-			// because the sub-directory takes its layer from its own name while its
-			// sibling inherits one from the project name they share.
+			// signal rather than a build problem. A project whose name names a
+			// layer gives every folder in it that layer (patternDef.projectLayers),
+			// so this is left for projects whose names do not, where each folder is
+			// still classified by its own name.
 			if p := projectOf[sourceModule]; p != "" && p == projectOf[target] {
 				continue
 			}

@@ -393,7 +393,8 @@ func collect(rf *repoFacts, modulePaths facts.ModulePaths) ([]pkgInput, []import
 
 	// 3. Build internal import edges from dependency facts. The importing package
 	// is the text left of " -> " in the fact name (it matches module names exactly;
-	// the file path is repo-prefixed and so is not used). The imported package is
+	// the file path is repo-prefixed and so is not used), past the prefix a derived
+	// module edge carries (see importerOf). The imported package is
 	// the imports-relation target, resolved to the nearest enclosing module.
 	// NOTE: we deliberately do NOT trust the dependency's "source" prop to detect
 	// internal imports — extractors frequently mislabel internal imports as
@@ -498,9 +499,19 @@ func looksNonProduction(pkgPath string) bool {
 	return nonProductionRoles[facts.ModuleRoleForPath(pkgPath)] || facts.IsTestPath(pkgPath)
 }
 
+// derivedEdgePrefix opens the name of a module edge the module-edges binder derives
+// from resolved symbol edges: "module-edge: <importer> -> <imported>".
+const derivedEdgePrefix = "module-edge: "
+
 // importerOf returns the importing package name encoded in a dependency fact's
 // name, which has the form "<importer> -> <imported>".
+//
+// A derived module edge is coupling like any import (the module graph, layers and
+// dependency depth count it), and in Ruby or PHP, where calls rather than imports
+// connect modules, it is most of the coupling there is. Its name carries the
+// prefix, which is stripped so the importer names a module.
 func importerOf(factName string) string {
+	factName = strings.TrimPrefix(factName, derivedEdgePrefix)
 	if i := strings.Index(factName, " -> "); i >= 0 {
 		return factName[:i]
 	}

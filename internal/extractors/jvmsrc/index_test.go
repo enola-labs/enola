@@ -95,9 +95,9 @@ func TestResolveImport(t *testing.T) {
 		{"kotlinx.coroutines.flow.Flow", "", false},
 	}
 	for _, c := range cases {
-		got, ok := ResolveImport(c.imp, idx)
+		got, ok := ResolveImportNamed(c.imp, idx, nil)
 		if ok != c.wantOK || got != c.want {
-			t.Errorf("ResolveImport(%q) = (%q, %v), want (%q, %v)", c.imp, got, ok, c.want, c.wantOK)
+			t.Errorf("ResolveImportNamed(%q) = (%q, %v), want (%q, %v)", c.imp, got, ok, c.want, c.wantOK)
 		}
 	}
 }
@@ -292,8 +292,8 @@ func TestGeneratedImport(t *testing.T) {
 			t.Errorf("GeneratedImport(%q) = %v, want %v", c.imp, got, c.want)
 		}
 		if c.want {
-			if dir, ok := ResolveImport(c.imp, idx); ok {
-				t.Errorf("ResolveImport(%q) = %q, want no directory for generated code", c.imp, dir)
+			if dir, ok := ResolveImportNamed(c.imp, idx, nil); ok {
+				t.Errorf("ResolveImportNamed(%q) = %q, want no directory for generated code", c.imp, dir)
 			}
 		}
 	}

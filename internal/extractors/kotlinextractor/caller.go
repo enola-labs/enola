@@ -33,9 +33,9 @@ var kotlinCallerGrammar = callsite.Grammar{
 // file, appends the client routes the regex passes found in it, and names each
 // call's calling function while the tree is still open.
 func extractFileWithClients(src []byte, relFile string, isAndroid bool, sourceRoot, basePackage string,
-	packageIndex map[string]string, clients []facts.Fact) []facts.Fact {
+	packageIndex, declaredNames map[string]string, clients []facts.Fact) []facts.Fact {
 	out := clients // what the file yields when the grammar cannot be loaded, as before
-	withTree(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex, func(root *sitter.Node, walked []facts.Fact) {
+	withTree(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex, declaredNames, func(root *sitter.Node, walked []facts.Fact) {
 		out = append(walked, clients...)
 		callsite.Attribute(kotlinCallerGrammar, root, out)
 	})

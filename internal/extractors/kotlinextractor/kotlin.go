@@ -115,6 +115,8 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 	// internal imports whose package we somehow did not index.
 	packageDirs := jvmsrc.BuildPackageDirs(repoPath, files)
 	packageIndex := jvmsrc.IndexOf(packageDirs)
+	// An import of a split package binds to the directory declaring the name.
+	declaredNames := jvmsrc.BuildDeclaredNames(repoPath, files, packageDirs)
 	// Test code also reaches the packages only test sources declare.
 	testIndex := jvmsrc.TestOnlyIndex(packageDirs)
 	for pkg, dir := range packageIndex {
@@ -146,7 +148,7 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 		if jvmsrc.IsTestSource(relFile) {
 			index = testIndex
 		}
-		return extractFileWithClients(src, relFile, isAndroid, sourceRoot, basePackage, index, clients)
+		return extractFileWithClients(src, relFile, isAndroid, sourceRoot, basePackage, index, declaredNames, clients)
 	})
 
 	modules := make(map[string]bool)
@@ -580,14 +582,14 @@ func detectKotlinBasePackage(repoPath string) string {
 // when the package is not in the index do we fall back to the base-package +
 // single-source-root heuristic, so behaviour degrades gracefully instead of
 // dropping an otherwise-internal edge.
-func resolveKotlinImport(importPath string, packageIndex map[string]string, sourceRoot, basePackage string) (string, bool) {
+func resolveKotlinImport(importPath string, packageIndex, declaredNames map[string]string, sourceRoot, basePackage string) (string, bool) {
 	// Generated code is checked first: the base-package fallback below would
 	// otherwise rebuild the same wrong path (`….ui.R` under the app's source root)
 	// that the package index just refused.
 	if jvmsrc.GeneratedImport(importPath, packageIndex) {
 		return importPath, true
 	}
-	if resolved, ok := jvmsrc.ResolveImport(importPath, packageIndex); ok {
+	if resolved, ok := jvmsrc.ResolveImportNamed(importPath, packageIndex, declaredNames); ok {
 		return resolved, false
 	}
 	if basePackage != "" && sourceRoot != "" && strings.HasPrefix(importPath, basePackage+".") {

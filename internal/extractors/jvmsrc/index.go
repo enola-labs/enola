@@ -6,6 +6,7 @@
 package jvmsrc
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -287,18 +288,53 @@ func SplitTarget(target string, siblings map[string][]string, exists func(string
 }
 
 // preferDir reports whether candidate should replace existing as the directory
-// for a package declared in more than one place. A main source set (…/src/main/…)
-// is preferred over a build-variant source set; otherwise the lexicographically
-// smaller path wins (deterministic).
+// for a package declared in more than one place. In order: a test source set is
+// never the package's directory; a production module ranks above a test-support or
+// build-definition one (`okhttp-testing-support/src/main` declares the library's
+// root package for its fakes, and binding the library's imports there pointed every
+// consumer at the test kit); a main or shared source set ranks above a platform
+// one, and both above a build variant (see sourceSetRank); otherwise the
+// lexicographically smaller path wins (deterministic).
 func preferDir(candidate, existing string) bool {
 	if cTest, eTest := isTestSource(candidate), isTestSource(existing); cTest != eTest {
 		return eTest // a test source set is never the package's directory
 	}
-	cMain, eMain := isMainSourceSet(candidate), isMainSourceSet(existing)
-	if cMain != eMain {
-		return cMain // promote a main source set over a variant one
+	cProd, eProd := ModuleRole(candidate) == facts.ModuleRoleProduction, ModuleRole(existing) == facts.ModuleRoleProduction
+	if cProd != eProd {
+		return cProd
+	}
+	if cRank, eRank := sourceSetRank(candidate), sourceSetRank(existing); cRank != eRank {
+		return cRank > eRank
 	}
 	return candidate < existing
+}
+
+// sourceSetRank orders the source sets a package can be split across: 2 for the
+// main set (src/main) and a Kotlin Multiplatform shared set (src/commonMain,
+// src/commonJvmAndroid), whose code every platform compiles; 1 for a platform set
+// (src/jvmMain, src/androidMain), which holds the `actual` half of a shared
+// declaration; 0 for anything else, a build variant (src/debug) or a flavor.
+func sourceSetRank(dir string) int {
+	if isMainSourceSet(dir) {
+		return 2
+	}
+	rank := 0
+	p := "/" + filepath.ToSlash(dir) + "/"
+	for {
+		i := strings.Index(p, "/src/")
+		if i < 0 {
+			return rank
+		}
+		p = p[i+len("/src/"):]
+		set, _, _ := strings.Cut(p, "/")
+		switch {
+		case strings.HasPrefix(set, "common"):
+			return 2
+		case strings.HasSuffix(set, "Main"):
+			rank = 1
+		}
+		p = "/" + p
+	}
 }
 
 // isMainSourceSet reports whether a directory lives in a Gradle main source set
@@ -325,9 +361,13 @@ func readPackage(absFile string) (string, bool) {
 		return "", false
 	}
 	defer func() { _ = f.Close() }()
+	return scanPackage(f)
+}
 
+// scanPackage is readPackage over source already open or in memory.
+func scanPackage(r io.Reader) (string, bool) {
 	var parts []string
-	scanner := linescan.New(f)
+	scanner := linescan.New(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || isCommentLine(line) {
@@ -401,34 +441,4 @@ func GeneratedImport(importPath string, index map[string]string) bool {
 		return len(rest) >= 2 && rest[0] != "" && rest[0][0] >= 'a' && rest[0][0] <= 'z'
 	}
 	return false
-}
-
-// ResolveImport maps a JVM import FQN to the directory of the package that holds
-// it, using a package index from BuildPackageIndex. It walks from the longest
-// dotted prefix down to the shortest, so that `de.foo.bar.Baz` resolves via the
-// package `de.foo.bar` and a nested-type import `de.foo.bar.Outer.Inner` still
-// resolves once a known package prefix is found. Any remaining segments (the
-// type / nested-type name) are appended as path components so the caller's
-// module-resolution still lands on the package directory and the produced fact
-// name matches the "<dir>.<Type>" symbol convention. Returns ok=false when no
-// prefix is a known package (i.e. an external dependency), and for an import of
-// generated code (see GeneratedImport).
-func ResolveImport(importPath string, index map[string]string) (string, bool) {
-	if GeneratedImport(importPath, index) {
-		return "", false
-	}
-	p := strings.TrimSuffix(importPath, ".*")
-	segs := strings.Split(p, ".")
-	for i := len(segs); i > 0; i-- {
-		pkg := strings.Join(segs[:i], ".")
-		dir, ok := index[pkg]
-		if !ok {
-			continue
-		}
-		if rest := segs[i:]; len(rest) > 0 {
-			return dir + "/" + strings.Join(rest, "/"), true
-		}
-		return dir, true
-	}
-	return "", false
 }

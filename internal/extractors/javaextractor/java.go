@@ -111,8 +111,10 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 	// type resolves to the module that declares it, instead of being dropped as
 	// external. Java→Java imports still resolve via the in-facts FQN index below;
 	// this only fills the cross-language gap.
-	packageIndex := jvmsrc.BuildPackageIndex(repoPath, files)
-	typeIndex := canonicalizeTargets(allFacts, packageIndex)
+	packageDirs := jvmsrc.BuildPackageDirs(repoPath, files)
+	packageIndex := jvmsrc.IndexOf(packageDirs)
+	typeIndex := canonicalizeTargets(allFacts, packageIndex, jvmsrc.BuildDeclaredNames(repoPath, files, packageDirs))
+	allFacts = dropEmptyFileRefs(allFacts)
 	resolveTableConstants(allFacts)
 
 	// Calls on a receiver of declared type become edges here, now that every type
@@ -165,7 +167,7 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 // canonicalizeTargets returns the FQN -> "<dir>.<Type>" index it builds, so callers
 // (e.g. the SPI service-file fold) can resolve implementation FQNs to canonical
 // fact names without rebuilding it.
-func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex map[string]string) map[string]string {
+func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex, declaredNames map[string]string) map[string]string {
 	typeIndex := make(map[string]string) // FQN -> "<dir>.<Type>" canonical name
 	typeDir := make(map[string]string)   // FQN -> dir
 	packageDir := make(map[string]string)
@@ -202,7 +204,7 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex map[string]string
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency {
-			resolveImport(f, typeDir, packageDir)
+			resolveImport(f, typeDir, packageDir, crossLangIndex, declaredNames)
 			continue
 		}
 		resolveTypeRefs(f, typeIndex)
@@ -281,7 +283,7 @@ func extractSPIRefs(repoPath string, files []string, typeIndex map[string]string
 	return out
 }
 
-func resolveImport(f *facts.Fact, typeDir, packageDir map[string]string) {
+func resolveImport(f *facts.Fact, typeDir, packageDir, crossLangIndex, declaredNames map[string]string) {
 	imp, _ := f.PropAny("import").(string)
 	if imp == "" {
 		return
@@ -294,6 +296,12 @@ func resolveImport(f *facts.Fact, typeDir, packageDir map[string]string) {
 	var dir string
 	var ok bool
 	if dir, ok = typeDir[imp]; !ok {
+		// A type of another JVM language in a package split across directories
+		// (a library's shared source set and its testing-support module): the
+		// directory declaring it, not the package's preferred one.
+		dir, ok = jvmsrc.DeclaringDir(imp, crossLangIndex, declaredNames)
+	}
+	if !ok {
 		// Wildcard / package import (e.g. "com.example.foo").
 		dir, ok = packageDir[imp]
 	}

@@ -14,7 +14,7 @@ import (
 
 // withTree parses and walks one file and hands the walk's facts to use while the
 // tree is still open. use is not called when the grammar cannot be loaded.
-func withTree(src []byte, relFile string, isAndroid bool, sourceRoot, basePackage string, packageIndex map[string]string,
+func withTree(src []byte, relFile string, isAndroid bool, sourceRoot, basePackage string, packageIndex, declaredNames map[string]string,
 	use func(root *sitter.Node, walked []facts.Fact)) {
 	parser := sitter.NewParser()
 	defer parser.Close()
@@ -32,13 +32,14 @@ func withTree(src []byte, relFile string, isAndroid bool, sourceRoot, basePackag
 	dir := factpath.Dir(relFile)
 
 	w := &astWalker{
-		src:          src,
-		relFile:      relFile,
-		dir:          dir,
-		isAndroid:    isAndroid,
-		sourceRoot:   sourceRoot,
-		basePackage:  basePackage,
-		packageIndex: packageIndex,
+		src:           src,
+		relFile:       relFile,
+		dir:           dir,
+		isAndroid:     isAndroid,
+		sourceRoot:    sourceRoot,
+		basePackage:   basePackage,
+		packageIndex:  packageIndex,
+		declaredNames: declaredNames,
 	}
 	w.walkSourceFile(root)
 	use(root, w.out)
@@ -55,6 +56,9 @@ type astWalker struct {
 	// all modules and both .kt/.java files); used to resolve internal imports to
 	// the correct module in multi-module projects. See resolveKotlinImport.
 	packageIndex map[string]string
+	// declaredNames maps a name declared in a package split across directories to
+	// the directory declaring it (jvmsrc.BuildDeclaredNames).
+	declaredNames map[string]string
 
 	// out is the accumulating fact list.
 	out []facts.Fact
@@ -644,7 +648,7 @@ func (w *astWalker) handleImport(node *sitter.Node) {
 		return
 	}
 	importPath := nodeText(qid, w.src)
-	resolved, isExternal := resolveKotlinImport(importPath, w.packageIndex, w.sourceRoot, w.basePackage)
+	resolved, isExternal := resolveKotlinImport(importPath, w.packageIndex, w.declaredNames, w.sourceRoot, w.basePackage)
 	importSource := "internal"
 	if isExternal {
 		importSource = "external"

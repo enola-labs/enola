@@ -3819,7 +3819,22 @@ import (
 // v689: a derived module edge sits at a file of its source module, so readers place
 // it there and not at the parent directory, and an import of a file now connects
 // the module holding that file, so a pair an import connects is not derived again.
-const cacheVersion = "v689"
+// v690: layers: dotnet-clean classifies a module by the layer its MSBuild project's name
+// names, falling back to the folder name. Explainer-only, no facts change; the bump
+// only keeps the version range contiguous for this batch.
+// v691: Java: a static import (`import static T.member;`, `import static T.*;`) is
+// a use of the type T: the importing file's file_ref fact gets a names edge to T
+// where the repository declares it, and a test's static import records T as a
+// test_ref by its declaration's name. A JDK or library type, or a type the file
+// declares itself, records nothing.
+// v692: JVM: an import of a package declared in several directories binds to the
+// directory that declares the imported name (Kotlin and Java, across languages);
+// a package's own directory prefers a production module over a test-support one,
+// and a main or shared source set over a platform set.
+// v693: package metrics count a derived module edge (named "module-edge: A -> B")
+// as coupling, so afferent, efferent, instability and distance on module facts move
+// wherever calls, not imports, connect two modules.
+const cacheVersion = "v693"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
