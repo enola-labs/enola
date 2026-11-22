@@ -61,7 +61,7 @@ var testProjectSuffixes = []string{"-e2e", "-cypress", "-playwright"}
 // testFileSuffixes are the filename conventions safe enough to trust on their own,
 // for the languages whose tests are genuinely colocated with production source:
 // Go's `_test.go` (reserved by the compiler — a production file cannot be named
-// this), pytest's `*_test.py`, RSpec's `*_spec.rb`, and the dotted Jest/Vitest
+// this), RSpec's `*_spec.rb`, and the dotted Jest/Vitest
 // forms, which really do appear outside a test tree (`cypress/e2e/explore/
 // chart.test.js` on python/superset is one).
 //
@@ -87,6 +87,17 @@ var testProjectSuffixes = []string{"-e2e", "-cypress", "-playwright"}
 //     python/superset and all three were production commands that *test a database
 //     connection*: `superset/cli/test_db.py`, `superset/cli/test_loaders.py`,
 //     `superset/commands/database/test_connection.py`.
+//   - pytest's `*_test.py` SUFFIX, for the same reason. Outside a test tree it
+//     claimed 27 files across the corpus. 9 were production: three modules of a
+//     "test connection" feature (`models/connection_test.py`,
+//     `executors/workloads/connection_test.py`,
+//     `api_fastapi/execution_api/datamodels/connection_test.py`), two shipped
+//     example DAGs and four scripts and demos. The other 18 were unittest
+//     files beside build tooling in repositories that are not Python projects. A
+//     content rule cannot separate them either: the production workload module
+//     declares `class TestConnection`. The default ignore globs never matched the
+//     suffix, so these files were indexed as production all along; the predicate
+//     now agrees with the globs.
 //
 // The rule that survives is: a name that merely LOOKS like a test is production.
 // Erring this way costs at worst a false negative (a stray colocated test rated as
@@ -95,14 +106,12 @@ var testProjectSuffixes = []string{"-e2e", "-cypress", "-playwright"}
 // notice. It is the same reason ModuleRoleForPath matches whole '-'/'_' tokens
 // rather than substrings.
 //
-// Residual risk, recorded honestly: `_test.py` and `_spec.rb` have the same
-// theoretical collision as `_test.rb` (a production `feature_ab_test.py`), but
-// unlike `_test.rb` no such file exists on the corpus, and dropping them would
-// re-introduce false-positive orphans for colocated pytest suites. If one ever
-// turns up, they go the way of `_test.rb`.
+// Residual risk, recorded honestly: `_spec.rb` has the same theoretical
+// collision as `_test.rb` (a production `feature_ab_spec.rb`), but no such file
+// exists on the corpus. If one ever turns up, it goes the way of `_test.rb` and
+// `_test.py`.
 var testFileSuffixes = []string{
 	"_test.go",
-	"_test.py",
 	"_spec.rb",
 	".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx",
 	".test.js", ".test.jsx", ".spec.js", ".spec.jsx", ".test.mjs", ".spec.mjs", ".test.cjs", ".spec.cjs",

@@ -345,7 +345,7 @@ func TestBuildModuleGraph_UntaggedTestModuleExcluded(t *testing.T) {
 		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "superset/dao"}}})
 	// From a test file beside the code: an import from production code would make
 	// the module production (see TestModuleNameSets_ProductionImportPromotesAGuessedTestModule).
-	s.Add(facts.Fact{Kind: facts.KindDependency, File: "superset/dao/f_test.py",
+	s.Add(facts.Fact{Kind: facts.KindDependency, File: "superset/dao/f_test.go",
 		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "tests/unit_tests/dao"}}})
 
 	graph := BuildModuleGraph(s)

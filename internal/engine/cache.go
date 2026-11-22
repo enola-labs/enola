@@ -3853,7 +3853,10 @@ import (
 // `+= [...]`, also inside an `if`), with the literal's per-kind directory defaults: they
 // get SPM module facts, seed the module resolver, and their dependencies resolve to
 // target directories.
-const cacheVersion = "v697"
+// v698: a Python file named *_test.py is test code only inside a test tree, as the
+// default ignore globs already had it. Outside one it is production: its HTTP calls
+// are client routes, and the analyzers rate its symbols like any other module's.
+const cacheVersion = "v698"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
