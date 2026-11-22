@@ -699,15 +699,6 @@ func Default() *Config {
 			// Swift. Live: SwiftExtractor implements TestRefExtractor, so a
 			// production symbol whose only caller is its test reads as test-only.
 			"**/*Tests/**/*.swift",
-			// PHP has no TestRefExtractor yet, so these are the same deliberate
-			// no-op as Scala's: listed because Ignore above requires the two lists to
-			// agree. Until then, a symbol called only from a test reads as dead.
-			// Swift has no TestRefExtractor yet, so this is the same deliberate
-			// no-op as Scala's: listed because Ignore above requires the two lists
-			// to agree, and so that implementing ExtractTestRefs for it switches the
-			// signal on without a second config change. Until then, a symbol called
-			// only from a test reads as dead, not test-only.
-			"**/*Tests/**/*.swift",
 			// PHP. Live: PHPExtractor implements TestRefExtractor, so a production
 			// symbol whose only caller is its test reads as test-only.
 			"**/tests/**/*.php",
