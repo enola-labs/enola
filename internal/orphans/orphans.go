@@ -1354,6 +1354,15 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// handler methods are not mis-reported as orphans. The route name is the
 	// reference source (never equal to a symbol name).
 	for f := range store.OfKind(facts.KindRoute) {
+		// The resolved handler, where the route is bound to one. For an inherited
+		// action it is declared on a parent class or a trait, which the handler
+		// prop does not name. A route named by its file (a SvelteKit page or form
+		// action) has no handler prop at all, and this is its only binding.
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				addRef(refSources, r.Target, f.Name)
+			}
+		}
 		h, _ := f.PropAny(propHandler).(string)
 		if h == "" {
 			continue
@@ -1369,14 +1378,6 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		// the framework instantiates it to serve the route.
 		for _, recv := range constReceiverRefs(h) {
 			addRef(refSources, recv, f.Name)
-		}
-		// The resolved handler, where the route is bound to one. For an inherited
-		// action it is declared on a parent class or a trait, which the handler
-		// prop does not name.
-		for _, r := range f.Relations {
-			if r.Kind == facts.RelHandledBy {
-				addRef(refSources, r.Target, f.Name)
-			}
 		}
 	}
 
