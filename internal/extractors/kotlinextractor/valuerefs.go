@@ -43,6 +43,7 @@ var kotlinValueParents = map[string]bool{
 	"parenthesized_expression": true, "binary_expression": true,
 	"in_expression": true, "range_expression": true, "spread_expression": true,
 	"index_expression": true, "collection_literal": true, "if_expression": true,
+	"function_body": true, // `fun f() = Mode.A`, an expression body
 }
 
 // noteValueRef records a type the node uses as a value, if it is one: a
@@ -129,9 +130,11 @@ func kotlinPathSegments(nav *sitter.Node, src []byte) []string {
 	return segs
 }
 
-// noteValueSegments records the names a written path could have: the capitalized
-// prefix of the path, longest first, rooted where its first segment resolves, under
-// prop.
+// noteValueSegments records the names a written path could have, under prop: the
+// capitalized prefix of the path, longest first, rooted first in each enclosing
+// type, innermost first, then where its first segment resolves. A type nested in an
+// enclosing class is in scope by its simple name there, and shadows an imported or
+// a package type of the same name.
 func (w *astWalker) noteValueSegments(segs []string, prop string) {
 	n := 0
 	for n < len(segs) && isCapitalized(segs[n]) {
@@ -140,17 +143,24 @@ func (w *astWalker) noteValueSegments(segs []string, prop string) {
 	if n == 0 {
 		return
 	}
-	base := w.typeCandidate(segs[0])
-	if base == "" {
-		return
-	}
 	owner := w.currentOwner()
 	if owner == noOwner {
 		return
 	}
 	var cands []string
-	for k := n; k >= 1; k-- {
-		cands = append(cands, base+strings.Join(append([]string{""}, segs[1:k]...), "."))
+	for k := len(w.typeStack); k >= 1; k-- {
+		scope := w.dir + "." + strings.Join(w.typeStack[:k], ".")
+		for j := n; j >= 1; j-- {
+			cands = append(cands, scope+"."+strings.Join(segs[:j], "."))
+		}
+	}
+	if base := w.typeCandidate(segs[0]); base != "" {
+		for j := n; j >= 1; j-- {
+			cands = append(cands, base+strings.Join(append([]string{""}, segs[1:j]...), "."))
+		}
+	}
+	if len(cands) == 0 {
+		return
 	}
 	notes, _ := w.out[owner].PropAny(prop).([][]string)
 	w.out[owner].SetProp(prop, append(notes, cands))

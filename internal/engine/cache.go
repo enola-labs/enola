@@ -3787,7 +3787,9 @@ import (
 // Kotlin: an object used as a value in a binary, `in`, range, index or spread
 // expression, a `to` pair, or as the receiver of a call to a member it does not
 // declare (`Key.takeIf {}`) is named; the value parents listed another grammar's
-// node kinds. Test refs record a capitalized identifier in those places.
+// node kinds. Test refs record a capitalized identifier in those places. A value's
+// type is tried first as a type nested in each enclosing class (`Level.NONE` inside
+// the class declaring `enum class Level`), and an expression body is a value.
 const cacheVersion = "v682"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

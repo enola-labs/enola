@@ -196,3 +196,55 @@ class Nav {
 		}
 	}
 }
+
+// A type nested in an enclosing class is named by its simple name inside that
+// class (`Level.NONE` in the class declaring `enum class Level`), and shadows a
+// package type of the same name there; outside the class, the package type is
+// still the one named.
+func TestKotlinNestedTypeOfAnEnclosingClassIsNamed(t *testing.T) {
+	const dir = "lib/src/main/kotlin/com/acme"
+	ff := extractKotlinRepo(t, map[string]string{
+		dir + "/Interceptor.kt": `package com.acme
+
+class Interceptor {
+    var level = Level.NONE
+
+    fun setLevel(level: Level) {}
+
+    fun intercept() {
+        if (level == Level.BODY) { }
+    }
+
+    enum class Level { NONE, BODY }
+
+    class Inner {
+        fun f() = Mode.A
+    }
+
+    enum class Mode { A }
+}
+`,
+		dir + "/Other.kt": `package com.acme
+
+enum class Level { X }
+
+class Other {
+    fun g() = Level.X
+}
+`,
+	})
+	nested := dir + ".Interceptor.Level"
+	for sym, want := range map[string]string{
+		"Interceptor.intercept": nested,
+		"Interceptor.setLevel":  nested,
+		"Interceptor.Inner.f":   dir + ".Interceptor.Mode",
+		"Other.g":               dir + ".Level",
+	} {
+		if f := ktSym(t, ff, sym); !f.HasRelation(facts.RelNames, want) {
+			t.Errorf("%s relations = %v, want names %s", sym, f.Relations, want)
+		}
+	}
+	if f := ktSym(t, ff, "Interceptor.intercept"); f.HasRelation(facts.RelNames, dir+".Level") {
+		t.Errorf("intercept names the package Level its nested Level shadows: %v", f.Relations)
+	}
+}
