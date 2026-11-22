@@ -3834,7 +3834,12 @@ import (
 // v693: package metrics count a derived module edge (named "module-edge: A -> B")
 // as coupling, so afferent, efferent, instability and distance on module facts move
 // wherever calls, not imports, connect two modules.
-const cacheVersion = "v693"
+// v695: PHP: the extractor implements plugin.TestRefExtractor. Each ignored PHP test
+// file (tests/, test/) yields one test_ref fact: classes resolved through the file's
+// namespace and `use` imports, static calls as `Class::method`, instance calls by
+// bare method name; `$this->` calls, harness names, attributes and the file's own
+// declarations dropped. Production code only tests call reads test-only, not dead.
+const cacheVersion = "v695"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
