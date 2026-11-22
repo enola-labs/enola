@@ -3774,7 +3774,12 @@ import (
 // src/test, src/<name>Test, src/testFixtures and Android flavor sets), and Java
 // implements plugin.TestRefExtractor: each ignored Java test file emits one test_ref
 // fact carrying the calls, member reads, method references and types it names.
-const cacheVersion = "v679"
+// v680: Rust tests are ignored and listed as test globs by default (tests/ and
+// benches/ trees), and Rust implements plugin.TestRefExtractor: each such file emits
+// one test_ref fact, walked as a #[cfg(test)] module file is, and no symbols. Test
+// code's impl blocks and constants contribute their references too: the trait a
+// fixture implements, and the calls its methods and constant values make.
+const cacheVersion = "v680"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

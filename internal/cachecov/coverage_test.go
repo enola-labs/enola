@@ -272,6 +272,7 @@ var versionCoverage = map[int][]string{
 	677: {"TestSwiftProductionReferenceSkipsTestDeclarations", "TestSwiftCallOnAForeignTypeRootDoesNotBindByName"},
 	678: {"TestGradleFlavorTestSetsAreTests", "TestMochaTestDirectoryIsTests", "TestIsTestPath", "TestIsTSTestFile"},
 	679: {"TestJavaTestGlobsScopeToTestSourceSets", "TestJavaTestRefsCaptureProductionReferences", "TestJavaTestRefsDropHarnessAndOwnDeclarations", "TestJavaExtractTestRefsEmitsOnlyTestRefFacts"},
+	680: {"TestRustTestGlobsScopeToCargoTestTrees", "TestRustExtractTestRefsEmitsOnlyTestRefFacts", "TestRustExtractTestRefsSameAsCfgTestModuleWalk", "TestRustTestCodeImplAndConstBodiesAreTestRefs"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
