@@ -3887,7 +3887,10 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v704: PHP: a plain function call inside a method (`url(...)` in `Profile::url`) no
+// longer sets recursive_self; a function call never runs a method. It still counts
+// as a call in a loop.
+const cacheVersion = "v704"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

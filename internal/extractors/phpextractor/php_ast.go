@@ -517,7 +517,13 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if fn != nil && (kindOf(fn) == "name" || kindOf(fn) == "qualified_name") {
 			target := w.resolveRef(phpText(fn, w.src))
 			w.addCall(ownerIdx, seen, target)
-			w.recordCallMetrics(target)
+			// A plain function call never runs a method: inside `Profile::url`,
+			// `url(...)` is the framework helper, not a call to itself.
+			if strings.Contains(w.selfName, "::") {
+				w.recordInLoopCall(target)
+			} else {
+				w.recordCallMetrics(target)
+			}
 			w.recordIODirect(lastNsSegment(phpText(fn, w.src)), phpIOGlobalFuncs)
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, fn)
