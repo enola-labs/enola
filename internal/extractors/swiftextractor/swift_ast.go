@@ -615,7 +615,12 @@ func (w *astWalker) walkFileScopeCalls(root *sitter.Node) {
 
 	// Drop the file-ref fact if none of the statements produced a call edge or a
 	// rooted call for resolveRootedCalls (which drops it if that comes to nothing).
-	if f := &w.out[w.fileRefIdx]; len(f.Relations) == 0 && f.PropAny(propRootedCalls) == nil && f.PropAny(propValueNotes) == nil {
+	// One that holds only functions handed over waits for resolveValueRefs.
+	if f := &w.out[w.fileRefIdx]; len(f.Relations) == 0 && f.PropAny(propRootedCalls) == nil {
+		if f.PropAny(propValueNotes) != nil {
+			f.SetProp(propDropUnlessValues, true)
+			return
+		}
 		w.out = append(w.out[:w.fileRefIdx], w.out[w.fileRefIdx+1:]...)
 		w.fileRefIdx = -1
 	}

@@ -67,6 +67,12 @@ func isDelegateCallback(fn *sitter.Node, name string, src []byte) bool {
 	return false
 }
 
+// propDropUnlessValues marks a file's top-level fact that the walker or
+// resolveRootedCalls would have dropped for holding no edge, kept only for its value
+// notes: resolveValueRefs drops it when they bind nothing. It does not leave the
+// extractor.
+const propDropUnlessValues = "swift_drop_unless_values"
+
 // swiftValueNote is one name a declaration uses as a value.
 type swiftValueNote struct {
 	typ    string // the type the name is looked up on: the enclosing one for a bare name
@@ -253,8 +259,8 @@ func addIdentifiers(n *sitter.Node, src []byte, out map[string]bool) {
 
 // resolveValueRefs turns the walker's notes into calls edges, listed in value_refs,
 // against the declarations the calling file sees. A note that names no function
-// gets no edge. A file's top-level fact left with no edge is dropped, as the walker
-// drops one whose statements call nothing.
+// gets no edge. A file's top-level fact kept only for its notes is dropped when they
+// bind nothing, as the walker drops one whose statements call nothing.
 func resolveValueRefs(allFacts []facts.Fact, index *swiftIndexes, hier *swiftHierarchies) []facts.Fact {
 	callbacks := map[string]bool{}
 	for i := range allFacts {
@@ -289,7 +295,9 @@ func resolveValueRefs(allFacts []facts.Fact, index *swiftIndexes, hier *swiftHie
 		if len(refs) > 0 {
 			f.SetProp(propValueRefs, refs)
 		}
-		if f.Kind == facts.KindFileRef && len(f.Relations) == 0 {
+		drop, _ := f.PropAny(propDropUnlessValues).(bool)
+		f.DelProp(propDropUnlessValues)
+		if drop && len(refs) == 0 {
 			if empty == nil {
 				empty = map[int]bool{}
 			}

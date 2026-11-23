@@ -255,3 +255,31 @@ func tableStyle(_ t: UITableView) -> UITableView { t }
 		}
 	}
 }
+
+// A file's top-level fact kept only for names that bind nothing is dropped, as one
+// whose statements call nothing is; one that binds keeps its edge.
+func TestFunctionValuesFileScopeFact(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/App/routes.swift": `
+private func home() {}
+let table = ["/": home]
+_ = ["/x": unknownThing]
+`,
+		"Sources/App/empty.swift": `
+_ = [1: someLocalName]
+`,
+	})
+	for _, f := range ff {
+		if f.Kind == facts.KindFileRef && f.File == "Sources/App/empty.swift" {
+			t.Errorf("file fact kept with nothing bound: %+v", f)
+		}
+		for k := range f.Props {
+			if k == propValueNotes || k == propDropUnlessValues || k == propDelegateCallback {
+				t.Errorf("%s keeps internal prop %s", f.Name, k)
+			}
+		}
+	}
+	if got := valueCallTargets(t, ff, "Sources/App.table"); !slices.Contains(got, "Sources/App.home") {
+		t.Errorf("table: calls %v, want Sources/App.home", got)
+	}
+}

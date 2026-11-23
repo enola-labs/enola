@@ -309,6 +309,10 @@ func resolveRootedCalls(allFacts []facts.Fact, index *swiftIndexes) []facts.Fact
 			}
 		}
 		if f.Kind == facts.KindFileRef && len(f.Relations) == 0 {
+			if f.PropAny(propValueNotes) != nil {
+				f.SetProp(propDropUnlessValues, true) // resolveValueRefs decides
+				continue
+			}
 			if empty == nil {
 				empty = map[int]bool{}
 			}
