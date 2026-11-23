@@ -3981,7 +3981,12 @@ import (
 // v711: Kotlin: a Metro @BindingContainer is a di_module, and a Metro or Anvil
 // @ContributesTo container is framework_registered, on every platform; the
 // annotations count only when imported from the framework.
-const cacheVersion = "v711"
+// v712: an unqualified C++ call binds as C++ unqualified lookup does: to the
+// function an enclosing namespace of the caller declares, innermost first, among
+// the declarations the caller's file may include; a member function's own class or
+// a base declaring the name keeps the call. A same-named function in a directory
+// the file cannot include no longer leaves the call unbound.
+const cacheVersion = "v712"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

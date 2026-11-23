@@ -309,6 +309,7 @@ var versionCoverage = map[int][]string{
 	711: {"TestKMPExportsStampFrameworkAndFacade", "TestKMPFrameworkDefaultsToModuleName", "TestKotlinFacadeCallsAreNoted", "TestKMPSwiftCallBindsThroughTheImportedFramework", "TestGolden"},
 	711: {"TestOperatorExtensionOnLibraryTypeIsCalled", "TestOperatorMemberConventions", "TestGolden"},
 	711: {"TestMetroContributedContainerIsRegistered", "TestGolden"},
+	712: {"TestCppUnqualifiedCallFindsTheEnclosingNamespace", "TestCppUnqualifiedCallInOutOfLineConstructorInitializer", "TestCppUnqualifiedCallBindsToTheIncludedDeclaration", "TestCppUnqualifiedCallOutOfSightStaysUnbound", "TestCppUnqualifiedCallInMethodPrefersAnInheritedMember", "TestCppUnqualifiedCallSkipsANameANestedNamespaceAlsoDeclares"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
