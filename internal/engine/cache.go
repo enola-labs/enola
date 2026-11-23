@@ -4018,7 +4018,11 @@ import (
 // reference fact what it constructs (`new X`), calls statically or as a function,
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
-const cacheVersion = "v715"
+// v716: C++: a local or value member of a class type, `new T`, std::make_unique and
+// make_shared, and a project factory template (one whose return statement news its
+// type parameter or passes it to another factory) record that they instantiate the
+// class, bound only through the type written and the caller's include visibility.
+const cacheVersion = "v716"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
