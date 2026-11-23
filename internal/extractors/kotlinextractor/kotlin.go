@@ -161,6 +161,7 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 	// simple name become implements edges, now that every file has been read.
 	resolveSplitPackages(allFacts, jvmsrc.SplitSiblings(packageDirs))
 	resolveTypedCalls(allFacts)
+	resolveOperatorUses(allFacts) // operators.go
 	resolveCapitalCalls(allFacts)
 	resolveValueRefs(allFacts)
 

@@ -3974,6 +3974,10 @@ import (
 // Swift static call on a receiver named like a facade (`Main_iosKt.f()`) is listed
 // in kotlin_facade_calls, and the kmp-swift binder binds it through the framework
 // the Swift file imports.
+// v711: Kotlin: an operator (`a - b`, `a[i]`, `x in a`, `a += b`, `-a`, `a < b`,
+// `a..b`) on an operand of declared type calls the `operator fun` its convention
+// names, declared by the type, a supertype, or an extension on it the file sees; a
+// library type is matched by its qualified import.
 const cacheVersion = "v711"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

@@ -162,7 +162,7 @@ func firstIdentifierChild(n *sitter.Node) *sitter.Node {
 
 // bindProperty records what a property_declaration declares: `val x: T`,
 // `val x = T(…)`.
-func (w *astWalker) bindProperty(into map[string]string, prop *sitter.Node) {
+func (w *astWalker) bindProperty(into, ext map[string]string, prop *sitter.Node) {
 	vd := findChildByKind(prop, "variable_declaration")
 	if vd == nil {
 		return
@@ -183,6 +183,7 @@ func (w *astWalker) bindProperty(into map[string]string, prop *sitter.Node) {
 	} else {
 		delete(into, nodeText(name, w.src)) // shadows a typed name with an untyped one
 	}
+	w.bindExt(ext, nodeText(name, w.src), vd)
 }
 
 // bindMembers fills the innermost type scope with the declared types of a class's
@@ -203,6 +204,7 @@ func (w *astWalker) bindMembers(class *sitter.Node) {
 					if t := w.declaredType(cp); t != "" {
 						into[nodeText(name, w.src)] = t
 					}
+					w.bindExt(w.memberExt[len(w.memberExt)-1], nodeText(name, w.src), cp)
 				}
 			}
 		}
@@ -213,7 +215,7 @@ func (w *astWalker) bindMembers(class *sitter.Node) {
 	}
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		if m := body.NamedChild(i); kindOf(m) == "property_declaration" {
-			w.bindProperty(into, m)
+			w.bindProperty(into, w.memberExt[len(w.memberExt)-1], m)
 		}
 	}
 }
@@ -233,6 +235,7 @@ func (w *astWalker) bindParameters(fn *sitter.Node) {
 			if t := w.declaredType(p); t != "" {
 				w.localTypes[nodeText(name, w.src)] = t
 			}
+			w.bindExt(w.localExt, nodeText(name, w.src), p)
 		}
 	}
 }
