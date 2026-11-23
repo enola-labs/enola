@@ -2179,7 +2179,7 @@ func (w *astWalker) handleCall(node *sitter.Node) {
 					w.addOwnerEdge(relFuncPtrCandidate, target)
 				}
 			} else if !cppBuiltinTypes[name] {
-				w.addOwnerEdge(facts.RelInstantiates, name)
+				w.handleCapitalizedCall(name)
 			}
 		} else if target := w.resolveCall(name); target != "" {
 			w.addOwnerEdge(facts.RelCalls, target)
@@ -2227,6 +2227,22 @@ func (w *astWalker) handleCall(node *sitter.Node) {
 			w.recordInLoop(tgt)
 		}
 	}
+}
+
+// handleCapitalizedCall reads a bare capitalized C++ callee, Foo(x) or Foo<T>(x).
+// Inside a class, a method of that class named Foo is found first, as C++ lookup
+// does, unless Foo is the class itself (its injected name: a temporary). Otherwise
+// the project pass decides: an instantiation when a type the caller can see is
+// named Foo, a call when a function is, nothing when neither (a macro).
+func (w *astWalker) handleCapitalizedCall(name string) {
+	class, _, _ := strings.Cut(w.enclosingTypeReceiver(), "<") // Chain<C> is Chain
+	if w.currentMethods()[name] && name != class {
+		target := w.factName(name)
+		w.addOwnerEdge(facts.RelCalls, target)
+		w.recordCallMetrics(target)
+		return
+	}
+	w.addOwnerEdge(relCapitalizedCallCandidate, name)
 }
 
 // collectExplicitReceiverTypes finds parameter and local declarations whose type

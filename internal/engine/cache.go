@@ -3856,7 +3856,12 @@ import (
 // v698: a Python file named *_test.py is test code only inside a test tree, as the
 // default ignore globs already had it. Outside one it is production: its HTTP calls
 // are client routes, and the analyzers rate its symbols like any other module's.
-const cacheVersion = "v698"
+// v699: C++: a bare capitalized callee, Foo(x) or Foo<T>(x), is an instantiation
+// only when a type the caller can see is named Foo. A method of the enclosing class
+// named Foo is a call to it; otherwise a function named Foo is a call (resolved like
+// any bare call, and only to a function or method that is not a constructor), and a
+// method owner notes Foo as a member call. Neither: no edge, as before.
+const cacheVersion = "v699"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

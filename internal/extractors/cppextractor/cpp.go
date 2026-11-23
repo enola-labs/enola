@@ -37,6 +37,12 @@ const relFuncPtrCandidate = "func_ptr_candidate"
 // the repository, or to the one declaration the caller can see (typeIndex.resolve).
 const relReceiverCallCandidate = "receiver_call_candidate"
 
+// relCapitalizedCallCandidate is emitted for a bare capitalized C++ callee that is
+// not a method of the enclosing class. canonicalizeTargets makes it an
+// instantiation when the name is a type the caller can see, a call when it is a
+// function, and drops it otherwise; it never appears in emitted facts.
+const relCapitalizedCallCandidate = "capitalized_call_candidate"
+
 // CppExtractor extracts architectural facts from C and C++ source code using
 // tree-sitter AST parsing (see cpp_ast.go for the walker implementation). It owns
 // both languages: a per-file grammar choice (see parsedLanguage) routes .c files
@@ -392,9 +398,13 @@ type callResolutionStats struct {
 func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions functionNames, visibility *includeVisibility) callResolutionStats {
 	var stats callResolutionStats
 	known := make(map[string]bool)
+	callable := make(map[string]bool)
 	for i := range allFacts {
 		if allFacts[i].Kind == facts.KindSymbol {
 			known[allFacts[i].Name] = true
+			if sk := allFacts[i].PropString("symbol_kind"); sk == facts.SymbolFunc || sk == facts.SymbolMethod {
+				callable[allFacts[i].Name] = true
+			}
 		}
 	}
 	returns := newReturnIndex(allFacts, known, functions, types, visibility)
@@ -404,6 +414,21 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 		kept := rels[:0]
 		source := sourceDir(&allFacts[i])
 		for _, r := range rels {
+			// A capitalized callee is a type when the caller can see one by that
+			// name; otherwise it must resolve as a call below, or it is dropped.
+			callOnly := false
+			if r.Kind == relCapitalizedCallCandidate {
+				if types.resolve(r.Target, source, visibility, nil) != "" {
+					r.Kind = facts.RelInstantiates
+				} else {
+					if allFacts[i].PropString("symbol_kind") == facts.SymbolMethod {
+						allFacts[i].AddPropStrings(facts.PropMemberCalls, r.Target)
+					}
+					r.Kind = facts.RelCalls
+					r.Target = source + "." + r.Target
+					callOnly = true
+				}
+			}
 			// declaresMember narrows a duplicated type name to the directories whose
 			// copy has the member this edge names.
 			member := r.Target
@@ -561,14 +586,33 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 					}
 				}
 				if !resolved && !known[r.Target] {
+					if callOnly {
+						continue
+					}
 					stats.unresolved++
 				}
+			}
+			if callOnly && (!callable[r.Target] || isConstructorName(r.Target)) {
+				// A typedef, a template parameter or a variable is not a call, and a
+				// constructor is a type the index could not resolve: no edge, as before.
+				continue
 			}
 			kept = append(kept, r)
 		}
 		allFacts[i].Relations = kept
 	}
 	return stats
+}
+
+// isConstructorName reports whether a canonical name ends in Type::Type (or
+// Type<T>::Type), the name a constructor is declared under.
+func isConstructorName(name string) bool {
+	parts := strings.Split(name[strings.LastIndex(name, ".")+1:], "::")
+	if len(parts) < 2 {
+		return false
+	}
+	class, _, _ := strings.Cut(parts[len(parts)-2], "<")
+	return parts[len(parts)-1] == class
 }
 
 // typeIndex records every directory that declares a simple type name, in file
