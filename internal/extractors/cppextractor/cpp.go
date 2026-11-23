@@ -272,8 +272,8 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// recovers free functions declared through headers without guessing among
 	// overloads or common helper names.
 	resolution := canonicalizeTargets(allFacts, types, indexFunctionNames(allFacts), buildIncludeVisibility(allFacts, headerIndex, headerDirs))
-	log.Printf("[cpp-extractor] call resolution: total=%d exact=%d type_scoped=%d unique_short=%d qualified_suffix=%d receiver_resolved=%d receiver_rejected=%d rejected_no_include_path=%d unresolved=%d",
-		resolution.total, resolution.exact, resolution.typeScoped, resolution.uniqueShort, resolution.qualifiedSuffix, resolution.receiverResolved, resolution.receiverRejected, resolution.noIncludePath, resolution.unresolved)
+	log.Printf("[cpp-extractor] call resolution: total=%d exact=%d type_scoped=%d unique_short=%d qualified_suffix=%d enclosing_scope=%d receiver_resolved=%d receiver_rejected=%d rejected_no_include_path=%d unresolved=%d",
+		resolution.total, resolution.exact, resolution.typeScoped, resolution.uniqueShort, resolution.qualifiedSuffix, resolution.enclosingScope, resolution.receiverResolved, resolution.receiverRejected, resolution.noIncludePath, resolution.unresolved)
 
 	// Propagate the direct-I/O signal transitively over the (now-canonical) call
 	// graph, so a function reaching a file/socket primitive through a wrapper is
@@ -407,6 +407,7 @@ func mergeSymbol(dst *facts.Fact, src facts.Fact) {
 // are kept, since cross-module/external inheritance and calls are meaningful.
 type callResolutionStats struct {
 	total, exact, typeScoped, uniqueShort, qualifiedSuffix        int
+	enclosingScope                                                int
 	receiverResolved, receiverRejected, noIncludePath, unresolved int
 }
 
@@ -430,6 +431,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 	}
 	returns := newReturnIndex(allFacts, known, functions, types, visibility)
 	bases := classBases(allFacts, types, visibility)
+	enclosing := newEnclosingLookup(allFacts, types, bases, known, visibility)
 	for i := range allFacts {
 		rels := allFacts[i].Relations
 		kept := rels[:0]
@@ -603,6 +605,10 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 									stats.noIncludePath++
 								}
 							}
+						} else if canonical := enclosing.resolve(&allFacts[i], source, candidate); canonical != "" {
+							r.Target = canonical
+							stats.enclosingScope++
+							resolved = true
 						} else {
 							if canonical := functions.short[candidate]; canonical != "" {
 								if visibility.allows(source, canonical) {
