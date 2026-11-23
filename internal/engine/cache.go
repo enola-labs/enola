@@ -3887,7 +3887,13 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v706: Swift: a call the grammar wraps in an arithmetic or prefix operator
+// (`a + f(x)`, `!f(x)`, `-self.g()`) is the call of its right operand or target. An
+// implicit member call (`.inMemory(...)`) binds to the static or class method of the
+// type its context states (a declared result or Self, an annotation, self, a
+// property's or a labelled parameter's type) whose labels fit the call; never by
+// name alone, and never to the factory it is written in.
+const cacheVersion = "v706"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
