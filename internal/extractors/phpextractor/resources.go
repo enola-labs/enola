@@ -142,7 +142,7 @@ func (w *laravelRouteWalker) emitResource(node *sitter.Node, stack []phpRouteSco
 		if controller != "" {
 			handler = controller + "::" + a.name
 		}
-		w.emitRoute(node, stack, a.method, path+a.suffix, handler, "", a.name)
+		w.emitRoute(node, stack, a.method, path+a.suffix, false, handler, "", a.name)
 	}
 }
 

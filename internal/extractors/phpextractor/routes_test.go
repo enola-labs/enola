@@ -333,3 +333,38 @@ Route::group(['namespace' => 'Acme\Http\Controllers', 'prefix' => 'profile'], st
 		t.Errorf("an action array holding a closure names no handler, got %v", h)
 	}
 }
+
+// A path or group prefix computed at runtime (`config('horizon.path')`) is not "/":
+// the route keeps its literal segments and is marked partial, so it never reads as a
+// second registration of the root. Literal paths stay whole.
+func TestLaravelRoutes_RuntimePathIsPartial(t *testing.T) {
+	src := `<?php
+Route::get(config('horizon.path'), [HomeController::class, 'index']);
+Route::get("{$base}/feed", [StreamController::class, 'index']);
+Route::get('/', [SiteController::class, 'home']);
+Route::prefix(config('portfolio.path'))->group(function () {
+    Route::get('settings', [PortfolioController::class, 'settings']);
+});
+Route::group(['prefix' => config('admin.path')], function () {
+    Route::get('users', [AdminController::class, 'users']);
+});
+Route::prefix('api')->group(function () {
+    Route::get('feed', [FeedController::class, 'index']);
+});
+`
+	ff := extractLaravelRoutes([]byte(src), "routes/web.php")
+	partial := map[string]bool{}
+	for _, f := range serverRoutes(ff) {
+		partial[f.Props["handler"].(string)] = f.PropBool(facts.PropPathPartial)
+	}
+	want := map[string]bool{"HomeController::index": true, "StreamController::index": true,
+		"SiteController::home": false, "PortfolioController::settings": true, "AdminController::users": true}
+	for h, p := range want {
+		if got, ok := partial[h]; !ok || got != p {
+			t.Errorf("%s: partial = %v (found %v), want %v%s", h, got, ok, p, routeSummary(ff))
+		}
+	}
+	if f := routeByMethodPath(t, ff, "GET", "/api/feed"); f.PropBool(facts.PropPathPartial) {
+		t.Errorf("a literal path is not partial")
+	}
+}

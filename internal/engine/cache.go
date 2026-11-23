@@ -3953,7 +3953,10 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v714: PHP: a Laravel route path or group prefix computed at runtime
+// (`config('horizon.path')`, an interpolated string) marks the route path_partial
+// instead of reading as the root path.
+const cacheVersion = "v714"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
