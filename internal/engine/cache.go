@@ -3856,7 +3856,12 @@ import (
 // v698: a Python file named *_test.py is test code only inside a test tree, as the
 // default ignore globs already had it. Outside one it is production: its HTTP calls
 // are client routes, and the analyzers rate its symbols like any other module's.
-const cacheVersion = "v698"
+// v700: Java: a method's return type and the declared type of a local, an
+// enhanced-for variable and a try-with-resources resource, their type arguments
+// included, are uses of the type, as parameter and field types are since v686
+// (javaextractor/typerefs.go). A result type a service returns and a controller
+// holds in a local no longer reads as dead or test-only.
+const cacheVersion = "v700"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

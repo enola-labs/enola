@@ -145,3 +145,56 @@ func assertNames(t *testing.T, ff []facts.Fact, cases []struct{ owner, target, h
 		}
 	}
 }
+
+// TestJavaReturnAndLocalTypesNameTheType: a method's return type, its type
+// arguments included, and the declared type of a local, an enhanced-for variable
+// and a try-with-resources resource are uses of the type. A method's own type
+// parameter and `var` name nothing.
+func TestJavaReturnAndLocalTypesNameTheType(t *testing.T) {
+	files := map[string]string{
+		"rest/src/main/java/com/example/rest/Result.java":  "package com.example.rest;\npublic class Result {}\n",
+		"rest/src/main/java/com/example/rest/Wrapped.java": "package com.example.rest;\npublic class Wrapped {}\n",
+		"rest/src/main/java/com/example/rest/Local.java":   "package com.example.rest;\npublic class Local {}\n",
+		"rest/src/main/java/com/example/rest/Elem.java":    "package com.example.rest;\npublic class Elem {}\n",
+		"rest/src/main/java/com/example/rest/Each.java":    "package com.example.rest;\npublic class Each {}\n",
+		"rest/src/main/java/com/example/rest/Res.java":     "package com.example.rest;\npublic class Res implements AutoCloseable { public void close() {} }\n",
+		"rest/src/main/java/com/example/rest/T.java":       "package com.example.rest;\npublic class T {}\n",
+		"svc/src/main/java/com/example/svc/Api.java": `package com.example.svc;
+import com.example.rest.*;
+import java.util.List;
+import java.util.Optional;
+public class Api {
+    Result result() { return null; }
+    Optional<Wrapped> wrapped() { return Optional.empty(); }
+    void locals(List<Object> xs) {
+        Local l = null;
+        List<Elem> elems = null;
+        for (Each e : this.<Each>none()) {}
+        try (Res r = open()) {}
+        var v = l;
+    }
+    <T> T generic() { return null; }
+    <E> List<E> none() { return null; }
+    Res open() { return null; }
+}
+`,
+	}
+	ff := extractAll(t, files)
+	const api = "svc/src/main/java/com/example/svc.Api"
+	const rest = "rest/src/main/java/com/example/rest"
+	assertNames(t, ff, []struct{ owner, target, how string }{
+		{api + ".result", rest + ".Result", "a return type"},
+		{api + ".wrapped", rest + ".Wrapped", "a type argument of a return type"},
+		{api + ".locals", rest + ".Local", "a local's declared type"},
+		{api + ".locals", rest + ".Elem", "a type argument of a local's type"},
+		{api + ".locals", rest + ".Each", "an enhanced-for variable's type"},
+		{api + ".locals", rest + ".Res", "a resource's type"},
+	})
+	g, ok := findFactKind(ff, facts.KindSymbol, api+".generic")
+	if !ok {
+		t.Fatal("no symbol Api.generic")
+	}
+	if hasRelation(g, facts.RelNames, rest+".T") {
+		t.Errorf("generic names %s.T: a method type parameter bound to a repository type", rest)
+	}
+}

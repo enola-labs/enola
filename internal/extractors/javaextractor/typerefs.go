@@ -9,8 +9,8 @@ import (
 // A type is used without being called, instantiated, extended or applied as an
 // annotation when code names it as a value or a declaration's type: a class literal
 // (`Param.class`, the SPI and reflection lookups), a static member read
-// (`Param.DEFAULT_NONE`, `Color.RED`), and a declared parameter or field type, its
-// type arguments included. Each records the type's candidate FQNs the way an
+// (`Param.DEFAULT_NONE`, `Color.RED`), and the declared type of a parameter, a
+// field, a method's return or a local, its type arguments included. Each records the type's candidate FQNs the way an
 // annotation does (annotationrefs.go), so canonicalizeTargets keeps a RelNames edge
 // only to a type the repository declares.
 //
@@ -70,6 +70,16 @@ func (w *astWalker) relateParamTypes(params *sitter.Node, owner int) {
 				}
 			}
 		}
+	}
+}
+
+// relateLocalType records the declared type of a local variable, an
+// enhanced-for variable or a try-with-resources resource as a use by the
+// enclosing declaration. `var` names no type the repository declares.
+func (w *astWalker) relateLocalType(n *sitter.Node, kind string) {
+	switch kind {
+	case "local_variable_declaration", "enhanced_for_statement", "resource":
+		w.relateTypeUses(n.ChildByFieldName("type"), w.currentOwner())
 	}
 }
 
