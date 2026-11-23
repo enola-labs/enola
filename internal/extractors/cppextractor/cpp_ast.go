@@ -182,6 +182,12 @@ type astWalker struct {
 	// errorGuardDepth is non-zero while walking a preprocessor guard reached
 	// through an ERROR node, where only definitions are trusted.
 	errorGuardDepth int
+	// valueScope is the function whose body is being walked, for valueLocal: its
+	// declarator and body, and the names it declares (filled on first use).
+	valueScope struct {
+		fdecl, body *sitter.Node
+		locals      map[string]bool
+	}
 }
 
 // cppBodyMetrics accumulates per-function complexity signals during the single
@@ -986,10 +992,13 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	w.selfShort = shortName
 	savedSwallowed, savedClassDepth := w.swallowed, w.localClassDepth
 	w.swallowed, w.localClassDepth = nil, 0
+	savedValueScope := w.valueScope
 	if body := node.ChildByFieldName("body"); body != nil {
 		w.receiverTypes = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
+		w.valueScope.fdecl, w.valueScope.body, w.valueScope.locals = fdecl, body, nil
 		w.walkForCalls(body)
 	}
+	w.valueScope = savedValueScope
 	swallowed := w.swallowed
 	w.swallowed, w.localClassDepth = savedSwallowed, savedClassDepth
 	m := w.metrics
@@ -1760,13 +1769,57 @@ func (w *astWalker) emitInitListRefs(list *sitter.Node) {
 				if kindOf(w.kinds, v) == "initializer_list" {
 					w.emitInitListRefs(v)
 				} else {
-					w.emitValueRef(v)
+					w.emitDeclValueRef(v, true)
 				}
 			}
 		default:
-			w.emitValueRef(e)
+			w.emitDeclValueRef(e, true)
 		}
 	}
+}
+
+// emitDeclValueRef is emitValueRef for a value in a local declaration or a return.
+// A bare name (or its address) counts only when bare is set and the enclosing
+// function does not declare that name as a parameter or local.
+func (w *astWalker) emitDeclValueRef(v *sitter.Node, bare bool) {
+	inner := v
+	if kindOf(w.kinds, v) == "pointer_expression" {
+		inner = v.ChildByFieldName("argument")
+	}
+	if kindOf(w.kinds, inner) == "identifier" && (!bare || w.valueLocal(nodeText(inner, w.src))) {
+		return
+	}
+	w.emitValueRef(v)
+}
+
+// valueLocal reports whether the function being walked declares name as a
+// parameter or a local.
+func (w *astWalker) valueLocal(name string) bool {
+	sc := &w.valueScope
+	if sc.body == nil {
+		return false
+	}
+	if sc.locals == nil {
+		sc.locals = map[string]bool{}
+		var decls []*sitter.Node
+		if params := sc.fdecl.ChildByFieldName("parameters"); params != nil {
+			for i := uint(0); i < params.ChildCount(); i++ {
+				decls = append(decls, params.Child(i))
+			}
+		}
+		decls = append(decls, queryDeclarations(w.lang, sc.body)...)
+		for _, d := range decls {
+			for i := uint(0); i < d.ChildCount(); i++ {
+				if d.FieldNameForChild(uint32(i)) != "declarator" {
+					continue
+				}
+				if n := declaratorLeafName(w.kinds, referencedDeclarator(w.kinds, d.Child(i)), w.src); n != "" {
+					sc.locals[n] = true
+				}
+			}
+		}
+	}
+	return sc.locals[name]
 }
 
 // emitFuncPtrRef attaches a PROVISIONAL func-pointer reference (relFuncPtrCandidate)
@@ -2145,24 +2198,30 @@ func (w *astWalker) walkForCallsAt(nv sitter.Node) {
 		// looks dead. Non-function RHS is dropped by resolveFuncPtrRefs.
 		w.emitAssignFuncPtrRef(node)
 	case "init_declarator":
-		// A local declaration's initializer: `Holder h("a", Callback);`,
-		// `auto *cb = &ns::handler;`, or a braced table of callbacks.
+		// A C++ local declaration's initializer: `Holder h("a", Callback);` or a
+		// braced table of callbacks name functions by bare name, never by a name the
+		// function declares itself. `auto cb = ns::handler;` copies one only by a
+		// qualified or template name: a bare `= name` is almost always a variable.
+		if w.lang != langCpp {
+			break
+		}
 		switch value := node.ChildByFieldName("value"); kindOf(w.kinds, value) {
 		case "argument_list":
-			w.emitArgRefs(value)
+			for i := uint(0); i < value.ChildCount(); i++ {
+				if a := value.Child(i); a.IsNamed() {
+					w.emitDeclValueRef(a, true)
+				}
+			}
 		case "initializer_list":
 			w.emitInitListRefs(value)
 		case "":
 		default:
-			w.emitValueRef(value)
+			w.emitDeclValueRef(value, false)
 		}
 	case "return_statement":
-		// `return Fn<T>;` / `return ns::fn;` hands a function out as a value. A bare
-		// returned name is left alone: it is almost always a local.
-		if v := firstNamedChild(node); v != nil {
-			if k := kindOf(w.kinds, v); k == "template_function" || k == "qualified_identifier" {
-				w.emitValueRef(v)
-			}
+		// `return Fn<T>;` / `return ns::fn;` hands a function out as a value.
+		if v := firstNamedChild(node); v != nil && w.lang == langCpp {
+			w.emitDeclValueRef(v, false)
 		}
 	case "compound_literal_expression":
 		// An in-body designated initializer — `cfg = (struct regmap_config){ .lock =

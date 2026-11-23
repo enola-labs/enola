@@ -109,3 +109,29 @@ void use(int *out) {
 		}
 	}
 }
+
+// A parameter or local passed to a local declaration, or copied into one, is a
+// variable, even when a function elsewhere has that name.
+func TestCppDeclarationValueThatIsALocal(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/a.cpp": `
+struct Holder { Holder(const char *n, int v) {} };
+int tag() { return 0; }
+int other() { return 0; }
+int it() { return 0; }
+void use(int tag) {
+	int other = 1;
+	Holder h("a", tag);
+	Holder g{"b", other};
+	int it = tag + other;
+	int copy = it;
+}
+`,
+	})
+	use := mustFact(t, ff, "src.use")
+	for _, r := range use.Relations {
+		if r.Kind == facts.RelCalls {
+			t.Errorf("only variables are named here, got %+v", r)
+		}
+	}
+}
