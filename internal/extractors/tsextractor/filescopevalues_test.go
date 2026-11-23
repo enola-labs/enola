@@ -96,3 +96,14 @@ func TestFileScopeValues_ImportsStayCalls(t *testing.T) {
 		t.Errorf("the imported value is no longer referenced: %v", fileRefTargets(ff, "src/index.js"))
 	}
 }
+
+// A type that reads a value's type (`typeof tabs`) is a declaration, not code that
+// runs, and draws no use from the file.
+func TestFileScopeValues_TypeDeclarationsAreNotCode(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/tabs.ts": "const tabs = ['a', 'b'] as const\ntype Tab = (typeof tabs)[number]\nexport function first(): Tab { return 'a' }\n",
+	}, false)
+	if names := fileRefNames(ff, "src/tabs.ts"); hasTarget(names, "src.tabs") {
+		t.Errorf("a type alias is not file-scope code: %v", names)
+	}
+}

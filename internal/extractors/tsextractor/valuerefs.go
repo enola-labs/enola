@@ -115,7 +115,9 @@ func fileScopeValueRefs(kinds *tsutil.KindTable, root *sitter.Node, ctx *extract
 		for i := range block.NamedChildCount() {
 			stmt := block.NamedChild(i)
 			switch kindOf(kinds, stmt) {
-			case "import_statement", "export_statement":
+			case "import_statement", "export_statement", "type_alias_declaration", "interface_declaration",
+				"enum_declaration", "internal_module", "module", "ambient_declaration":
+				// Bindings, and declarations that are symbols or only types.
 				continue
 			case "lexical_declaration", "variable_declaration":
 				// A module's variable is a symbol carrying what its value names; a
