@@ -50,6 +50,13 @@ const relCapitalizedCallCandidate = "capitalized_call_candidate"
 // emitted facts.
 const relQualifiedFuncValue = "qualified_func_value"
 
+// relDeclValueCandidate is emitted for a bare or template name passed as a value
+// in a local declaration (`Holder h("a", Callback)`, an in-body table, a returned
+// `Fn<T>`). canonicalizeTargets keeps it only when it resolves to a function and
+// is not a data member of the caller's class (`Curve brepc(c)` passes the member
+// c); it never appears in emitted facts.
+const relDeclValueCandidate = "decl_value_candidate"
+
 // CppExtractor extracts architectural facts from C and C++ source code using
 // tree-sitter AST parsing (see cpp_ast.go for the walker implementation). It owns
 // both languages: a per-file grammar choice (see parsedLanguage) routes .c files
@@ -406,11 +413,17 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 	var stats callResolutionStats
 	known := make(map[string]bool)
 	callable := make(map[string]bool)
+	dataMembers := make(map[string]bool) // Class::field
 	for i := range allFacts {
 		if allFacts[i].Kind == facts.KindSymbol {
 			known[allFacts[i].Name] = true
-			if sk := allFacts[i].PropString("symbol_kind"); sk == facts.SymbolFunc || sk == facts.SymbolMethod {
+			switch sk := allFacts[i].PropString("symbol_kind"); sk {
+			case facts.SymbolFunc, facts.SymbolMethod:
 				callable[allFacts[i].Name] = true
+			case facts.SymbolVariable, facts.SymbolConstant:
+				if allFacts[i].PropString("receiver") != "" {
+					dataMembers[allFacts[i].Name] = true
+				}
 			}
 		}
 	}
@@ -424,6 +437,12 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 			// A capitalized callee is a type when the caller can see one by that
 			// name; otherwise it must resolve as a call below, or it is dropped.
 			callOnly := false
+			if r.Kind == relDeclValueCandidate {
+				if class, _, ok := cutLast(allFacts[i].Name, "::"); ok && dataMembers[class+"::"+lastScopeComponent(r.Target)] {
+					continue
+				}
+				r.Kind = relQualifiedFuncValue
+			}
 			if r.Kind == relQualifiedFuncValue {
 				r.Kind = facts.RelCalls
 				callOnly = true
@@ -613,6 +632,14 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 		allFacts[i].Relations = kept
 	}
 	return stats
+}
+
+// cutLast splits s around the last sep.
+func cutLast(s, sep string) (before, after string, found bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
 }
 
 // isConstructorName reports whether a canonical name ends in Type::Type (or

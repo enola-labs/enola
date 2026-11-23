@@ -3893,7 +3893,8 @@ import (
 // braced table, or a returned qualified or template value; in a local declaration
 // a name the function declares as a parameter or local is a variable; a local
 // direct-initialization tree-sitter reads as a prototype (`T r(Kind::A, Fn<X>)`)
-// passes its arguments as values.
+// passes its arguments as values. A bare name there counts only when it resolves
+// to a function and is not a data member of the caller's class.
 const cacheVersion = "v708"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

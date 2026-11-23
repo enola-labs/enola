@@ -1780,16 +1780,33 @@ func (w *astWalker) emitInitListRefs(list *sitter.Node) {
 
 // emitDeclValueRef is emitValueRef for a value in a local declaration or a return.
 // A bare name (or its address) counts only when bare is set and the enclosing
-// function does not declare that name as a parameter or local.
+// function does not declare that name as a parameter or local. A bare or template
+// name becomes a relDeclValueCandidate, which the project pass keeps only when it
+// resolves to a function and is not a data member of the caller's class.
 func (w *astWalker) emitDeclValueRef(v *sitter.Node, bare bool) {
 	inner := v
 	if kindOf(w.kinds, v) == "pointer_expression" {
 		inner = v.ChildByFieldName("argument")
 	}
-	if kindOf(w.kinds, inner) == "identifier" && (!bare || w.valueLocal(nodeText(inner, w.src))) {
+	switch kindOf(w.kinds, inner) {
+	case "identifier":
+		if name := nodeText(inner, w.src); bare && !w.valueLocal(name) {
+			w.emitDeclValueCandidate(name)
+		}
+	case "template_function":
+		w.emitDeclValueCandidate(identifierLeaf(w.kinds, inner, w.src))
+	default:
+		w.emitValueRef(v)
+	}
+}
+
+func (w *astWalker) emitDeclValueCandidate(name string) {
+	if name == "" || isAllCapsConst(name) {
 		return
 	}
-	w.emitValueRef(v)
+	if target := w.resolveCall(name); target != "" {
+		w.addOwnerEdge(relDeclValueCandidate, target)
+	}
 }
 
 // emitVexingParseRefs reads a local direct-initialization that tree-sitter parsed
@@ -1828,10 +1845,10 @@ func (w *astWalker) emitVexingParseRefs(node *sitter.Node) {
 			switch kindOf(w.kinds, t) {
 			case "type_identifier":
 				if name := nodeText(t, w.src); !w.valueLocal(name) {
-					w.emitFuncPtrRef(name)
+					w.emitDeclValueCandidate(name)
 				}
 			case "template_type":
-				w.emitFuncPtrRef(identifierLeaf(w.kinds, t, w.src))
+				w.emitDeclValueCandidate(identifierLeaf(w.kinds, t, w.src))
 			case "qualified_identifier":
 				w.emitValueRef(t)
 			}

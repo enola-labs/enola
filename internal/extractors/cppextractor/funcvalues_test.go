@@ -160,3 +160,19 @@ template <class T> Compression GetFunction(int data_type) {
 		}
 	}
 }
+
+// A data member of the caller's class passed to a local declaration is a value,
+// not the function elsewhere that shares its name.
+func TestCppDeclarationValueThatIsADataMember(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"num/c.hpp": `double c(double x);`,
+		"num/c.cpp": "#include \"c.hpp\"\n" + `double c(double x) { return x; }`,
+		"geo/edge.hpp": "#include \"../num/c.hpp\"\n" + `struct Curve { Curve(int e) {} };
+class Edge { int c; public: double curvature() const; };`,
+		"geo/edge.cpp": "#include \"edge.hpp\"\n" + `double Edge::curvature() const { Curve brepc(c); return 0; }`,
+	})
+	curv := mustFact(t, ff, "geo.Edge::curvature")
+	if hasRelation(curv, facts.RelCalls, "num.c") {
+		t.Errorf("c is Edge's data member, got %+v", curv.Relations)
+	}
+}
