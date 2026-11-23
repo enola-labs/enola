@@ -3953,7 +3953,11 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v711: Kotlin: an operator (`a - b`, `a[i]`, `x in a`, `a += b`, `-a`, `a < b`,
+// `a..b`) on an operand of declared type calls the `operator fun` its convention
+// names, declared by the type, a supertype, or an extension on it the file sees; a
+// library type is matched by its qualified import.
+const cacheVersion = "v711"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
