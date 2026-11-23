@@ -1,6 +1,7 @@
 package swiftextractor
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -35,10 +36,11 @@ func isSwiftTestTarget(relFile string) bool {
 
 // swiftNameIndex is the simple-name lookup the post-passes bind through.
 type swiftNameIndex struct {
-	types     map[string]string   // simple type name -> module identity, the last declaration's
-	ambiguous map[string]bool     // simple type name -> declared in more than one module
-	methods   map[string][]string // method short name -> qualified dir.Type.method names
-	funcs     map[string][]string // top-level function short name -> qualified dir.func names
+	types     map[string]string              // simple type name -> module identity, the last declaration's
+	typeDirs  map[string][]swiftTypeDeclSite // simple type name -> every module declaring it
+	ambiguous map[string]bool                // simple type name -> declared in more than one module
+	methods   map[string][]string            // method short name -> qualified dir.Type.method names
+	funcs     map[string][]string            // top-level function short name -> qualified dir.func names
 	// owners maps the simple name of every declaration (a type, a constant, a
 	// member) to the simple names of what it is declared in: its type, or for a
 	// top-level declaration its module. concrete holds the simple names of the
@@ -50,6 +52,7 @@ type swiftNameIndex struct {
 func newSwiftNameIndex() swiftNameIndex {
 	return swiftNameIndex{
 		types:     make(map[string]string),
+		typeDirs:  make(map[string][]swiftTypeDeclSite),
 		ambiguous: make(map[string]bool),
 		methods:   make(map[string][]string),
 		funcs:     make(map[string][]string),
@@ -80,6 +83,10 @@ func (ix *swiftNameIndex) add(fact *facts.Fact, dir string) {
 				ix.ambiguous[simpleName] = true
 			}
 			ix.types[simpleName] = dir
+			decl := swiftTypeDeclSite{dir: dir, topLevel: fact.Name == dir+"."+simpleName, outer: lastDotComponent(ownerOf(fact.Name))}
+			if !slices.Contains(ix.typeDirs[simpleName], decl) {
+				ix.typeDirs[simpleName] = append(ix.typeDirs[simpleName], decl)
+			}
 		}
 	case facts.SymbolMethod:
 		// Index methods by short name so the resolveMethodCalls post-pass can
