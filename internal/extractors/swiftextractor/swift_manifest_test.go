@@ -295,3 +295,91 @@ let package = Package(
 		t.Errorf("missing dependency %s", dep)
 	}
 }
+
+// TestManifestAppendedTargets: targets added to the Package binding after the
+// literal (`package.targets.append(contentsOf: [...])` inside a condition,
+// `.append(.testTarget(...))`, `+= [...]`) are targets like the literal's, with
+// the same per-kind directory defaults, and their dependencies resolve to
+// target directories. An append to some other value's targets is not one.
+func TestManifestAppendedTargets(t *testing.T) {
+	const manifest = `// swift-tools-version: 5.9
+import Foundation
+import PackageDescription
+
+var package = Package(
+    name: "Game",
+    targets: [
+        .target(name: "Models"),
+    ]
+)
+
+if ProcessInfo.processInfo.environment["CLIENT_ONLY"] == nil {
+    package.products.append(contentsOf: [
+        .library(name: "Server", targets: ["Server"]),
+    ])
+    package.targets.append(contentsOf: [
+        .target(name: "Server", dependencies: ["Models", .product(name: "NIO", package: "swift-nio")]),
+        .target(name: "Pinned", dependencies: ["Server"], path: "Custom/Pinned"),
+    ])
+}
+package.targets.append(.testTarget(name: "ServerTests", dependencies: ["Server"]))
+package.targets += [.executableTarget(name: "runner", dependencies: ["Server"])]
+other.targets.append(.target(name: "NotOurs"))
+`
+	const manifestRel = "Package.swift"
+	wantDirs := map[string]string{
+		"Models":      "Sources/Models",
+		"Server":      "Sources/Server",
+		"Pinned":      "Custom/Pinned",
+		"ServerTests": "Tests/ServerTests",
+		"runner":      "Sources/runner",
+	}
+
+	roots := manifestTargetRoots([]byte(manifest), manifestRel)
+	if len(roots) != len(wantDirs) {
+		t.Errorf("manifestTargetRoots = %v, want %v", roots, wantDirs)
+	}
+	for name, want := range wantDirs {
+		if roots[name] != want {
+			t.Errorf("manifestTargetRoots[%s] = %q, want %q", name, roots[name], want)
+		}
+	}
+
+	modules := map[string]facts.Fact{}
+	deps := map[string]string{}
+	dirToFile := map[string]string{"Tests/ServerTests": "Tests/ServerTests/ServerTests.swift"}
+	for _, f := range parsePackageManifest([]byte(manifest), manifestRel, dirToFile) {
+		switch f.Kind {
+		case facts.KindModule:
+			modules[f.Props["spm_target"].(string)] = f
+		case facts.KindDependency:
+			deps[f.Name] = f.Props["source"].(string)
+		}
+	}
+	for name, want := range wantDirs {
+		if modules[name].Name != want {
+			t.Errorf("module fact for %s = %q, want %q", name, modules[name].Name, want)
+		}
+	}
+	if role := modules["ServerTests"].Props["module_role"]; role != facts.ModuleRoleTest {
+		t.Errorf("ServerTests module_role = %v, want test", role)
+	}
+	if role := modules["Server"].Props["module_role"]; role != facts.ModuleRoleProduction {
+		t.Errorf("Server module_role = %v, want production", role)
+	}
+	wantDeps := map[string]string{
+		"Sources/Server -> Sources/Models":    "internal",
+		"Sources/Server -> NIO":               "external",
+		"Custom/Pinned -> Sources/Server":     "internal",
+		"Tests/ServerTests -> Sources/Server": "internal",
+		"Sources/runner -> Sources/Server":    "internal",
+	}
+	for name, src := range wantDeps {
+		if deps[name] != src {
+			t.Errorf("dependency %s: source %q, want %q", name, deps[name], src)
+		}
+	}
+	if len(deps) != len(wantDeps) {
+		t.Errorf("dependencies = %v, want %v", deps, wantDeps)
+	}
+}

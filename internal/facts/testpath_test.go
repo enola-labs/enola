@@ -66,7 +66,8 @@ func TestIsTestPath(t *testing.T) {
 
 		// Colocated conventions that are safe on their own.
 		{"rspec suffix", "app/models/user_spec.rb", true},
-		{"pytest suffix colocated", "pkg/foo_test.py", true},
+		// pytest's `*_test.py` counts only inside a test tree, like `test_*.py`.
+		{"pytest suffix in tests tree", "tests/unit/models/connection_test.py", true},
 
 		// Real Ruby/Swift/Kotlin tests are claimed by their DIRECTORY, not by their
 		// filename — their basename rules were dropped as pure false-positive
@@ -96,6 +97,12 @@ func TestIsTestPath(t *testing.T) {
 		// Production CLI/commands on python/superset that "test a DB connection".
 		{"python production cli test_db", "superset/cli/test_db.py", false},
 		{"python production test_connection command", "superset/commands/database/test_connection.py", false},
+		// Production modules that implement a "test connection" feature, and
+		// shipped example DAGs, all ending in `_test.py` outside any test tree.
+		{"python production model ending in _test", "airflow-core/src/airflow/models/connection_test.py", false},
+		{"python production datamodel ending in _test", "airflow-core/src/airflow/api_fastapi/execution_api/datamodels/connection_test.py", false},
+		{"python production example dag ending in _test", "providers/edge3/src/airflow/providers/edge3/example_dags/win_test.py", false},
+		{"pytest suffix colocated is not enough", "pkg/foo_test.py", false},
 
 		// The v60 hardening cases from ModuleRoleForPath: a genuine single-token
 		// name must never misfire.

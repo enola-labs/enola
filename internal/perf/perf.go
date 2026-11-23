@@ -1433,8 +1433,13 @@ var rustIOReceivers = []string{
 // measured cause: on tokio, 42 of the high-severity call-in-loop findings named
 // new, send, recv, poll and iter — a constructor and a channel send, reported as
 // per-iteration database access. The exact-name and receiver paths still
-// apply, so a genuinely resolved I/O callee is unaffected.
+// apply, so a genuinely resolved I/O callee is unaffected. The Iterator and atomic
+// names (find, all, any, position, first, last, load, store) are also the names of
+// model queries (`User::find(conn, id)`), so a query of that name puts them on the
+// index, and every unresolved `.iter().find(..)` in a loop would read as it.
 var rustPrimitiveNames = map[string]bool{
+	"find": true, "all": true, "any": true, "position": true,
+	"first": true, "last": true, "load": true, "store": true,
 	"new": true, "with_capacity": true, "default": true, "clone": true,
 	"send": true, "recv": true, "try_send": true, "try_recv": true,
 	"poll": true, "poll_next": true, "poll_ready": true, "next": true,

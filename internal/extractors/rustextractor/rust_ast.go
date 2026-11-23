@@ -57,6 +57,7 @@ func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs,
 		fileRefIdx:  -1,
 		inTestMod:   testFile,
 	}
+	w.dieselInScope = rustDieselInScope(root, src, crates)
 	w.walkSourceFile(root)
 
 	// A #[cfg(test)] module's calls into production code are collected across
@@ -173,6 +174,7 @@ type astWalker struct {
 	// (calldepth.go).
 	fnScalingCallDepth map[string]int
 	fnIODirect         bool   // the current function makes a direct I/O call
+	dieselInScope      bool   // the file's use declarations bring diesel's query traits into scope
 	fnRecursive        bool   // the current function calls itself
 	fnSelfName         string // canonical name of the current function (for recursion)
 
@@ -1992,7 +1994,7 @@ func (w *astWalker) handleStructExpression(node *sitter.Node) {
 
 func (w *astWalker) handleCallExpression(node *sitter.Node) {
 	fn := node.ChildByFieldName("function")
-	if rustIsIODirectCall(fn, w.src) && !w.ioOnBuffer(fn) {
+	if rustIsIODirectCall(fn, w.src) && !w.ioOnBuffer(fn) || w.isDieselQueryCall(node) {
 		w.fnIODirect = true
 	}
 	name, form := w.calleeTrailing(fn)

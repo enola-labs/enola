@@ -3834,7 +3834,29 @@ import (
 // v693: package metrics count a derived module edge (named "module-edge: A -> B")
 // as coupling, so afferent, efferent, instability and distance on module facts move
 // wherever calls, not imports, connect two modules.
-const cacheVersion = "v693"
+// v694: Swift implements plugin.TestRefExtractor: each ignored Swift test file
+// emits one test_ref fact carrying the calls, implicit member calls, reads through
+// a type and the types it names, without the XCTest, Swift Testing and Point-Free
+// harness vocabulary or the file's own declarations. A property read through a
+// local names nothing: its bare name would credit every type declaring it.
+// v695: PHP: the extractor implements plugin.TestRefExtractor. Each ignored PHP test
+// file (tests/, test/) yields one test_ref fact: classes resolved through the file's
+// namespace and `use` imports, static calls as `Class::method`, instance calls by
+// bare method name; `$this->` calls, harness names, attributes and the file's own
+// declarations dropped. Production code only tests call reads test-only, not dead.
+// v696: Rust: diesel's query methods (load, first, get_result, get_results,
+// load_iter, load_stream) seed io_direct when the file's use declarations bring
+// diesel into scope (diesel, diesel_async, an in-repo crate depending on either, or
+// RunQueryDsl) and the call's one argument can be a connection.
+// v697: Swift: a Package.swift's targets include those added to the Package binding
+// after its literal (`<binding>.targets.append(contentsOf: [...])`, `.append(.target(...))`,
+// `+= [...]`, also inside an `if`), with the literal's per-kind directory defaults: they
+// get SPM module facts, seed the module resolver, and their dependencies resolve to
+// target directories.
+// v698: a Python file named *_test.py is test code only inside a test tree, as the
+// default ignore globs already had it. Outside one it is production: its HTTP calls
+// are client routes, and the analyzers rate its symbols like any other module's.
+const cacheVersion = "v698"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

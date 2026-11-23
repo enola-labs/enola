@@ -751,7 +751,10 @@ func TestPythonExclusions(t *testing.T) {
 	syms := []symInput{
 		{Name: "pkg.test_login", Kind: facts.SymbolFunc, Package: "pkg", File: "pkg/tests/test_login.py"},
 		{Name: "pkg.fixture_db", Kind: facts.SymbolFunc, Package: "pkg", File: "pkg/conftest.py"},
-		{Name: "pkg.helper", Kind: facts.SymbolFunc, Package: "pkg", File: "pkg/foo_test.py"},
+		{Name: "pkg.helper", Kind: facts.SymbolFunc, Package: "pkg", File: "pkg/tests/helpers.py"},
+		// A `_test.py` name outside a test tree is production: a module of a
+		// "test connection" feature is named this way.
+		{Name: "pkg.connection_test.probe", Kind: facts.SymbolFunc, Package: "pkg", File: "pkg/connection_test.py"},
 		{Name: "pkg.MyClass.__init__", Kind: facts.SymbolMethod, Package: "pkg", File: "pkg/m.py"},
 		{Name: "pkg.realOrphan", Kind: facts.SymbolFunc, Package: "pkg", File: "pkg/m.py"},
 	}
@@ -765,6 +768,9 @@ func TestPythonExclusions(t *testing.T) {
 	}
 	if _, ok := def["pkg.realOrphan"]; !ok {
 		t.Error("realOrphan should be reported")
+	}
+	if _, ok := def["pkg.connection_test.probe"]; !ok {
+		t.Error("a symbol in a production module named *_test.py should be reported")
 	}
 
 	// IncludeTests re-includes test code — but dunders stay excluded (always used).
