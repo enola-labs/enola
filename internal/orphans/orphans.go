@@ -1187,7 +1187,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 				}
 				// A member naming its own type (`CreateLogger<Self>()`,
 				// `typeof(Self)`) is internal use, like a sibling call below.
-				if r.Kind == facts.RelNames && memberOwner(f.Name) == r.Target {
+				if r.Kind == facts.RelNames && memberOwner(f.Name, f.PropString(propLanguage)) == r.Target {
 					continue
 				}
 				add(r.Target, f.Name)
@@ -1211,7 +1211,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 					// the rule foldMemberUseIntoOwner applies. Recorded, the type's
 					// full name would count as referenced by its own method, since
 					// refSummary only discounts a source equal to the name itself.
-					if memberOwner(f.Name) == recv {
+					if memberOwner(f.Name, f.PropString(propLanguage)) == recv {
 						continue
 					}
 					add(recv, f.Name)
@@ -1297,7 +1297,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 		if f.PropString(facts.PropFrameworkRoot) != "" {
 			si.FrameworkRoot = true
-			rootedOwners[memberOwner(f.Name)] = true
+			rootedOwners[memberOwner(f.Name, f.PropString(propLanguage))] = true
 		}
 		recordRefs(f, si)
 	}
@@ -1942,10 +1942,17 @@ func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSour
 
 // ownerOf returns a symbol's declaring type, or "" when it has none.
 // memberOwner returns the type a member name belongs to, reading a Ruby instance
-// member (`Owner#name`) as well as the dotted form ownerOf reads.
-func memberOwner(name string) string {
+// member (`Owner#name`) and a PHP member (`Ns\\Owner::name`) as well as the dotted
+// form ownerOf reads. Only PHP: elsewhere `::` also joins a namespace and the type
+// nested in it (Ruby's `Shop::Order`), which is not a member of its namespace.
+func memberOwner(name, language string) string {
 	if hash := strings.LastIndex(name, "#"); hash > 0 {
 		return name[:hash]
+	}
+	if language == "php" {
+		if col := strings.LastIndex(name, "::"); col > 0 {
+			return name[:col]
+		}
 	}
 	return ownerOf(name)
 }
