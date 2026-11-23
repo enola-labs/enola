@@ -63,6 +63,9 @@ type astWalker struct {
 	// bare/self calls to "<dir>.<Type>.<method>".
 	typeStack   []string
 	methodStack []map[string]bool
+	// containers parallels typeStack: the access the walked types and extensions
+	// give their members (access.go).
+	containers []swiftContainer
 
 	// memberTypes holds the stated types of the enclosing type's stored properties.
 	memberTypes map[string]string
@@ -723,7 +726,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
-			"exported":    !isPrivateAccess(modifierText),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: []facts.Relation{
@@ -780,7 +783,9 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	w.pushOwner(ownerIdx)
 	w.noteTypeUsesIn(node)
 	w.pushType(name, collectMethodNames(body, w.src))
+	w.pushContainer(swiftContainer{exported: f.PropBool("exported")})
 	w.walkTypeBody(body, iosComponent)
+	w.popContainer()
 	w.popType()
 	w.popOwner()
 }
@@ -795,7 +800,6 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 		return
 	}
 	modifiers := findChildByKind(node, "modifiers")
-	modifierText := nodeText(modifiers, w.src)
 	attrs := attributeNames(modifiers, w.src)
 	supertypes := inheritanceNames(node, w.src)
 
@@ -807,7 +811,7 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolInterface,
-			"exported":    !isPrivateAccess(modifierText),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: []facts.Relation{
@@ -868,7 +872,9 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	body := typeBody(node)
 	// No single type owner for an extension; methods push their own owner.
 	w.pushType(base, collectMethodNames(body, w.src))
+	w.pushContainer(swiftContainer{exported: true, memberDefault: accessLevel(findChildByKind(node, "modifiers"), w.src)})
 	w.walkTypeBody(body, "")
+	w.popContainer()
 	w.popType()
 }
 
@@ -944,7 +950,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
-			"exported":    !isPrivateAccess(modifierText),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: []facts.Relation{
@@ -1041,7 +1047,6 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 		return
 	}
 	modifiers := findChildByKind(node, "modifiers")
-	modifierText := nodeText(modifiers, w.src)
 
 	symbolKind := facts.SymbolVariable
 	if vb := findChildByKind(node, "value_binding_pattern"); vb != nil && strings.Contains(nodeText(vb, w.src), "let") {
@@ -1056,7 +1061,7 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
-			"exported":    !isPrivateAccess(modifierText),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: []facts.Relation{
@@ -1199,7 +1204,7 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolType,
-			"exported":    !isPrivateAccess(nodeText(modifiers, w.src)),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: relations,

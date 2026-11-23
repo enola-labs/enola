@@ -42,7 +42,7 @@ func (w *astWalker) pushExtensionInit(node *sitter.Node) func() {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolMethod,
-			"exported":    !isPrivateAccess(nodeText(modifiers, w.src)),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 			"receiver":    enclosing,
 		},

@@ -4007,6 +4007,10 @@ import (
 // else top-level in the module the file sees; a generic parameter binds to nothing.
 // A CodingKeys enum of a Codable type is framework_registered. A constructor's type
 // binds the same way (a nested type first); a @Reducer type implements Reducer.
+// v713: Swift: exported follows access control. Only a public or open declaration,
+// in types that are public or open themselves, is exported; internal (the default),
+// package, fileprivate and private are not. A member stating no access in a public
+// extension is public.
 const cacheVersion = "v713"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
