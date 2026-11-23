@@ -209,6 +209,12 @@ type symInput struct {
 	// (facts.PropPublished). Its exported surface is written for callers outside
 	// the repository, so tests may be its only in-repo callers by design.
 	Published bool
+	// QualifiedOnly: a Swift type nested in another type. Swift names it by its
+	// bare name only inside its outer type, and the extractor binds every such use
+	// to the full name, so only a reference to the full name is a use of it; its
+	// last segment alone would credit every same-named nested type (each Codable
+	// type's CodingKeys, each feature's State).
+	QualifiedOnly bool
 }
 
 // Orphan is a single reported orphan symbol.
@@ -356,6 +362,9 @@ func bareName(name string) string { return lastSeg(name) }
 // collect records under the full name only (isForeignGoType cannot tell the
 // module's own import path from another module's).
 func refCandidates(sym symInput) []string {
+	if sym.QualifiedOnly {
+		return []string{sym.Name}
+	}
 	if sym.Kind != facts.SymbolFunc || !strings.HasSuffix(sym.File, ".go") {
 		out := candidateNames(sym.Name, sym.Kind)
 		if !slices.Contains(out, sym.Name) {
@@ -1171,6 +1180,8 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 	}
 
+	swiftNested := swiftNestedTypes(symbols)
+
 	// recordRefs records what symbol f uses, as candidate si's outgoing use when f is
 	// one (si is nil for a symbol that is never a candidate).
 	recordRefs := func(f facts.Fact, si *symInput) {
@@ -1197,7 +1208,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 				if r.Kind == facts.RelInstantiates && strings.HasSuffix(f.File, ".go") && isForeignGoType(r.Target) {
 					continue
 				}
-				if seg := lastSeg(r.Target); seg != r.Target {
+				// A Swift nested type named in full is that type, not every type of
+				// its last name.
+				if seg := lastSeg(r.Target); seg != r.Target && !swiftNested[r.Target] {
 					add(seg, f.Name)
 				}
 				if q := pkgQualified(r.Target); q != r.Target {
@@ -1353,6 +1366,11 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 	}
 
+	for name := range swiftNested {
+		if si := byName[name]; si != nil {
+			si.QualifiedOnly = true
+		}
+	}
 	syms := make([]symInput, 0, len(order))
 	for _, name := range order {
 		syms = append(syms, *byName[name])
@@ -1912,7 +1930,11 @@ func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSour
 		if !ok || !isOwnerTypeKind(o.Kind) {
 			continue
 		}
-		for _, cand := range candidateNames(m.Name, m.Kind) {
+		cands := candidateNames(m.Name, m.Kind)
+		if m.QualifiedOnly {
+			cands = []string{m.Name}
+		}
+		for _, cand := range cands {
 			// Production use of a member is production use of the type, and test use
 			// is test use: a type whose members only specs call is test-only too.
 			for _, side := range []struct {
@@ -1955,6 +1977,28 @@ func ownerOf(name string) string {
 		return name[:dot]
 	}
 	return ""
+}
+
+// swiftNestedTypes returns the Swift types declared inside another type of the
+// snapshot (QualifiedOnly).
+func swiftNestedTypes(symbols []facts.Fact) map[string]bool {
+	types := map[string]bool{}
+	for i := range symbols {
+		if isOwnerTypeKind(symbols[i].PropString(propSymbolKind)) {
+			types[symbols[i].Name] = true
+		}
+	}
+	nested := map[string]bool{}
+	for i := range symbols {
+		f := &symbols[i]
+		if f.PropString(propLanguage) != "swift" || !types[f.Name] {
+			continue
+		}
+		if dot := strings.LastIndex(f.Name, "."); dot > 0 && types[f.Name[:dot]] {
+			nested[f.Name] = true
+		}
+	}
+	return nested
 }
 
 // isOwnerTypeKind reports whether a kind can OWN members whose use implies its
