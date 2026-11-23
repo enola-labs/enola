@@ -4018,7 +4018,9 @@ import (
 // reference fact what it constructs (`new X`), calls statically or as a function,
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
-const cacheVersion = "v715"
+// v719: PHP: a function or method names each class its parameters are declared
+// as, when the repository declares the class.
+const cacheVersion = "v719"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

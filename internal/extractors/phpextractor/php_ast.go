@@ -390,6 +390,9 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	ownerIdx := len(w.out) - 1
+	if name != "__construct" { // a constructor's types are the class's injects
+		w.nameParameterTypes(ownerIdx, node.ChildByFieldName("parameters"))
+	}
 
 	// Walk the body once: accumulate RelCalls / RelInstantiates (deduplicated) and
 	// compute complexity in the same pass. props is shared by reference with the

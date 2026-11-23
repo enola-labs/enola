@@ -314,3 +314,94 @@ func (ix *classIndex) callTargets(typ, method string) []string {
 	}
 	return out
 }
+
+// propParamTypes carries, on a function or method, the classes its parameters are
+// declared as, from the per-file walk to bindParameterTypes; it never reaches the
+// graph.
+const propParamTypes = "_param_types"
+
+// nameParameterTypes notes, on a function or method, each class its parameters are
+// declared as: a Laravel action asking the container for a FormRequest, a listener
+// taking its event. Every class of a union or intersection counts; a builtin, self
+// and the enclosing class do not.
+func (w *phpWalker) nameParameterTypes(ownerIdx int, params *sitter.Node) {
+	if params == nil {
+		return
+	}
+	for i := uint(0); i < params.NamedChildCount(); i++ {
+		p := params.NamedChild(i)
+		switch kindOf(p) {
+		case "simple_parameter", "variadic_parameter", "property_promotion_parameter":
+		default:
+			continue
+		}
+		for _, class := range w.namedTypes(p.ChildByFieldName("type"), nil) {
+			if !w.isEnclosingType(class) {
+				w.out[ownerIdx].AddPropStrings(propParamTypes, class)
+			}
+		}
+	}
+}
+
+// bindParameterTypes turns the parameter types noted on each function and method
+// into names edges, for the classes the repository declares only: a framework type
+// (`Request`, `Collection`) has no declaration here to reach.
+func bindParameterTypes(allFacts []facts.Fact, declared map[string]bool) {
+	for i := range allFacts {
+		f := &allFacts[i]
+		raw, ok := f.Props[propParamTypes]
+		if !ok {
+			continue
+		}
+		delete(f.Props, propParamTypes)
+		types, _ := raw.([]string)
+		for _, class := range types {
+			if declared[class] && !f.HasRelation(facts.RelNames, class) {
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelNames, Target: class})
+			}
+		}
+	}
+}
+
+// namedTypes returns the classes a type declaration names, fully qualified, in
+// source order.
+func (w *phpWalker) namedTypes(node *sitter.Node, out []string) []string {
+	if node == nil {
+		return out
+	}
+	if kindOf(node) != "named_type" {
+		for i := uint(0); i < node.NamedChildCount(); i++ {
+			out = w.namedTypes(node.NamedChild(i), out)
+		}
+		return out
+	}
+	raw := phpText(node, w.src)
+	if typeKeywords[strings.ToLower(raw)] {
+		return out
+	}
+	if class := w.className(raw); class != "" {
+		out = append(out, class)
+	}
+	return out
+}
+
+// typeKeywords are the type names that are no class, where the grammar reads them
+// as a name.
+var typeKeywords = map[string]bool{"parent": true, "static": true, "object": true, "mixed": true,
+	"iterable": true, "callable": true, "never": true, "void": true, "null": true, "false": true, "true": true}
+
+// declaredClasses is the set of class-like types the PHP facts declare.
+func declaredClasses(ff []facts.Fact) map[string]bool {
+	out := map[string]bool{}
+	for i := range ff {
+		f := &ff[i]
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolEnum:
+			out[f.Name] = true
+		}
+	}
+	return out
+}

@@ -165,6 +165,9 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 		allFacts = append(allFacts, extractSymfonyConfigRoutes(repoPath)...)
 	}
 
+	// A parameter type names a class declared in another file (receivers.go).
+	bindParameterTypes(allFacts, declaredClasses(allFacts))
+
 	// Emit one module fact per directory containing PHP files.
 	for dir := range modules {
 		props := map[string]any{"language": "php"}
