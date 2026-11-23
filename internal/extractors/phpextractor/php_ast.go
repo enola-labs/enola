@@ -23,6 +23,10 @@ func extractFileAST(src []byte, relFile string) []facts.Fact {
 	if err := parser.SetLanguage(sitter.NewLanguage(php.LanguagePHP())); err != nil {
 		return nil
 	}
+	blade := isBladeFile(relFile)
+	if blade {
+		src = bladeToPHP(src)
+	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
 
@@ -33,7 +37,11 @@ func extractFileAST(src []byte, relFile string) []facts.Fact {
 		importMap: map[string]string{},
 	}
 	w.walkProgram(tree.RootNode())
-	w.emitFileScopeNames(tree.RootNode())
+	if blade {
+		w.walkTemplate(tree.RootNode())
+	} else {
+		w.emitFileScopeNames(tree.RootNode())
+	}
 	return w.out
 }
 
@@ -517,7 +525,13 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if fn != nil && (kindOf(fn) == "name" || kindOf(fn) == "qualified_name") {
 			target := w.resolveRef(phpText(fn, w.src))
 			w.addCall(ownerIdx, seen, target)
-			w.recordCallMetrics(target)
+			// A plain function call never runs a method: inside `Profile::url`,
+			// `url(...)` is the framework helper, not a call to itself.
+			if strings.Contains(w.selfName, "::") {
+				w.recordInLoopCall(target)
+			} else {
+				w.recordCallMetrics(target)
+			}
 			w.recordIODirect(lastNsSegment(phpText(fn, w.src)), phpIOGlobalFuncs)
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, fn)
@@ -537,18 +551,25 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 				w.recordCallMetrics(target)
 			}
 			w.recordIODirect(phpText(method, w.src), phpIOMethods)
+			if isBladeDirectiveCall(target) {
+				w.bladeDirectiveCode(node, ownerIdx, seen)
+			}
+			w.recordEagerLoads(node, ownerIdx, phpText(method, w.src), w.scopeRef(scope))
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
 		return
-	case "member_call_expression":
-		// Instance call ($obj->method()). The receiver type is unknown, so the bare
-		// method name is recorded — useful for $this->method() self-references and
-		// dead-code analysis (mirrors the Ruby extractor's bare-call handling).
+	case "member_call_expression", "nullsafe_member_call_expression":
+		// Instance call ($obj->method(), nullsafe $obj?->method()). The receiver
+		// type is unknown, so the bare method name is recorded — useful for
+		// $this->method() self-references and dead-code analysis (mirrors the Ruby
+		// extractor's bare-call handling).
 		method := node.ChildByFieldName("name")
 		if method != nil && kindOf(method) == "name" {
 			target := phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)
 			w.recordEloquentRelation(node, ownerIdx, target)
+			w.recordRelationMethod(node, ownerIdx, target)
+			w.recordEagerLoads(node, ownerIdx, target, w.plainReceiver(node.ChildByFieldName("object")))
 			w.recordReceiverCall(node, ownerIdx, target)
 			// The edge is the bare method name, because the receiver's type is
 			// unknown. Only `$this->m()` is known to be this class's m: a
@@ -566,6 +587,9 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
 		return
+	case "member_access_expression", "nullsafe_member_access_expression":
+		// A relation read as a property runs its method (relationreads.go).
+		w.recordPropertyRead(node, ownerIdx)
 	case "class_constant_access_expression", "scoped_property_access_expression":
 		// A class naming its own constant is not a use of the class.
 		if class := w.namedClass(node); class != "" && ownerIdx >= 0 && !w.isEnclosingType(class) {

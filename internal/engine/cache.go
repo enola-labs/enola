@@ -3887,7 +3887,73 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v704: a PHP Blade view (`.blade.php`) is read as the PHP it runs: its echoes,
+// directive arguments, `@php` blocks, `@inject` and `@use` are walked like a function
+// body onto the view's file_ref fact, so a class or method used only from a view is
+// no longer dead. The `<?php ?>` string a `Blade::directive` callback returns is
+// walked onto the method registering it.
+// v704: PHP: a plain function call inside a method (`url(...)` in `Profile::url`) no
+// longer sets recursive_self; a function call never runs a method. It still counts
+// as a call in a loop.
+// v704: PHP: an Eloquent relation method (one returning `$this->hasMany(...)`,
+// morphTo included) read as a property of a receiver of declared type
+// (`$status->mentions` with `Status $status`) or named in an eager load or relation
+// query on a model class or typed receiver (`Media::with('status.mentions')`,
+// `whereHas`, `withCount('c as n')`) is a calls edge to that relation, a path's later
+// segments looked up on the model the previous relation names. A read on a receiver
+// of unknown type records nothing: the extractor does not know the columns.
+// v704: PHP: a nullsafe method call (`$obj?->m()`) is a call, as `$obj->m()` is: a
+// bare-name edge, the receiver-typed edge, loop and recursion metrics, I/O names.
+// v705: TS/JS: a require() or dynamic import() of a .vue or .svelte file is a use of
+// the component it declares, as a static default import is (`Vue.component('x',
+// require('./X.vue').default)`, `component: () => import('./X.vue')`).
+// v705: TS/JS: Laravel Mix aliases are read from webpack.mix.js (mix.alias({...}) and
+// a resolve.alias handed to mix.webpackConfig), so an import through one resolves to
+// the repository file (resolved_via laravel-mix-alias).
+// v705: TS/JS: a function handed on by value in code that runs at file scope (an
+// expression statement at the top level or in a wrapper's body, a wrapper's plain
+// variable) is named by the file, and a wrapper's functions, classes and kept
+// variables are module values its functions can name. A property assigned on a
+// declaration (`Card.propTypes = ...`) is no use of it.
+// v706: Swift: a call the grammar wraps in an arithmetic or prefix operator
+// (`a + f(x)`, `!f(x)`, `-self.g()`) is the call of its right operand or target. An
+// implicit member call (`.inMemory(...)`) binds to the static or class method of the
+// type its context states (a declared result or Self, an annotation, self, a
+// property's or a labelled parameter's type) whose labels fit the call; never by
+// name alone, and never to the factory it is written in.
+// v706: Swift: an init declared in an extension is a method of its own, Base.init
+// (an entry point by name, and no candidate for any call), that owns the calls and
+// types its body names; before, they were dropped for want of an owner. A subscript's
+// and a deinit's body call in the name of the type declaring them. In those bodies a
+// member call binds only through a receiver type the source states, and a type
+// written qualified names nothing. A bare type name means the type the file sees:
+// its own module's, else the one top-level type of the name in a module it imports
+// (directly first, then through re-exports), never one in a target it does not reach.
+// v706: Swift: a function or property named with a keyword escaped in backticks
+// (`default`, `for`) is named without them, as a call after a dot writes it, so
+// `ErrorMiddleware.default(...)` binds and a test's call to it is a reference.
+// v707: Swift: a #selector names a method the Objective-C runtime will send a
+// message to, recorded as a method value is (a calls edge in value_refs); an
+// @IBAction, @IBSegueAction or @objc(name:) method is framework_registered.
+// v708: a call in a C++ constructor's member initializer list (`S() : m(f(x)) {}`)
+// is a call of the constructor; a constructor parameter passed there is not a
+// function value.
+// v708: a C++ type name resolves only to a copy the referencing file may include,
+// also when the repository declares it once; an include the header index cannot
+// place (a bare <name.h>, an installed <pkg/name.h>) may reach every directory
+// with a header of that name; a member narrows among those copies.
+// v708: a C++ function named in value position is a use also as a qualified name
+// (`ns::fn`, `&ns::fn`) or a template id (`fn<T>`), in a call argument, an
+// assignment, a local declaration's initializer (`Holder h("a", Fn)`), an in-body
+// braced table, or a returned qualified or template value; in a local declaration
+// a name the function declares as a parameter or local is a variable; a local
+// direct-initialization tree-sitter reads as a prototype (`T r(Kind::A, Fn<X>)`)
+// passes its arguments as values. A bare name there counts only when it resolves
+// to a function and is not a data member of the caller's class.
+// v709: Swift: a type carrying @main is framework_registered on every platform (an
+// executable target, a command line tool, a compiler plugin), not only a SwiftUI
+// App in an iOS target.
+const cacheVersion = "v709"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

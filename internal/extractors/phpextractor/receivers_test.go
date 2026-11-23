@@ -192,3 +192,25 @@ class C {
 	wantCalls(t, boundCalls(t, `App\Http\Controllers\C::destroy`, src, models, receiverService),
 		"total", "delete", `App\Models\Order::total`, `App\Models\Order::delete`)
 }
+
+// TestNullsafeMemberCallIsACall: `$obj?->m()` calls m as `$obj->m()` does, bare and
+// through a declared receiver type.
+func TestNullsafeMemberCallIsACall(t *testing.T) {
+	got := boundCalls(t, `App\Services\Signer::sign`, `<?php
+namespace App\Services;
+class Summary {
+    public function isValid() { return true; }
+}
+class Signer {
+    public function sign(?Summary $parent, $other) {
+        if ($parent?->isValid()) { return $other?->name(); }
+        return $this?->sign(null, null);
+    }
+}
+`)
+	wantCalls(t, got, "isValid", `App\Services\Summary::isValid`, "name", "sign")
+	ff := extractFileAST([]byte("<?php\nclass Tree { public function walk($n) { return $this?->walk($n->parent); } }\n"), "x.php")
+	if !recursiveBySuffix(t, ff, "Tree::walk") {
+		t.Error("Tree::walk calls itself through ?-> and is not flagged recursive_self")
+	}
+}

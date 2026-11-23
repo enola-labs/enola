@@ -42,6 +42,10 @@ type astWalker struct {
 	dir     string
 	isiOS   bool
 
+	// typedReceiversOnly is set in a body memberbodies.go walks: a member call
+	// there binds through its receiver's stated type alone, never by bare name.
+	typedReceiversOnly bool
+
 	// out is the accumulating fact list.
 	out []facts.Fact
 
@@ -740,6 +744,11 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	if containsAnnotation(attrs, "MainActor") {
 		f.SetProp("main_actor", true)
 	}
+	// @main makes the type the program's entry point on every platform: an
+	// executable, a command line tool, a compiler plugin. The runtime enters it.
+	if containsAnnotation(attrs, "main") {
+		f.SetProp("framework_registered", true)
+	}
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
 	}
@@ -878,6 +887,8 @@ func (w *astWalker) walkTypeBody(body *sitter.Node, iosComponent string) {
 			w.handlePropertyInjection(c, iosComponent)
 		case "init_declaration":
 			w.handleInit(c)
+		case "subscript_declaration", "deinit_declaration":
+			w.handleMemberBody(c)
 		case "class_declaration":
 			w.handleClassDeclaration(c)
 		case "protocol_declaration":
@@ -894,7 +905,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	if nameNode == nil {
 		return
 	}
-	name := nodeText(nameNode, w.src)
+	name := swiftIdentifier(nameNode, w.src)
 	if name == "" {
 		return
 	}
@@ -951,9 +962,13 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	if strings.Contains(header, "nonisolated") {
 		f.SetProp("nonisolated", true)
 	}
+	if isObjCRuntimeEntry(modifiers, w.src) {
+		f.SetProp("framework_registered", true) // objcroots.go
+	}
 	if enclosing != "" && isDelegateCallback(node, name, w.src) {
 		f.SetProp(propDelegateCallback, true)
 	}
+	noteDeclaredTypes(&f, modifierText, node, w.src)
 	if strings.Contains(header, "@MainActor") || containsAnnotation(attrs, "MainActor") {
 		f.SetProp("main_actor", true)
 	}
@@ -1009,7 +1024,7 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 	if nameNode == nil {
 		return
 	}
-	name := nodeText(nameNode, w.src)
+	name := swiftIdentifier(nameNode, w.src)
 	if name == "" || name == "_" {
 		return
 	}
@@ -1040,6 +1055,7 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 	if doc := swiftDoc(node, w.src); doc != "" {
 		facts.SetDoc(&w.out[propIdx], doc)
 	}
+	w.notePropertyType(&w.out[propIdx], node)
 
 	// A computed getter or a willSet/didSet observer has a real body that can hold a
 	// loop or per-iteration I/O, so measure its complexity like a function's — a
@@ -1117,12 +1133,18 @@ func (w *astWalker) handlePropertyInjection(node *sitter.Node, iosComponent stri
 // RelInjects edge on the enclosing type (Swift constructor injection needs no
 // annotation), and the body is walked for construction calls.
 func (w *astWalker) handleInit(node *sitter.Node) {
+	if restore := w.pushExtensionInit(node); restore != nil {
+		defer restore()
+	}
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
 		if kindOf(c) != "parameter" {
 			continue
 		}
 		typeName := simpleTypeName(parameterTypeNode(c), w.src)
+		if w.typedReceiversOnly && isQualifiedType(parameterTypeNode(c), w.src) {
+			continue
+		}
 		if typeName != "" && !isSystemType(typeName) && isTypeName(typeName) {
 			w.addOwnerEdge(facts.RelInjects, typeName)
 		}
@@ -1262,7 +1284,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 
 	if kind == "call_expression" {
 		var iterClosure *sitter.Node
-		if callee := firstNamedChild(node); callee != nil {
+		if callee := operatorCallee(firstNamedChild(node), w.src); callee != nil {
+			if member := implicitMember(callee, w.src); member != "" {
+				w.noteImplicitCall(member, node)
+			}
 			name, isNav, root, directSelf := calleeInfo(callee, w.src)
 			// Seed the performs_io closure: flag the enclosing method when its body
 			// directly invokes a network/file I/O primitive. Framework I/O calls are
@@ -1319,7 +1344,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// rooted call.
 				if isCapitalized(root) {
 					w.noteRootedCall(callee, root, name)
-				} else {
+				} else if !w.typedReceiversOnly {
 					w.addTentativeMethodCall(name)
 				}
 				w.noteTypedCall(w.receiverType(callee), name)
@@ -1697,6 +1722,12 @@ func memberSignature(node *sitter.Node, src []byte) string {
 	return strings.TrimSpace(s)
 }
 
+// swiftIdentifier returns an identifier's name: a keyword escaped in backticks to
+// serve as one (`default`) is the name without them, as a call after a dot writes it.
+func swiftIdentifier(node *sitter.Node, src []byte) string {
+	return strings.Trim(nodeText(node, src), "`")
+}
+
 // headerText returns the source text of node up to the start of its body (or the
 // whole node when there is no body), used to inspect a function's signature.
 func headerText(node, body *sitter.Node, src []byte) string {
@@ -1717,7 +1748,7 @@ func headerText(node, body *sitter.Node, src []byte) string {
 func calleeInfo(callee *sitter.Node, src []byte) (name string, isNav bool, root string, directSelf bool) {
 	switch kindOf(callee) {
 	case "simple_identifier", "identifier":
-		return nodeText(callee, src), false, "", false
+		return swiftIdentifier(callee, src), false, "", false
 	case "navigation_expression":
 		suffix := callee.ChildByFieldName("suffix")
 		if suffix == nil {
@@ -1725,7 +1756,7 @@ func calleeInfo(callee *sitter.Node, src []byte) (name string, isNav bool, root 
 		}
 		if suffix != nil {
 			if id := findFirstIdentifier(suffix, src); id != nil {
-				name = nodeText(id, src)
+				name = swiftIdentifier(id, src)
 			}
 		}
 		root = navigationRoot(callee, src)
