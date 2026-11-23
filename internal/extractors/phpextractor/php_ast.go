@@ -540,10 +540,11 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
 		return
-	case "member_call_expression":
-		// Instance call ($obj->method()). The receiver type is unknown, so the bare
-		// method name is recorded — useful for $this->method() self-references and
-		// dead-code analysis (mirrors the Ruby extractor's bare-call handling).
+	case "member_call_expression", "nullsafe_member_call_expression":
+		// Instance call ($obj->method(), nullsafe $obj?->method()). The receiver
+		// type is unknown, so the bare method name is recorded — useful for
+		// $this->method() self-references and dead-code analysis (mirrors the Ruby
+		// extractor's bare-call handling).
 		method := node.ChildByFieldName("name")
 		if method != nil && kindOf(method) == "name" {
 			target := phpText(method, w.src)

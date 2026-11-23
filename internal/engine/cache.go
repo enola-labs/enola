@@ -3887,7 +3887,9 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v704: PHP: a nullsafe method call (`$obj?->m()`) is a call, as `$obj->m()` is: a
+// bare-name edge, the receiver-typed edge, loop and recursion metrics, I/O names.
+const cacheVersion = "v704"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
