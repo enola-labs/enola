@@ -119,6 +119,38 @@ func TestSiblingCallDoesNotKeepOwnerAlive(t *testing.T) {
 	}
 }
 
+// PHP writes a member `Owner::member`. A PHP class whose methods only call each
+// other (`$this->fetch()`, `self::count()`) is dead as a unit.
+func TestSiblingCallThroughDoubleColonDoesNotKeepOwnerAlive(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"App\\Util\\Discover","file":"app/Util/Discover.php","props":{"symbol_kind":"class","language":"php"}}
+{"kind":"symbol","name":"App\\Util\\Discover::discover","file":"app/Util/Discover.php","props":{"symbol_kind":"method","language":"php"},"relations":[{"kind":"calls","target":"App\\Util\\Discover::fetch"}]}
+{"kind":"symbol","name":"App\\Util\\Discover::fetch","file":"app/Util/Discover.php","props":{"symbol_kind":"method","language":"php"}}
+`)
+	all := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := all[`App\Util\Discover`]; !ok || o.Class == classTestOnly {
+		t.Errorf("a class referenced only by its own methods must be dead: %+v", o)
+	}
+	// Only a PHP name reads `::` as the member separator: a Ruby `Shop::Order` is a
+	// class nested in a module, not a member of it.
+	for name, want := range map[string]string{`App\Util\Discover::fetch php`: `App\Util\Discover`,
+		"Shop::Order ruby": "", "Shop::Order.build ruby": "Shop::Order", "Shop::Order#total ruby": "Shop::Order"} {
+		name, lang, _ := strings.Cut(name, " ")
+		if got := memberOwner(name, lang); got != want {
+			t.Errorf("memberOwner(%q) = %q, want %q", name, got, want)
+		}
+	}
+	// Another class calling through it still counts.
+	syms, refs = collectFromJSONL(t, `
+{"kind":"symbol","name":"App\\Util\\Discover","file":"app/Util/Discover.php","props":{"symbol_kind":"class","language":"php"}}
+{"kind":"symbol","name":"App\\Util\\Discover::fetch","file":"app/Util/Discover.php","props":{"symbol_kind":"method","language":"php"}}
+{"kind":"symbol","name":"App\\Jobs\\Sync::handle","file":"app/Jobs/Sync.php","props":{"symbol_kind":"method","language":"php"},"relations":[{"kind":"calls","target":"App\\Util\\Discover::fetch"}]}
+`)
+	if o, ok := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))[`App\Util\Discover`]; ok {
+		t.Fatalf("a class another class calls through must not be reported: %+v", o)
+	}
+}
+
 // TestClassify_ExcludesTestSupportPackages guards against mis-reporting test
 // infrastructure (mocks, testutils) as dead: _test.go files are excluded from the
 // snapshot, so a mock's only callers (tests) are invisible. Such code must be
