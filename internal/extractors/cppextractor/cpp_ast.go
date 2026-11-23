@@ -1713,17 +1713,58 @@ func (w *astWalker) emitArgRefs(args *sitter.Node) {
 		return
 	}
 	for i := uint(0); i < args.ChildCount(); i++ {
-		a := args.Child(i)
-		if !a.IsNamed() {
+		if a := args.Child(i); a.IsNamed() {
+			w.emitValueRef(a)
+		}
+	}
+}
+
+// emitValueRef records a function named by a value: a bare name, a qualified name
+// (ns::fn), a template id (fn<T>), or the address of any of them. A bare or
+// template name is a func-pointer candidate; a qualified one is a
+// relQualifiedFuncValue, kept only when it resolves to a function. Any other
+// expression is not a function value.
+func (w *astWalker) emitValueRef(v *sitter.Node) {
+	switch kindOf(w.kinds, v) {
+	case "identifier":
+		w.emitFuncPtrRef(nodeText(v, w.src))
+	case "template_function":
+		w.emitFuncPtrRef(identifierLeaf(w.kinds, v, w.src))
+	case "qualified_identifier":
+		name, _, root := calleeInfo(w.kinds, v, w.src)
+		if name != "" && !systemNamespaces[root] && !isAllCapsConst(name) {
+			w.addOwnerEdge(relQualifiedFuncValue, root+"::"+name)
+		}
+	case "pointer_expression": // &func
+		if inner := v.ChildByFieldName("argument"); inner != nil && kindOf(w.kinds, inner) != "pointer_expression" {
+			w.emitValueRef(inner)
+		}
+	}
+}
+
+// emitInitListRefs records the function values in a braced initializer inside a
+// function body (`static const Rule rules[] = {{match, combine}}`), the in-body
+// counterpart of the file-scope walkInitializerRefs. Only the list's own elements
+// are values; expressions inside them are walked as code.
+func (w *astWalker) emitInitListRefs(list *sitter.Node) {
+	for i := uint(0); i < list.ChildCount(); i++ {
+		e := list.Child(i)
+		if !e.IsNamed() {
 			continue
 		}
-		switch kindOf(w.kinds, a) {
-		case "identifier":
-			w.emitFuncPtrRef(nodeText(a, w.src))
-		case "pointer_expression": // &func
-			if inner := a.ChildByFieldName("argument"); inner != nil && kindOf(w.kinds, inner) == "identifier" {
-				w.emitFuncPtrRef(nodeText(inner, w.src))
+		switch kindOf(w.kinds, e) {
+		case "initializer_list":
+			w.emitInitListRefs(e)
+		case "initializer_pair":
+			if v := e.ChildByFieldName("value"); v != nil {
+				if kindOf(w.kinds, v) == "initializer_list" {
+					w.emitInitListRefs(v)
+				} else {
+					w.emitValueRef(v)
+				}
 			}
+		default:
+			w.emitValueRef(e)
 		}
 	}
 }
@@ -2103,6 +2144,26 @@ func (w *astWalker) walkForCallsAt(nv sitter.Node) {
 		// a function-pointer variable. The RHS function is a use; without this it
 		// looks dead. Non-function RHS is dropped by resolveFuncPtrRefs.
 		w.emitAssignFuncPtrRef(node)
+	case "init_declarator":
+		// A local declaration's initializer: `Holder h("a", Callback);`,
+		// `auto *cb = &ns::handler;`, or a braced table of callbacks.
+		switch value := node.ChildByFieldName("value"); kindOf(w.kinds, value) {
+		case "argument_list":
+			w.emitArgRefs(value)
+		case "initializer_list":
+			w.emitInitListRefs(value)
+		case "":
+		default:
+			w.emitValueRef(value)
+		}
+	case "return_statement":
+		// `return Fn<T>;` / `return ns::fn;` hands a function out as a value. A bare
+		// returned name is left alone: it is almost always a local.
+		if v := firstNamedChild(node); v != nil {
+			if k := kindOf(w.kinds, v); k == "template_function" || k == "qualified_identifier" {
+				w.emitValueRef(v)
+			}
+		}
 	case "compound_literal_expression":
 		// An in-body designated initializer — `cfg = (struct regmap_config){ .lock =
 		// fn, ... };` — wires callbacks like a file-scope ops table but inside a
@@ -2131,14 +2192,7 @@ func (w *astWalker) emitAssignFuncPtrRef(node *sitter.Node) {
 	if rhs == nil {
 		return
 	}
-	switch kindOf(w.kinds, rhs) {
-	case "identifier":
-		w.emitFuncPtrRef(nodeText(rhs, w.src))
-	case "pointer_expression": // &func
-		if inner := rhs.ChildByFieldName("argument"); inner != nil && kindOf(w.kinds, inner) == "identifier" {
-			w.emitFuncPtrRef(nodeText(inner, w.src))
-		}
-	}
+	w.emitValueRef(rhs)
 }
 
 // handleCall emits the call-graph edge for a call_expression and feeds the current

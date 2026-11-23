@@ -43,6 +43,13 @@ const relReceiverCallCandidate = "receiver_call_candidate"
 // function, and drops it otherwise; it never appears in emitted facts.
 const relCapitalizedCallCandidate = "capitalized_call_candidate"
 
+// relQualifiedFuncValue is emitted for a qualified name in value position
+// (`d->cb = ns::handler;`, `register(&Type::method)`). canonicalizeTargets resolves
+// it like a qualified call and keeps it only when it names a function or method,
+// so a static data member or an enumerator adds no edge; it never appears in
+// emitted facts.
+const relQualifiedFuncValue = "qualified_func_value"
+
 // CppExtractor extracts architectural facts from C and C++ source code using
 // tree-sitter AST parsing (see cpp_ast.go for the walker implementation). It owns
 // both languages: a per-file grammar choice (see parsedLanguage) routes .c files
@@ -417,6 +424,10 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 			// A capitalized callee is a type when the caller can see one by that
 			// name; otherwise it must resolve as a call below, or it is dropped.
 			callOnly := false
+			if r.Kind == relQualifiedFuncValue {
+				r.Kind = facts.RelCalls
+				callOnly = true
+			}
 			if r.Kind == relCapitalizedCallCandidate {
 				if types.resolve(r.Target, source, visibility, nil) != "" {
 					r.Kind = facts.RelInstantiates

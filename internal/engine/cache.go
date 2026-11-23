@@ -3887,7 +3887,11 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v708: a C++ function named in value position is a use also as a qualified name
+// (`ns::fn`, `&ns::fn`) or a template id (`fn<T>`), in a call argument, an
+// assignment, a local declaration's initializer (`Holder h("a", Fn)`), an in-body
+// braced table, or a returned qualified or template value.
+const cacheVersion = "v708"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
