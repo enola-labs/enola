@@ -3856,7 +3856,12 @@ import (
 // v698: a Python file named *_test.py is test code only inside a test tree, as the
 // default ignore globs already had it. Outside one it is production: its HTTP calls
 // are client routes, and the analyzers rate its symbols like any other module's.
-const cacheVersion = "v698"
+// v703: a PHP anonymous class declared outside a function (a Laravel migration's
+// `return new class extends Migration`) is a class named after its file, and its
+// members are named after it rather than an empty owner; a class's own attributes
+// name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
+// entries of its Fractal include lists (fractal_includes).
+const cacheVersion = "v703"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
