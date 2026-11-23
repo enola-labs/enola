@@ -143,9 +143,15 @@ func classifyComponent(f *facts.Fact, name string, annotations []javaAnnotation,
 	case hasAnnotation(annotations, "Repository"):
 		f.SetProp("framework", "spring")
 		f.SetProp("component", "repository")
-	case hasAnnotation(annotations, "Configuration"):
+	case hasAnnotation(annotations, "Configuration", "SpringBootApplication", "AutoConfiguration"):
+		// @SpringBootApplication and @AutoConfiguration are meta-annotated
+		// @Configuration: the class is the container's, not the application's.
 		f.SetProp("framework", "spring")
 		f.SetProp("component", "configuration")
+	case hasAnnotation(annotations, "ControllerAdvice", "RestControllerAdvice"):
+		// Meta-annotated @Component; the dispatcher calls its handlers.
+		f.SetProp("framework", "spring")
+		f.SetProp("component", "controller_advice")
 	case hasAnnotation(annotations, "Component"):
 		f.SetProp("framework", "spring")
 		f.SetProp("component", "component")
@@ -341,4 +347,27 @@ func requestMappingVerbs(a *javaAnnotation) []string {
 		return []string{"ALL"}
 	}
 	return out
+}
+
+// springAdviceAnnotations are the AspectJ advice and pointcut annotations Spring
+// AOP reads off an @Aspect class.
+var springAdviceAnnotations = []string{"Pointcut", "Before", "After", "AfterReturning", "AfterThrowing", "Around"}
+
+// springCalledMethod marks a method Spring calls and the application does not,
+// given the scope of its class: a @Bean factory on a class Spring scans, an
+// @ExceptionHandler on an advice or a controller, an advice or pointcut on an
+// @Aspect. Each annotation counts only on the class whose own annotation makes
+// Spring read it: a @Before on a plain class is JUnit's, not an advice.
+func springCalledMethod(f *facts.Fact, rs *routeScope, annotations []javaAnnotation) {
+	if rs == nil {
+		return
+	}
+	switch {
+	case rs.springBeanHost && hasAnnotation(annotations, "Bean"):
+		f.SetProp("di_provider", true)
+	case rs.springHandlerHost && hasAnnotation(annotations, "ExceptionHandler"):
+		f.SetProp("framework_registered", true)
+	case rs.isAspect && hasAnnotation(annotations, springAdviceAnnotations...):
+		f.SetProp("framework_registered", true)
+	}
 }

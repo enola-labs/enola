@@ -3953,7 +3953,12 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v710: Java: @SpringBootApplication and @AutoConfiguration classes are Spring
+// configuration and @ControllerAdvice/@RestControllerAdvice classes a Spring
+// component; a @Bean method of a class Spring scans is a di_provider, and an
+// @ExceptionHandler of a controller or advice and the advice and pointcut methods
+// of an @Aspect are framework_registered.
+const cacheVersion = "v710"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

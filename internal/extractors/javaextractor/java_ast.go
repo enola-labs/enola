@@ -551,6 +551,12 @@ type routeScope struct {
 	// Both feed the GAP-JV-02 io_direct seed in handleMethod.
 	isRepository bool
 	isDao        bool
+	// springBeanHost: Spring scans the class, so it reads its @Bean methods.
+	// springHandlerHost: a controller or advice, whose @ExceptionHandler methods
+	// the dispatcher calls. isAspect: an @Aspect, whose advice Spring AOP runs.
+	springBeanHost    bool
+	springHandlerHost bool
+	isAspect          bool
 }
 
 func (w *astWalker) enclosingType() string { return strings.Join(w.typeStack, ".") }
@@ -816,6 +822,10 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		basePath:      requestMappingPath(annotations),
 		isRepository:  isSpringDataRepository(supers),
 		isDao:         hasAnnotation(annotations, "Dao"),
+
+		springBeanHost:    w.out[owner].PropString("component") != "",
+		springHandlerHost: isSpringController(annotations) || hasAnnotation(annotations, "ControllerAdvice", "RestControllerAdvice"),
+		isAspect:          hasAnnotation(annotations, "Aspect"),
 	})
 
 	// Constructor-based DI: a class with a single constructor, or one annotated
@@ -1017,6 +1027,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 		props["io_direct"] = true
 		props["performs_io"] = true
 	}
+	springCalledMethod(&w.out[ownerIdx], w.currentRoute(), annotations)
 	w.metrics, w.loopDepth = savedMetrics, savedDepth
 	w.scalingDepth, w.repeatDepth = savedScaling, savedRepeat
 	w.selfName, w.selfShort = savedName, savedShort
