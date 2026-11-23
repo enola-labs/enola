@@ -4025,7 +4025,10 @@ import (
 // v717: C++: a definition with no return type whose name is a macro the repository
 // defines (`EXT_ENTRY(name, loader) { … }`) is an entry point (root=macro): the
 // function it makes is named by token pasting and found by symbol lookup.
-const cacheVersion = "v717"
+// v724: C and C++: a bare name found by its unique short name binds to a member
+// (`Type::member`) only from inside a C++ member function. From C, where a bare
+// name is a parameter or local, and from a C++ free function, it binds nothing.
+const cacheVersion = "v724"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
