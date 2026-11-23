@@ -65,3 +65,23 @@ func TestSwiftAssociatedTypeWitnessIsNotDead(t *testing.T) {
 		t.Error("an Element of a type that conforms to nothing must be reported")
 	}
 }
+
+// A multipart part conformance stated by an extension (`extension File:
+// MultipartPartConvertible { typealias Body = Data }`) witnesses the package
+// protocol's Body.
+func TestSwiftMultipartBodyWitnessIsNotDead(t *testing.T) {
+	file := swiftSym("App.File", facts.SymbolStruct)
+	ext := swiftSym("App.File+MultipartPartConvertible", facts.SymbolExtension, facts.Relation{Kind: facts.RelImplements, Target: "MultipartPartConvertible"})
+	body := swiftSym("App.File.Body", facts.SymbolType)
+	stray := swiftSym("App.Blob.Body", facts.SymbolType)
+	for _, f := range []*facts.Fact{&file, &ext, &body, &stray} {
+		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDeclares, Target: "App"})
+	}
+	got := orphanNames(storeOf(file, ext, body, stray))
+	if got["App.File.Body"] {
+		t.Error("MultipartPartConvertible's Body witness is reported")
+	}
+	if !got["App.Blob.Body"] {
+		t.Error("a Body of a type that conforms to nothing must be reported")
+	}
+}
