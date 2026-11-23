@@ -551,6 +551,9 @@ type routeScope struct {
 	// Both feed the GAP-JV-02 io_direct seed in handleMethod.
 	isRepository bool
 	isDao        bool
+	// isInterface: a method without a body here may be a MyBatis mapper
+	// statement (mybatis.go).
+	isInterface bool
 }
 
 func (w *astWalker) enclosingType() string { return strings.Join(w.typeStack, ".") }
@@ -784,6 +787,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	if hasAnnotation(annotations, "FeignClient", "Dao") || isSpringDataRepository(supers) {
 		f.SetProp(propIOType, true)
 	}
+	w.recordMyBatis(&f, kind, annotations)
 
 	w.out = append(w.out, f)
 	owner := len(w.out) - 1
@@ -816,6 +820,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		basePath:      requestMappingPath(annotations),
 		isRepository:  isSpringDataRepository(supers),
 		isDao:         hasAnnotation(annotations, "Dao"),
+		isInterface:   kind == facts.SymbolInterface,
 	})
 
 	// Constructor-based DI: a class with a single constructor, or one annotated
@@ -920,6 +925,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	}
 	if t := w.receiverTypeOf(node.ChildByFieldName("type")); t != "" {
 		f.SetProp(propReturnType, t)
+	}
+	if rs := w.currentRoute(); rs != nil && rs.isInterface && node.ChildByFieldName("body") == nil {
+		f.SetProp(propAbstractDecl, true)
 	}
 
 	// Request-mapping annotation on a method: a server route on a @Controller, or an

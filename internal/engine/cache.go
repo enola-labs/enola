@@ -3953,7 +3953,11 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v710: Java: a MyBatis mapper interface (MyBatis's own @Mapper, or an interface
+// in a package a @MapperScan names, recursively) is an io_type and its abstract
+// methods are io_direct, so a mapper call in a loop is a query in a loop.
+// MapStruct's @Mapper, told apart by its import, stays a plain interface.
+const cacheVersion = "v710"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
