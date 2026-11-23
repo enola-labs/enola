@@ -828,7 +828,7 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 			Line:    int(node.StartPosition().Row) + 1,
 			EndLine: tsutil.EndLine(node),
 			Props: map[string]any{
-				"symbol_kind": "extension",
+				"symbol_kind": facts.SymbolExtension,
 				"exported":    true,
 				"language":    "swift",
 			},
