@@ -3953,7 +3953,11 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v713: Swift: a file that does not parse is parsed again with the `sending` type
+// specifier, the `consume` and `copy` operators and the freestanding macros of a type
+// body blanked out (bytes and lines kept), so a class using them keeps its symbol and
+// the declarations in a macro's trailing closure read as members of the type.
+const cacheVersion = "v713"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -19,7 +19,7 @@ func withTree(src []byte, relFile string, isiOS bool, dir string, use func(root 
 	if err := parser.SetLanguage(sitter.NewLanguage(swift.Language())); err != nil {
 		return
 	}
-	tree := parser.Parse(src, nil)
+	tree := parseRecovered(parser, src)
 	if tree == nil {
 		return
 	}
