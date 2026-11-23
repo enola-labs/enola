@@ -632,7 +632,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 							stats.enclosingScope++
 							resolved = true
 						} else {
-							if canonical := functions.short[candidate]; canonical != "" && bareNameMayBind(canonical, &allFacts[i], bareValue, source, callable, methods) {
+							if canonical := functions.short[candidate]; canonical != "" && bareNameMayBind(canonical, &allFacts[i], bareValue, source, callable, methods, types) {
 								if visibility.allows(source, canonical) {
 									r.Target = canonical
 									stats.uniqueShort++
@@ -676,20 +676,32 @@ func containsRelation(rels []facts.Relation, r facts.Relation) bool {
 }
 
 // bareNameMayBind reports whether a bare name the caller writes may be the
-// function canonical, found by its unique short name. A free function may be.
-// A member may not from C, where a bare name never names a struct member (a
-// function-pointer member is called through its object, and a bare `cmd(…)` is a
-// parameter or local), nor from outside any member function in C++. A member
+// function canonical, found by its unique short name. A free function may be, and
+// so may a constructor (`T(x)` of a lower-case class constructs it). A member of
+// a class or struct may not from C, where a bare name never names a struct member
+// (a function-pointer member is called through its object, and a bare `cmd(…)` is
+// a parameter or local), nor from outside any member function in C++. A member
 // function's bare call may reach a member of its class or a base; passed as a
 // value, only of its own class (namesFreeOrOwnMember).
-func bareNameMayBind(canonical string, caller *facts.Fact, bareValue bool, source string, callable, methods map[string]bool) bool {
+func bareNameMayBind(canonical string, caller *facts.Fact, bareValue bool, source string, callable, methods map[string]bool, types typeIndex) bool {
 	if bareValue {
 		return namesFreeOrOwnMember(canonical, caller, source, callable, methods)
 	}
-	if !methods[canonical] {
+	if !methods[canonical] || isConstructorName(canonical) || !memberOfKnownType(canonical, types) {
 		return true
 	}
 	return caller.PropString("language") != langC && caller.PropString("symbol_kind") == facts.SymbolMethod
+}
+
+// memberOfKnownType reports whether canonical's scope is a class, struct or enum
+// the repository declares; a "member" of anything else is a misread free function.
+func memberOfKnownType(canonical string, types typeIndex) bool {
+	scope, _, ok := cutLast(canonical[strings.Index(canonical, ".")+1:], "::")
+	if !ok {
+		return false
+	}
+	owner, _, _ := strings.Cut(lastScopeComponent(scope), "<")
+	return len(types.dirs[owner]) > 0
 }
 
 // namesFreeOrOwnMember reports whether a bare name passed as a value may name

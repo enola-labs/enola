@@ -48,3 +48,15 @@ void freefn(void (*reset)()) { reset(); }
 		}
 	}
 }
+
+// A constructor is reached by a bare name from anywhere: `count_t(x)` constructs a
+// lower-case class.
+func TestCppFreeFunctionBareNameStillConstructs(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"inc/count.hpp": "struct count_t { count_t(int v) : v(v) {} int v; };\n",
+		"src/a.cpp":     "#include \"../inc/count.hpp\"\nint total() { return count_t(3).v; }\n",
+	})
+	if total := mustFact(t, ff, "src.total"); !hasRelation(total, facts.RelCalls, "inc.count_t::count_t") {
+		t.Errorf("total constructs count_t, got %+v", total.Relations)
+	}
+}
