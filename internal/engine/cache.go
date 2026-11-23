@@ -3935,9 +3935,6 @@ import (
 // v707: Swift: a #selector names a method the Objective-C runtime will send a
 // message to, recorded as a method value is (a calls edge in value_refs); an
 // @IBAction, @IBSegueAction or @objc(name:) method is framework_registered.
-// v709: Swift: a type carrying @main is framework_registered on every platform (an
-// executable target, a command line tool, a compiler plugin), not only a SwiftUI
-// App in an iOS target.
 // v708: a call in a C++ constructor's member initializer list (`S() : m(f(x)) {}`)
 // is a call of the constructor; a constructor parameter passed there is not a
 // function value.
@@ -3953,6 +3950,9 @@ import (
 // direct-initialization tree-sitter reads as a prototype (`T r(Kind::A, Fn<X>)`)
 // passes its arguments as values. A bare name there counts only when it resolves
 // to a function and is not a data member of the caller's class.
+// v709: Swift: a type carrying @main is framework_registered on every platform (an
+// executable target, a command line tool, a compiler plugin), not only a SwiftUI
+// App in an iOS target.
 const cacheVersion = "v709"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
