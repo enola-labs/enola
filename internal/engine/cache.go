@@ -4025,13 +4025,6 @@ import (
 // v717: C++: a definition with no return type whose name is a macro the repository
 // defines (`EXT_ENTRY(name, loader) { … }`) is an entry point (root=macro): the
 // function it makes is named by token pasting and found by symbol lookup.
-// v724: C and C++: a bare name found by its unique short name binds to a member
-// (`Type::member`) only from inside a C++ member function. From C, where a bare
-// name is a parameter or local, and from a C++ free function, it binds nothing.
-// v723: C and C++ files under test/, tests/ and testing/ are ignored and recovered
-// as test refs in the production extraction (CppExtractor.ExtractWithTests): the
-// test files resolve against the production files' pass-one facts, as when they
-// were indexed with them, and the production facts resolve without the tests.
 // v718: Swift: a static path through a lower-case nested namespace
 // (`Config.lens.features`) names it where that type is declared; a conformance
 // written through its owner (`: Dashboard.Model`) names the nested protocol; a name
@@ -4049,6 +4042,13 @@ import (
 // the name resolves, through the test file's imports, package or star imports, to a
 // type production code declares; the harness's and libraries' annotations still
 // record nothing.
+// v723: C and C++ files under test/, tests/ and testing/ are ignored and recovered
+// as test refs in the production extraction (CppExtractor.ExtractWithTests): the
+// test files resolve against the production files' pass-one facts, as when they
+// were indexed with them, and the production facts resolve without the tests.
+// v724: C and C++: a bare name found by its unique short name binds to a member
+// (`Type::member`) only from inside a C++ member function. From C, where a bare
+// name is a parameter or local, and from a C++ free function, it binds nothing.
 const cacheVersion = "v724"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
