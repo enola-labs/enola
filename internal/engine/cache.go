@@ -4042,6 +4042,9 @@ import (
 // as, when the repository declares the class; a .neon file names the classes it
 // registers as services, and `artisan db:seed --class=` in a composer or shell
 // script names the seeder it runs.
+// v720: PHP: a Nextcloud app's appinfo/routes.php entries and #[ApiRoute] and
+// #[FrontpageRoute] action attributes are routes served by their controller action,
+// and appinfo/info.xml names the classes it registers.
 const cacheVersion = "v724"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

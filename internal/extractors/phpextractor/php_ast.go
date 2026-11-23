@@ -393,6 +393,9 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 	if name != "__construct" { // a constructor's types are the class's injects
 		w.nameParameterTypes(ownerIdx, node.ChildByFieldName("parameters"))
 	}
+	if isMethod {
+		w.noteNextcloudRouteAttributes(ownerIdx, node.ChildByFieldName("attributes"))
+	}
 
 	// Walk the body once: accumulate RelCalls / RelInstantiates (deduplicated) and
 	// compute complexity in the same pass. props is shared by reference with the

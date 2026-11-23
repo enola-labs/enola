@@ -314,6 +314,7 @@ var versionCoverage = map[int][]string{
 	723: {"TestCppTestGlobsScopeToTestTrees", "TestCppExtractTestRefsEmitsOnlyTestRefFacts", "TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed", "TestCppTestRefsCreditLifecycleAndInheritedMembers", "TestCppTestRefsCreditAProductionHeaderOfTestHelpers", "TestTestAwareExtractorSeesTestsAndKeysTheCacheOnThem", "TestGolden"},
 	718: {"TestSwiftStaticPathThroughLowercaseNamespace", "TestSwiftUnderscoreTypeConstructorBindsThroughScope", "TestSwiftQualifiedConformanceNamesNestedProtocol", "TestSwiftProjectAssociatedTypeWitnessIsNamed", "TestGolden"},
 	719: {"TestParameterTypesAreTypeUses", "TestConfigFilesNameTheClassesTheyRegister", "TestGolden"},
+	720: {"TestNextcloudRoutesAreServedByTheirController", "TestNextcloudRouteAttributesAreRoutes", "TestNextcloudInfoXMLNamesTheClassesItRegisters", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
