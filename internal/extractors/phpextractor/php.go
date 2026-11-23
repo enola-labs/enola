@@ -165,6 +165,12 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 		allFacts = append(allFacts, extractSymfonyConfigRoutes(repoPath)...)
 	}
 
+	// A parameter type and a .neon file or a script name classes declared in other
+	// files (receivers.go, configrefs.go).
+	declared := declaredClasses(allFacts)
+	bindParameterTypes(allFacts, declared)
+	allFacts = append(allFacts, extractConfigClassRefs(repoPath, files, declared)...)
+
 	// Emit one module fact per directory containing PHP files.
 	for dir := range modules {
 		props := map[string]any{"language": "php"}

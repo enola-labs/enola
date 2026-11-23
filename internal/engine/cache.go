@@ -4038,6 +4038,10 @@ import (
 // led by an underscore (`_CodingKey`) is a type name; a conformance to a protocol
 // the repository declares names the nested types witnessing its associated types,
 // which a protocol now lists in associated_types.
+// v719: PHP: a function or method names each class its parameters are declared
+// as, when the repository declares the class; a .neon file names the classes it
+// registers as services, and `artisan db:seed --class=` in a composer or shell
+// script names the seeder it runs.
 const cacheVersion = "v724"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
