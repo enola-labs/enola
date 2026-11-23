@@ -124,6 +124,9 @@ func TestMemberPicksAmongCopiesBehindAnUnplacedInclude(t *testing.T) {
 			`namespace netgen { void Mesh::AddPoint() {} }`,
 		"ng/meshing/meshing.hpp": "#include \"meshclass.hpp\"\n",
 		"rvd/meshing.hpp":        `class Mesh { public: int faces; };`,
+		"rv/base_fwd.hpp":        `class Mesh { public: void AddPoint(); };`,
+		"ng/geom2d/genmesh.cpp": "#include <meshclass.hpp>\n" +
+			`void MeshFromSpline(netgen::Mesh *mesh) { mesh->AddPoint(); }`,
 		"ng/nglib.cpp": "#include <meshing.hpp>\n" +
 			`using namespace netgen;
 void Ng_AddPoint(Mesh *m) { m->AddPoint(); }`,
@@ -131,5 +134,9 @@ void Ng_AddPoint(Mesh *m) { m->AddPoint(); }`,
 	ng := mustFact(t, ff, "ng.Ng_AddPoint")
 	if !hasRelation(ng, facts.RelCalls, "ng/meshing.netgen::Mesh::AddPoint") {
 		t.Errorf("Ng_AddPoint should call netgen::Mesh::AddPoint, got %+v", ng.Relations)
+	}
+	geo := mustFact(t, ff, "ng/geom2d.MeshFromSpline")
+	if !hasRelation(geo, facts.RelCalls, "ng/meshing.netgen::Mesh::AddPoint") {
+		t.Errorf("MeshFromSpline should call netgen::Mesh::AddPoint, got %+v", geo.Relations)
 	}
 }

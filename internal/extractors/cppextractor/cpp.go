@@ -670,7 +670,7 @@ func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility
 		}
 	}
 	byMember := false
-	if len(candidates) > 1 && declares != nil {
+	if declares != nil {
 		var narrowed []string
 		for _, dir := range candidates {
 			if declares(dir) {
