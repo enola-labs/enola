@@ -223,7 +223,10 @@ func (w *astWalker) untypedField(obj *sitter.Node) string {
 	return name
 }
 
-// fqnForSimple resolves a simple type name the way targetForType does.
+// fqnForSimple resolves a simple type name: its single-type import, else the
+// file's own package, else a package the file imports on demand. Which of the
+// last two declares the name is known only once every file is read, so with
+// on-demand imports it returns the choice (typechoice.go).
 func (w *astWalker) fqnForSimple(simple string) string {
 	if fqn, ok := w.importMap[simple]; ok {
 		return fqn
@@ -231,10 +234,7 @@ func (w *astWalker) fqnForSimple(simple string) string {
 	if javaLangTypes[simple] {
 		return ""
 	}
-	if w.pkg != "" {
-		return w.pkg + "." + simple
-	}
-	return simple
+	return typeChoice(qualifyIn(w.pkg, simple), w.wildcards, simple)
 }
 
 // noteTypedCall records a call on a receiver of declared type against the method

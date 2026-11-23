@@ -291,6 +291,7 @@ var versionCoverage = map[int][]string{
 	696: {"TestRustIODirect_DieselQueryMethods", "TestRustIODirect_DieselNamesWithoutDieselNotIO"},
 	697: {"TestManifestAppendedTargets", "TestGolden"},
 	698: {"TestPythonHTTPClientInProductionModuleNamedLikeATest", "TestIsTestPath", "TestPythonExclusions"},
+	700: {"TestJavaWildcardImportedTypesResolveReceiversAndTargets", "TestJavaWildcardUndeclaredTypeKeepsOwnPackageTarget"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

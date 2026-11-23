@@ -3856,7 +3856,13 @@ import (
 // v698: a Python file named *_test.py is test code only inside a test tree, as the
 // default ignore globs already had it. Outside one it is production: its HTTP calls
 // are client routes, and the analyzers rate its symbols like any other module's.
-const cacheVersion = "v698"
+// v700: Java: a simple type name imported on demand (`import com.acme.mapper.*;`) is
+// looked up as javac does, the file's own package first and then each on-demand
+// package, wherever the walker types a receiver, a `new`, a supertype, an injected
+// type, a field or a return type (javaextractor/typechoice.go). Before, it was read
+// as the own package's, so calls through a field typed by a wildcard import made no
+// edge and `new` of such a type pointed at a type that does not exist.
+const cacheVersion = "v700"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
