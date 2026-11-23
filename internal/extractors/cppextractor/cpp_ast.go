@@ -988,6 +988,11 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	w.swallowed, w.localClassDepth = nil, 0
 	if body := node.ChildByFieldName("body"); body != nil {
 		w.receiverTypes = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
+		// A constructor's member initializer list (S() : m(helper(x)) {}) runs as
+		// part of the constructor, before its body.
+		if inits := findChildByKind(w.kinds, node, "field_initializer_list"); inits != nil {
+			w.walkForCalls(inits)
+		}
 		w.walkForCalls(body)
 	}
 	swallowed := w.swallowed
