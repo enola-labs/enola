@@ -6,7 +6,7 @@ enola doctor: <TMP>/go_sample
 Runtime
   soft memory limit <MACHINE>
   enola dev (extractors <EXTRACTOR_VERSION>)
-  binders: 24 run on every snapshot (10 pre-link, 14 post-link); a snapshot's receipt lists those that ran without error
+  binders: 25 run on every snapshot (10 pre-link, 15 post-link); a snapshot's receipt lists those that ran without error
 
 Providers carried by this binary
   prism: not installed; run `enola providers fetch rubydex`

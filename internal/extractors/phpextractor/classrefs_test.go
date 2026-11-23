@@ -181,3 +181,57 @@ func TestFileWithoutFileScopeNamesEmitsNoFileReference(t *testing.T) {
 		}
 	}
 }
+
+// TestFileScopeCodeRecordsConstructionsAndCalls: an extension file returning
+// extender objects, or a bootstrap script calling a static factory, uses what it
+// constructs and calls. A method called on an object of unknown type is not
+// recorded, and code inside a declaration stays with that declaration.
+func TestFileScopeCodeRecordsConstructionsAndCalls(t *testing.T) {
+	src := `<?php
+namespace Acme\Audit;
+
+use Acme\Extend;
+
+Search\Gambits::register('actor', 'actor:guest');
+boot_helpers();
+
+return [
+    (new Extend\Frontend('forum'))
+        ->js(__DIR__.'/js/dist/forum.js')
+        ->listen(Posted::class, function ($e) { return Formatter::format($e); }),
+    (new Audit())->using(new Integration\CoreSettings()),
+    new class extends Extend\Base { public function run() { return new Hidden(); } },
+];
+
+function helper() { return new Unseen(); }
+`
+	ff := extractFileAST([]byte(src), "extend.php")
+	wantTargets(t, "instantiates", fileRefTargets(ff, "extend.php", facts.RelInstantiates),
+		`Acme\Audit\Audit`, `Acme\Audit\Integration\CoreSettings`, `Acme\Extend\Frontend`)
+	wantTargets(t, "calls", fileRefTargets(ff, "extend.php", facts.RelCalls),
+		`Acme\Audit\Formatter::format`, `Acme\Audit\Search\Gambits::register`)
+	wantTargets(t, "names", fileRefTargets(ff, "extend.php", facts.RelNames), `Acme\Audit\Posted`)
+}
+
+// TestFileScopeFunctionCallBindsOnlyToADeclaredFunction: a helper the repository
+// declares is called; a framework helper it does not declare (`config()`) records
+// nothing, though a directory module carries the same name.
+func TestFileScopeFunctionCallBindsOnlyToADeclaredFunction(t *testing.T) {
+	ff := extractFileAST([]byte("<?php\nboot_helpers();\n$x = config('app.name');\nreturn ['k' => env('K')];\n"), "config/app.php")
+	ff = append(ff, extractFileAST([]byte("<?php\nfunction boot_helpers() {}\n"), "app/helpers.php")...)
+	ff = append(ff, facts.Fact{Kind: facts.KindModule, Name: "config", File: "config"})
+	ff = bindFileScopeCalls(ff)
+	wantTargets(t, "calls", fileRefTargets(ff, "config/app.php", facts.RelCalls), "boot_helpers")
+	for _, f := range ff {
+		if _, left := f.Props[propFileScopeCalls]; left {
+			t.Errorf("%s keeps the pending calls prop", f.Name)
+		}
+	}
+	// A file calling only helpers the repository does not declare keeps no reference.
+	ff = bindFileScopeCalls(extractFileAST([]byte("<?php\nadd_action('init', 'x');\n"), "inc/hooks.php"))
+	for _, f := range ff {
+		if f.Kind == facts.KindFileRef {
+			t.Errorf("unexpected empty file reference: %+v", f)
+		}
+	}
+}

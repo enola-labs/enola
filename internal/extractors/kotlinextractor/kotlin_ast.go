@@ -75,6 +75,8 @@ type astWalker struct {
 	// fact name; external imports map to "" (imported, but no local fact exists).
 	// Used to resolve bare function calls to imported top-level functions.
 	importMap map[string]string
+	// diImports are the DI framework annotations the file imports (metro.go).
+	diImports map[string]bool
 
 	// typeStack holds the simple names of the enclosing class/object declarations,
 	// so methods declared inside them are named "<dir>.<Type>.<method>" (matching
@@ -116,6 +118,17 @@ type astWalker struct {
 	// function's parameters and locals (nil outside one). See receivers.go.
 	memberTypes []map[string]string
 	localTypes  map[string]string
+	// localExt and memberExt hold the names whose declared type is an imported
+	// library type, by its key (operators.go); memberExt parallels memberTypes.
+	localExt  map[string]string
+	memberExt []map[string]string
+	// pkg is the file's package; extImports maps an imported library name to its
+	// qualified name; wildcards are the packages imported with .*; scope shares
+	// them with the operator notes (operators.go).
+	pkg        string
+	extImports map[string]string
+	wildcards  []string
+	scope      *fileScope
 	// extReceiver is set inside an extension function: the receiver's canonical
 	// type name, "" when it is not the repository's (receivers.go).
 	extReceiver string
@@ -551,12 +564,14 @@ func (w *astWalker) pushType(name string, methods map[string]bool) {
 	w.typeStack = append(w.typeStack, name)
 	w.methodStack = append(w.methodStack, methods)
 	w.memberTypes = append(w.memberTypes, make(map[string]string))
+	w.memberExt = append(w.memberExt, make(map[string]string))
 }
 
 func (w *astWalker) popType() {
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 	w.methodStack = w.methodStack[:len(w.methodStack)-1]
 	w.memberTypes = w.memberTypes[:len(w.memberTypes)-1]
+	w.memberExt = w.memberExt[:len(w.memberExt)-1]
 }
 
 // enclosingType returns the dotted path of enclosing type names (e.g. "Outer.Inner"),
@@ -612,6 +627,9 @@ func (w *astWalker) walkSourceFile(root *sitter.Node) {
 		switch kindOf(child) {
 		case "package_header":
 			// no fact emitted; package is implied by `dir`
+			if q := findChildByKind(child, "qualified_identifier"); q != nil {
+				w.pkg = nodeText(q, w.src)
+			}
 		case "import":
 			w.handleImport(child)
 		case "class_declaration":
@@ -648,6 +666,7 @@ func (w *astWalker) handleImport(node *sitter.Node) {
 		return
 	}
 	importPath := nodeText(qid, w.src)
+	w.noteDIImport(importPath, strings.HasSuffix(strings.TrimSpace(nodeText(node, w.src)), ".*")) // metro.go
 	resolved, isExternal := resolveKotlinImport(importPath, w.packageIndex, w.declaredNames, w.sourceRoot, w.basePackage)
 	importSource := "internal"
 	if isExternal {
@@ -667,6 +686,10 @@ func (w *astWalker) handleImport(node *sitter.Node) {
 		},
 	})
 
+	if strings.HasSuffix(strings.TrimSpace(nodeText(node, w.src)), ".*") {
+		w.wildcards = append(w.wildcards, importPath) // operators.go
+	}
+
 	// Record the imported simple name so bare calls to imported top-level
 	// functions can be resolved to a canonical fact name.
 	simple := importPath
@@ -683,6 +706,10 @@ func (w *astWalker) handleImport(node *sitter.Node) {
 		// Imported, but the target lives in an external dependency — no local
 		// fact will match, so record the empty sentinel to suppress the edge.
 		w.importMap[simple] = ""
+		if w.extImports == nil {
+			w.extImports = make(map[string]string)
+		}
+		w.extImports[simple] = importPath
 	} else {
 		w.importMap[simple] = symbolNameFromResolvedPath(resolved)
 	}
@@ -783,6 +810,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 		f.SetProp(propSuperCandidates, cands)
 	}
 
+	w.addDIContainerProps(&f, annotations)
 	if w.isAndroid {
 		// addAndroidProps uses the raw supertype clause text; reconstruct as a comma-joined
 		// string so its supertypeMatches helper continues to work.
@@ -888,6 +916,7 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 	if cands := w.superCandidates(supertypes); len(cands) > 0 {
 		f.SetProp(propSuperCandidates, cands)
 	}
+	w.addDIContainerProps(&f, annotations)
 	if w.isAndroid {
 		addAndroidProps(&f, name, annotations, strings.Join(supertypes, ", "))
 	}
@@ -1002,6 +1031,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	if t := w.functionReturnType(node, owner); t != "" {
 		f.SetProp(propReturnType, t)
 	}
+	w.noteOperatorDecl(&f, node, modifierText)
 
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
@@ -1018,10 +1048,13 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	savedParamNames, savedScopes := w.selfParamNames, w.loopScopes
 	w.loopScopes = nil
 	w.metrics = &kotlinBodyMetrics{}
-	savedLocals := w.localTypes
-	w.localTypes = make(map[string]string)
+	savedLocals, savedLocalExt := w.localTypes, w.localExt
+	w.localTypes, w.localExt = make(map[string]string), make(map[string]string)
 	savedExt, savedInExt := w.extReceiver, w.inExtension
-	defer func() { w.localTypes, w.extReceiver, w.inExtension = savedLocals, savedExt, savedInExt }()
+	defer func() {
+		w.localTypes, w.extReceiver, w.inExtension = savedLocals, savedExt, savedInExt
+		w.localExt = savedLocalExt
+	}()
 	w.extReceiver, w.inExtension = w.extensionReceiver(node)
 	w.bindParameters(node)
 	w.noteSignatureTypes(node)
@@ -1337,9 +1370,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	}
 	kind := kindOf(node)
 	if kind == "property_declaration" && w.localTypes != nil {
-		w.bindProperty(w.localTypes, node)
+		w.bindProperty(w.localTypes, w.localExt, node)
 	}
 	w.noteValueRef(node)
+	w.noteOperatorUse(node, kind)
 
 	// A lambda is a deferred scope: its body runs when the lambda is invoked, NOT
 	// per-iteration of the enclosing loops — so reset the loop depth for its

@@ -42,7 +42,7 @@ func (w *astWalker) pushExtensionInit(node *sitter.Node) func() {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolMethod,
-			"exported":    !isPrivateAccess(nodeText(modifiers, w.src)),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 			"receiver":    enclosing,
 		},
@@ -67,6 +67,7 @@ func (w *astWalker) handleMemberBody(node *sitter.Node) {
 	if w.currentOwner() < 0 {
 		return
 	}
+	w.noteTypeUsesIn(node)
 	saved := w.typedReceiversOnly
 	w.typedReceiversOnly = true
 	for _, kind := range []string{"computed_property", "function_body"} {

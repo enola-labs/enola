@@ -118,7 +118,7 @@ func swiftTestRefsFromFile(src []byte, relFile string) []facts.Fact {
 	if err := parser.SetLanguage(sitter.NewLanguage(swift.Language())); err != nil {
 		return nil
 	}
-	tree := parser.Parse(src, nil)
+	tree := parseRecovered(parser, src)
 	if tree == nil {
 		return nil
 	}

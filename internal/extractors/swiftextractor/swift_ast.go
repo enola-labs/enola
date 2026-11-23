@@ -2,6 +2,7 @@ package swiftextractor
 
 import (
 	"path"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -19,7 +20,7 @@ func withTree(src []byte, relFile string, isiOS bool, dir string, use func(root 
 	if err := parser.SetLanguage(sitter.NewLanguage(swift.Language())); err != nil {
 		return
 	}
-	tree := parser.Parse(src, nil)
+	tree := parseRecovered(parser, src)
 	if tree == nil {
 		return
 	}
@@ -62,6 +63,9 @@ type astWalker struct {
 	// bare/self calls to "<dir>.<Type>.<method>".
 	typeStack   []string
 	methodStack []map[string]bool
+	// containers parallels typeStack: the access the walked types and extensions
+	// give their members (access.go).
+	containers []swiftContainer
 
 	// memberTypes holds the stated types of the enclosing type's stored properties.
 	memberTypes map[string]string
@@ -722,7 +726,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
-			"exported":    !isPrivateAccess(modifierText),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: []facts.Relation{
@@ -752,6 +756,10 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
 	}
+	// The Composable Architecture's @Reducer macro conforms the type to Reducer.
+	if containsAnnotation(attrs, "Reducer") && !slices.Contains(supertypes, "Reducer") {
+		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: "Reducer"})
+	}
 
 	body := typeBody(node)
 	if sig, published := computeSignature(body, w.src); sig != "" || len(published) > 0 {
@@ -773,8 +781,11 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	ownerIdx := len(w.out) - 1
 
 	w.pushOwner(ownerIdx)
+	w.noteTypeUsesIn(node)
 	w.pushType(name, collectMethodNames(body, w.src))
+	w.pushContainer(swiftContainer{exported: f.PropBool("exported")})
 	w.walkTypeBody(body, iosComponent)
+	w.popContainer()
 	w.popType()
 	w.popOwner()
 }
@@ -789,7 +800,6 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 		return
 	}
 	modifiers := findChildByKind(node, "modifiers")
-	modifierText := nodeText(modifiers, w.src)
 	attrs := attributeNames(modifiers, w.src)
 	supertypes := inheritanceNames(node, w.src)
 
@@ -801,7 +811,7 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolInterface,
-			"exported":    !isPrivateAccess(modifierText),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: []facts.Relation{
@@ -822,6 +832,9 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 		addIOSProps(&f, name, attrs, strings.Join(supertypes, ", "))
 	}
 	w.out = append(w.out, f)
+	w.pushOwner(len(w.out) - 1)
+	w.noteTypeUsesIn(node)
+	w.popOwner()
 }
 
 // handleExtension preserves the legacy behaviour: one symbol fact per adopted
@@ -859,7 +872,9 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	body := typeBody(node)
 	// No single type owner for an extension; methods push their own owner.
 	w.pushType(base, collectMethodNames(body, w.src))
+	w.pushContainer(swiftContainer{exported: true, memberDefault: accessLevel(findChildByKind(node, "modifiers"), w.src)})
 	w.walkTypeBody(body, "")
+	w.popContainer()
 	w.popType()
 }
 
@@ -895,6 +910,8 @@ func (w *astWalker) walkTypeBody(body *sitter.Node, iosComponent string) {
 			w.handleProtocol(c)
 		case "typealias_declaration":
 			w.handleTypeAlias(c)
+		case "enum_entry":
+			w.noteTypeUsesIn(c)
 		}
 		w.stampConditional(before)
 	}
@@ -933,7 +950,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
-			"exported":    !isPrivateAccess(modifierText),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: []facts.Relation{
@@ -976,6 +993,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
+	w.noteTypeUsesIn(node)
 	// Set up per-function complexity tracking. The Props map is shared by
 	// reference with the fact in w.out, so writing to it after the walk updates
 	// the emitted fact.
@@ -1029,7 +1047,6 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 		return
 	}
 	modifiers := findChildByKind(node, "modifiers")
-	modifierText := nodeText(modifiers, w.src)
 
 	symbolKind := facts.SymbolVariable
 	if vb := findChildByKind(node, "value_binding_pattern"); vb != nil && strings.Contains(nodeText(vb, w.src), "let") {
@@ -1044,7 +1061,7 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
-			"exported":    !isPrivateAccess(modifierText),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: []facts.Relation{
@@ -1136,6 +1153,7 @@ func (w *astWalker) handleInit(node *sitter.Node) {
 	if restore := w.pushExtensionInit(node); restore != nil {
 		defer restore()
 	}
+	w.noteTypeUsesIn(node)
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
 		if kindOf(c) != "parameter" {
@@ -1186,13 +1204,26 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolType,
-			"exported":    !isPrivateAccess(nodeText(modifiers, w.src)),
+			"exported":    w.exportedFor(modifiers),
 			"language":    "swift",
 		},
 		Relations: relations,
 	})
 	if doc := swiftDoc(node, w.src); doc != "" {
 		facts.SetDoc(&w.out[len(w.out)-1], doc)
+	}
+	// The aliased type's own name is the instantiates edge above; the types written
+	// around or inside it (a closure type, type arguments) are uses.
+	if valueNode := node.ChildByFieldName("value"); valueNode != nil {
+		w.pushOwner(len(w.out) - 1)
+		if kindOf(valueNode) == "user_type" {
+			for i := uint(0); i < valueNode.ChildCount(); i++ {
+				w.noteTypeUsesIn(valueNode.Child(i))
+			}
+		} else {
+			w.noteTypeUsesIn(valueNode)
+		}
+		w.popOwner()
 	}
 }
 
@@ -1210,8 +1241,12 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "property_declaration" && w.localTypes != nil {
 		w.bindLocal(node)
 	}
-	if kind == "navigation_expression" {
+	switch kind {
+	case "navigation_expression":
 		w.noteMetatype(node)
+		w.noteStaticPath(node)
+	case "user_type":
+		w.noteTypeUse(node) // typeuses.go
 	}
 	w.noteValueOperands(node)
 
@@ -1303,6 +1338,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				if isCapitalized(name) {
 					if !isSystemType(name) {
 						w.addOwnerEdge(facts.RelInstantiates, name)
+					} else {
+						// `State()`, `Error(code:)`: a project type of a framework
+						// type's name is bound only where the file sees it (typeuses.go).
+						w.addOwnerEdge(facts.RelNames, name)
 					}
 				} else if target := w.resolveCall(name); target != "" {
 					w.addOwnerEdge(facts.RelCalls, target)
@@ -1330,6 +1369,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				w.addOwnerEdge(facts.RelCalls, root)
 				w.recordCallMetrics(root, node)
 				w.noteRootedCall(callee, root, name)
+				w.noteKotlinFacadeCall(callee, root, name)
 				// Type.member(), Outer.Type.member(): a static call on a type binds to
 				// its method.
 				if typ := staticReceiver(callee.ChildByFieldName("target"), w.src); typ != "" {

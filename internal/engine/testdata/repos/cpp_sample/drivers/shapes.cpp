@@ -2,11 +2,11 @@
 //
 // 1. The per-directory symbol name. A definition here is named
 //    "drivers.shapes::Circle::area" while the declaration in include/ is
-//    "include.shapes::Circle::area", so the two halves stay two facts: the specifier
-//    (`virtual`, `override`, `final`) rides on the declaring half and `has_body` on
-//    this one. find_orphans can therefore still list an override's body even though
-//    its declaration is marked. The same-directory pair that DOES collapse into one
-//    symbol is pinned by internal/extractors/cppextractor/qualifiers_test.go.
+//    "include.shapes::Circle::area", so the two halves stay two facts. The specifiers
+//    (`virtual`, `override`, `final`) are written on the declaring half and carried
+//    to this one, whose file includes it, so find_orphans drops the override's body
+//    as well. The same-directory pair that DOES collapse into one symbol is pinned
+//    by internal/extractors/cppextractor/qualifiers_test.go.
 // 2. A call through a base pointer. `shape->draw()` is written on `Shape *` and lands
 //    on the base's own declaration, NOT on Circle::draw — dynamic dispatch is
 //    deliberately not resolved (docs/extraction/cpp.md). What makes that limit

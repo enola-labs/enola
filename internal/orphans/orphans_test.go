@@ -69,6 +69,23 @@ func TestCollectNamedReferencesProtectSymbols(t *testing.T) {
 	}
 }
 
+// A class constructed only outside any symbol, in a view or a file returning an
+// array of objects, is used: the file reference carries the construction.
+func TestFileScopeConstructionIsAUse(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"Acme\\Integration\\CoreSettings","file":"src/Integration/CoreSettings.php","props":{"symbol_kind":"class","language":"php"}}
+{"kind":"symbol","name":"Acme\\Integration\\Unused","file":"src/Integration/Unused.php","props":{"symbol_kind":"class","language":"php"}}
+{"kind":"file_ref","name":"extend.php","file":"extend.php","props":{"language":"php"},"relations":[{"kind":"instantiates","target":"Acme\\Integration\\CoreSettings"}]}
+`)
+	all := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := all[`Acme\Integration\CoreSettings`]; ok {
+		t.Errorf("a class constructed at file scope must not be reported: %+v", o)
+	}
+	if _, ok := all[`Acme\Integration\Unused`]; !ok {
+		t.Errorf("a class nothing constructs must stay reported: %+v", all)
+	}
+}
+
 // A class whose only reference is one of its own methods calling a sibling is
 // dead as a unit. The call target names the class in full, and every symbol is
 // matched by its full name, so the receiver fold must not credit the class with
@@ -99,6 +116,38 @@ func TestSiblingCallDoesNotKeepOwnerAlive(t *testing.T) {
 `)
 	if o, ok := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))["App.Server/Filters.Provider"]; ok {
 		t.Fatalf("a class another type calls through must not be reported: %+v", o)
+	}
+}
+
+// PHP writes a member `Owner::member`. A PHP class whose methods only call each
+// other (`$this->fetch()`, `self::count()`) is dead as a unit.
+func TestSiblingCallThroughDoubleColonDoesNotKeepOwnerAlive(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"App\\Util\\Discover","file":"app/Util/Discover.php","props":{"symbol_kind":"class","language":"php"}}
+{"kind":"symbol","name":"App\\Util\\Discover::discover","file":"app/Util/Discover.php","props":{"symbol_kind":"method","language":"php"},"relations":[{"kind":"calls","target":"App\\Util\\Discover::fetch"}]}
+{"kind":"symbol","name":"App\\Util\\Discover::fetch","file":"app/Util/Discover.php","props":{"symbol_kind":"method","language":"php"}}
+`)
+	all := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := all[`App\Util\Discover`]; !ok || o.Class == classTestOnly {
+		t.Errorf("a class referenced only by its own methods must be dead: %+v", o)
+	}
+	// Only a PHP name reads `::` as the member separator: a Ruby `Shop::Order` is a
+	// class nested in a module, not a member of it.
+	for name, want := range map[string]string{`App\Util\Discover::fetch php`: `App\Util\Discover`,
+		"Shop::Order ruby": "", "Shop::Order.build ruby": "Shop::Order", "Shop::Order#total ruby": "Shop::Order"} {
+		name, lang, _ := strings.Cut(name, " ")
+		if got := memberOwner(name, lang); got != want {
+			t.Errorf("memberOwner(%q) = %q, want %q", name, got, want)
+		}
+	}
+	// Another class calling through it still counts.
+	syms, refs = collectFromJSONL(t, `
+{"kind":"symbol","name":"App\\Util\\Discover","file":"app/Util/Discover.php","props":{"symbol_kind":"class","language":"php"}}
+{"kind":"symbol","name":"App\\Util\\Discover::fetch","file":"app/Util/Discover.php","props":{"symbol_kind":"method","language":"php"}}
+{"kind":"symbol","name":"App\\Jobs\\Sync::handle","file":"app/Jobs/Sync.php","props":{"symbol_kind":"method","language":"php"},"relations":[{"kind":"calls","target":"App\\Util\\Discover::fetch"}]}
+`)
+	if o, ok := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))[`App\Util\Discover`]; ok {
+		t.Fatalf("a class another class calls through must not be reported: %+v", o)
 	}
 }
 

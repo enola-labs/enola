@@ -119,6 +119,7 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 
 	// Calls on a receiver of declared type become edges here, now that every type
 	// of the repository is known and the implements targets are canonical.
+	markMyBatisMappers(allFacts)
 	resolveTypedCalls(allFacts, typeIndex)
 
 	// After the targets are canonical: the closure follows calls edges by name. The
@@ -130,6 +131,8 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 	// loaded by name (ExtensionLoader/ServiceLoader) — never called in code — is not
 	// reported as dead code.
 	allFacts = append(allFacts, extractSPIRefs(repoPath, files, typeIndex)...)
+	// Classes XML configuration loads by name (xmltyperefs.go).
+	allFacts = append(allFacts, extractXMLTypeRefs(repoPath, files, typeIndex)...)
 
 	for dir := range modules {
 		props := map[string]any{

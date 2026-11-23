@@ -113,6 +113,34 @@ var swiftProtocolRequirements = map[string]map[string]bool{
 	"HTTPServerRequestHandler": methodSet("handle"),
 }
 
+// swiftAssociatedTypes names, per protocol a Swift repository conforms to but cannot
+// declare, its associated types. A type nested in a conforming type under one of
+// these names witnesses it: the protocol's users name it through the conformance
+// (`S.Element`, `Publisher.Failure`, `StoreOf<R>` is `Store<R.State, R.Action>`),
+// so nothing names it directly. The Composable Architecture's @Reducer macro adds
+// the Reducer conformance the extractor records.
+var swiftAssociatedTypes = map[string]map[string]bool{
+	"Sequence":                   methodSet("Element", "Iterator"),
+	"AsyncSequence":              methodSet("Element", "AsyncIterator", "Failure"),
+	"IteratorProtocol":           methodSet("Element"),
+	"AsyncIteratorProtocol":      methodSet("Element", "Failure"),
+	"Collection":                 methodSet("Element", "Index", "Indices", "Iterator", "SubSequence"),
+	"BidirectionalCollection":    methodSet("Element", "Index", "Indices", "Iterator", "SubSequence"),
+	"RandomAccessCollection":     methodSet("Element", "Index", "Indices", "Iterator", "SubSequence"),
+	"MutableCollection":          methodSet("Element", "Index", "Indices", "Iterator", "SubSequence"),
+	"RangeReplaceableCollection": methodSet("Element", "Index", "Indices", "Iterator", "SubSequence"),
+	"Publisher":                  methodSet("Output", "Failure"),
+	"Subscriber":                 methodSet("Input", "Failure"),
+	"View":                       methodSet("Body"),
+	"ViewModifier":               methodSet("Body"),
+	"Scene":                      methodSet("Body"),
+	"App":                        methodSet("Body"),
+	"ParseStrategy":              methodSet("ParseInput", "ParseOutput"),
+	"FormatStyle":                methodSet("FormatInput", "FormatOutput"),
+	"ParseableFormatStyle":       methodSet("FormatInput", "FormatOutput", "Strategy"),
+	"Reducer":                    methodSet("State", "Action"),
+}
+
 // swiftDelegateInherits adds the stems of the delegate protocols a protocol
 // refines: a table view's delegate is its scroll view's delegate, and a window
 // scene's delegate is a scene's.
@@ -169,11 +197,21 @@ func swiftWitnesses(symbols []facts.Fact) (witnesses, entered map[string]bool) {
 		if f.PropString(propLanguage) != "swift" {
 			continue
 		}
-		switch f.PropString(propSymbolKind) {
-		case facts.SymbolClass, facts.SymbolStruct:
-			for _, p := range conforms[[2]string{f.Repo, swiftTypePath(f)}] {
-				if swiftPreviewProtocols[p] && !declared[p] {
+		switch kind := f.PropString(propSymbolKind); kind {
+		case facts.SymbolClass, facts.SymbolStruct, facts.SymbolType:
+			path := swiftTypePath(f)
+			for _, p := range conforms[[2]string{f.Repo, path}] {
+				if kind != facts.SymbolType && swiftPreviewProtocols[p] && !declared[p] {
 					entered[f.Name] = true
+				}
+			}
+			if dot := strings.LastIndexByte(path, '.'); dot > 0 {
+				name := path[dot+1:]
+				for _, p := range conforms[[2]string{f.Repo, path[:dot]}] {
+					if !declared[p] && swiftAssociatedTypes[p][name] {
+						witnesses[f.Name] = true
+						break
+					}
 				}
 			}
 		case facts.SymbolMethod:

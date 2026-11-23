@@ -205,10 +205,19 @@ type symInput struct {
 	// own members, as invoked by a framework (a routed action, a job, a registry
 	// contract, …). Its callers are the framework, so no reference is expected.
 	FrameworkRoot bool
+	// MainHolder: a Java class declaring a static main, which the launcher runs
+	// by naming the class on its command line or in a manifest.
+	MainHolder bool
 	// Published: the symbol's module, or one above it, ships as a package
 	// (facts.PropPublished). Its exported surface is written for callers outside
 	// the repository, so tests may be its only in-repo callers by design.
 	Published bool
+	// QualifiedOnly: a Swift type nested in another type. Swift names it by its
+	// bare name only inside its outer type, and the extractor binds every such use
+	// to the full name, so only a reference to the full name is a use of it; its
+	// last segment alone would credit every same-named nested type (each Codable
+	// type's CodingKeys, each feature's State).
+	QualifiedOnly bool
 }
 
 // Orphan is a single reported orphan symbol.
@@ -356,6 +365,9 @@ func bareName(name string) string { return lastSeg(name) }
 // collect records under the full name only (isForeignGoType cannot tell the
 // module's own import path from another module's).
 func refCandidates(sym symInput) []string {
+	if sym.QualifiedOnly {
+		return []string{sym.Name}
+	}
 	if sym.Kind != facts.SymbolFunc || !strings.HasSuffix(sym.File, ".go") {
 		out := candidateNames(sym.Name, sym.Kind)
 		if !slices.Contains(out, sym.Name) {
@@ -746,7 +758,7 @@ func isExcluded(sym symInput, opts options) bool {
 		}
 	}
 	if !opts.IncludeEntrypoints {
-		if bn == "main" || bn == "init" {
+		if bn == "main" || bn == "init" || sym.MainHolder {
 			return true
 		}
 		// Framework/DI entry points (Kotlin `override` callbacks — Android lifecycle,
@@ -1160,6 +1172,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	order := make([]string, 0, len(symbols))
 	refSources := make(refIndex)
 	rootedOwners := map[string]bool{}
+	mainOwners := map[string]bool{}
 	// A Go repository's module path, from its root package, so a symbol can be matched
 	// under the import path another repository's code uses for it.
 	modulePaths := map[string]string{}
@@ -1170,6 +1183,8 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			}
 		}
 	}
+
+	swiftNested := swiftNestedTypes(symbols)
 
 	// recordRefs records what symbol f uses, as candidate si's outgoing use when f is
 	// one (si is nil for a symbol that is never a candidate).
@@ -1187,7 +1202,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 				}
 				// A member naming its own type (`CreateLogger<Self>()`,
 				// `typeof(Self)`) is internal use, like a sibling call below.
-				if r.Kind == facts.RelNames && memberOwner(f.Name) == r.Target {
+				if r.Kind == facts.RelNames && memberOwner(f.Name, f.PropString(propLanguage)) == r.Target {
 					continue
 				}
 				add(r.Target, f.Name)
@@ -1197,7 +1212,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 				if r.Kind == facts.RelInstantiates && strings.HasSuffix(f.File, ".go") && isForeignGoType(r.Target) {
 					continue
 				}
-				if seg := lastSeg(r.Target); seg != r.Target {
+				// A Swift nested type named in full is that type, not every type of
+				// its last name.
+				if seg := lastSeg(r.Target); seg != r.Target && !swiftNested[r.Target] {
 					add(seg, f.Name)
 				}
 				if q := pkgQualified(r.Target); q != r.Target {
@@ -1211,7 +1228,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 					// the rule foldMemberUseIntoOwner applies. Recorded, the type's
 					// full name would count as referenced by its own method, since
 					// refSummary only discounts a source equal to the name itself.
-					if memberOwner(f.Name) == recv {
+					if memberOwner(f.Name, f.PropString(propLanguage)) == recv {
 						continue
 					}
 					add(recv, f.Name)
@@ -1297,7 +1314,10 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 		if f.PropString(facts.PropFrameworkRoot) != "" {
 			si.FrameworkRoot = true
-			rootedOwners[memberOwner(f.Name)] = true
+			rootedOwners[memberOwner(f.Name, f.PropString(propLanguage))] = true
+		}
+		if f.PropString(propLanguage) == "java" && bareName(f.Name) == "main" && f.PropBool("static") {
+			mainOwners[ownerOf(f.Name)] = true
 		}
 		recordRefs(f, si)
 	}
@@ -1306,6 +1326,13 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	for owner := range rootedOwners {
 		if si := byName[owner]; si != nil {
 			si.FrameworkRoot = true
+		}
+	}
+
+	// A class whose static main the launcher runs is entered as its main is.
+	for owner := range mainOwners {
+		if si := byName[owner]; si != nil {
+			si.MainHolder = true
 		}
 	}
 
@@ -1353,6 +1380,11 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 	}
 
+	for name := range swiftNested {
+		if si := byName[name]; si != nil {
+			si.QualifiedOnly = true
+		}
+	}
 	syms := make([]symInput, 0, len(order))
 	for _, name := range order {
 		syms = append(syms, *byName[name])
@@ -1451,10 +1483,13 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// Always production use, even under a test-looking path: a fixtures tree holds
 	// seed data the application loads as often as test data, and calling a symbol
 	// test-only on that evidence would invent a finding.
+	//
+	// A construction there (`new X()` in a view or a bootstrap file's returned array)
+	// uses the class as a call uses a function.
 	for f := range store.OfKind(facts.KindFileRef) {
 		add := refSources.add
 		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
+			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames && r.Kind != facts.RelInstantiates {
 				continue
 			}
 			add(r.Target, f.Name)
@@ -1514,6 +1549,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// the member would make every type its own referent and no type could ever be
 	// dead.
 	creditScopes(laravelScopes, refSources)
+	creditCppLifecycle(symbols, refSources)
 	foldMemberUseIntoOwner(order, byName, refSources)
 
 	// Python __init__.py re-exports (`from .x import Y`) surface Y as part of the
@@ -1912,7 +1948,11 @@ func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSour
 		if !ok || !isOwnerTypeKind(o.Kind) {
 			continue
 		}
-		for _, cand := range candidateNames(m.Name, m.Kind) {
+		cands := candidateNames(m.Name, m.Kind)
+		if m.QualifiedOnly {
+			cands = []string{m.Name}
+		}
+		for _, cand := range cands {
 			// Production use of a member is production use of the type, and test use
 			// is test use: a type whose members only specs call is test-only too.
 			for _, side := range []struct {
@@ -1942,10 +1982,17 @@ func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSour
 
 // ownerOf returns a symbol's declaring type, or "" when it has none.
 // memberOwner returns the type a member name belongs to, reading a Ruby instance
-// member (`Owner#name`) as well as the dotted form ownerOf reads.
-func memberOwner(name string) string {
+// member (`Owner#name`) and a PHP member (`Ns\\Owner::name`) as well as the dotted
+// form ownerOf reads. Only PHP: elsewhere `::` also joins a namespace and the type
+// nested in it (Ruby's `Shop::Order`), which is not a member of its namespace.
+func memberOwner(name, language string) string {
 	if hash := strings.LastIndex(name, "#"); hash > 0 {
 		return name[:hash]
+	}
+	if language == "php" {
+		if col := strings.LastIndex(name, "::"); col > 0 {
+			return name[:col]
+		}
 	}
 	return ownerOf(name)
 }
@@ -1955,6 +2002,28 @@ func ownerOf(name string) string {
 		return name[:dot]
 	}
 	return ""
+}
+
+// swiftNestedTypes returns the Swift types declared inside another type of the
+// snapshot (QualifiedOnly).
+func swiftNestedTypes(symbols []facts.Fact) map[string]bool {
+	types := map[string]bool{}
+	for i := range symbols {
+		if isOwnerTypeKind(symbols[i].PropString(propSymbolKind)) {
+			types[symbols[i].Name] = true
+		}
+	}
+	nested := map[string]bool{}
+	for i := range symbols {
+		f := &symbols[i]
+		if f.PropString(propLanguage) != "swift" || !types[f.Name] {
+			continue
+		}
+		if dot := strings.LastIndex(f.Name, "."); dot > 0 && types[f.Name[:dot]] {
+			nested[f.Name] = true
+		}
+	}
+	return nested
 }
 
 // isOwnerTypeKind reports whether a kind can OWN members whose use implies its

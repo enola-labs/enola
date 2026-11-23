@@ -172,6 +172,7 @@ func (w *astWalker) emitRecoveredClass(at *sitter.Node, keyword, name, modifiers
 	case "annotation":
 		f.SetProp("annotation_class", true)
 	}
+	w.addDIContainerProps(&f, annotations)
 	if w.isAndroid {
 		addAndroidProps(&f, name, annotations, "")
 	}
@@ -185,7 +186,7 @@ func (w *astWalker) emitRecoveredClass(at *sitter.Node, keyword, name, modifiers
 		into := w.memberTypes[len(w.memberTypes)-1]
 		for i := uint(0); i < body.NamedChildCount(); i++ {
 			if m := body.NamedChild(i); kindOf(m) == "property_declaration" {
-				w.bindProperty(into, m)
+				w.bindProperty(into, w.memberExt[len(w.memberExt)-1], m)
 			}
 		}
 		w.walkForCalls(body)

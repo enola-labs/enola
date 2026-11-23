@@ -3953,7 +3953,72 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v710: Java: a MyBatis mapper interface (MyBatis's own @Mapper, or an interface
+// in a package a @MapperScan names, recursively) is an io_type and its abstract
+// methods are io_direct, so a mapper call in a loop is a query in a loop.
+// MapStruct's @Mapper, told apart by its import, stays a plain interface.
+// v710: Java: @SpringBootApplication and @AutoConfiguration classes are Spring
+// configuration and @ControllerAdvice/@RestControllerAdvice classes a Spring
+// component; a @Bean method of a class Spring scans is a di_provider, and an
+// @ExceptionHandler of a controller or advice and the advice and pointcut methods
+// of an @Aspect are framework_registered.
+// v710: Java: an XML resource under src/main/resources that names a repository
+// type by its fully-qualified name in a type, resultType, parameterType or ofType
+// attribute (MyBatis mappers, MyBatis Generator plugins) is a KindFileRef naming
+// that type. Short names (type aliases) bind nothing.
+// v711: Kotlin: a Ktor module named in ktor.application.modules of a production
+// source set's application.conf or application.yaml is referenced by that file (a
+// file_ref with calls edges), through its file facade class or declaring class.
+// v711: Kotlin Multiplatform: a top-level function of an Apple source set in a
+// Gradle module building a framework carries kmp_framework and kotlin_facade; a
+// Swift static call on a receiver named like a facade (`Main_iosKt.f()`) is listed
+// in kotlin_facade_calls, and the kmp-swift binder binds it through the framework
+// the Swift file imports.
+// v711: Kotlin: an operator (`a - b`, `a[i]`, `x in a`, `a += b`, `-a`, `a < b`,
+// `a..b`) on an operand of declared type calls the `operator fun` its convention
+// names, declared by the type, a supertype, or an extension on it the file sees; a
+// library type is matched by its qualified import.
+// v711: Kotlin: a Metro @BindingContainer is a di_module, and a Metro or Anvil
+// @ContributesTo container is framework_registered, on every platform; the
+// annotations count only when imported from the framework.
+// v712: an unqualified C++ call binds as C++ unqualified lookup does: to the
+// function an enclosing namespace of the caller declares, innermost first, among
+// the declarations the caller's file may include; a member function's own class or
+// a base declaring the name keeps the call. A same-named function in a directory
+// the file cannot include no longer leaves the call unbound.
+// v712: a name passed as a C++ call argument is no function value when the
+// enclosing function declares it as a parameter or local, and a bare name bound by
+// its unique short name binds only to a free function or a member of the caller's
+// own class, never to another class's method; a qualified name in a file-scope
+// initializer (`= Type::Make(4)`) is resolved as that qualified name.
+// v712: a C++ member defined out of line in another directory than its class
+// takes `override`, `final` and `virtual` from the in-class declaration its
+// directory's includes reach (a class declared under include/ and defined under
+// src/).
+// v713: Swift: a file that does not parse is parsed again with the `sending` type
+// specifier, the `consume` and `copy` operators and the freestanding macros of a type
+// body blanked out (bytes and lines kept), so a class using them keeps its symbol and
+// the declarations in a macro's trailing closure read as members of the type.
+// v713: Swift: a type written anywhere is a use of it (a names edge): parameter,
+// return, property and local types, enum associated values, generic and associatedtype
+// constraints, closure parameters, cast targets, protocol compositions, a typealias's
+// closure type, and the type path of a static read or of a nested type built through
+// its owner. The name binds as Swift looks it up: nested in an enclosing type first,
+// else top-level in the module the file sees; a generic parameter binds to nothing.
+// A CodingKeys enum of a Codable type is framework_registered. A constructor's type
+// binds the same way (a nested type first); a @Reducer type implements Reducer.
+// v713: Swift: exported follows access control. Only a public or open declaration,
+// in types that are public or open themselves, is exported; internal (the default),
+// package, fileprivate and private are not. A member stating no access in a public
+// extension is public.
+// v714: PHP: a Laravel route path or group prefix computed at runtime
+// (`config('horizon.path')`, an interpolated string) marks the route path_partial
+// instead of reading as the root path.
+// v715: PHP: the code of a file outside any declaration records on the file's
+// reference fact what it constructs (`new X`), calls statically or as a function,
+// and names; a method called on an object of unknown type there is not recorded,
+// and a function call only when the repository declares the function.
+const cacheVersion = "v715"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
