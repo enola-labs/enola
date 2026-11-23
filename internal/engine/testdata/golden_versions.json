@@ -1,5 +1,5 @@
 {
-  "cache_version": "v708",
+  "cache_version": "v709",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -183,11 +183,11 @@
     },
     "ts_ember_sample": {
       "input": "7782a0110102c070a2b05cffef18d5a06f5c29faa2a99cbe3b49c4311f30f826",
-      "facts": "2ac749f8b7c5c2763723e20ddab22f1ede2a1e3a02f3846cc0b8f92beff60461"
+      "facts": "ef27bfb5e4a85e4df587cca2d26777754b73203498791bf984306b3c34a683ce"
     },
     "ts_express_multirepo": {
       "input": "92e40a075e8e1ede4aea6ca042457bec818bff4b931fb64069edfcc78521c918",
-      "facts": "3c4d4895c5bac43c0c1c098397c31392ffccb1bac409888faed5c79bc5b95604"
+      "facts": "caf44d55fe884519c875e93b212f1393b5390b1ab33a99f55c4408c12b581a1d"
     },
     "ts_layers_sample": {
       "input": "08c12c330a827bcaf84da755cb01026b46d835fc4e8c63d11db1195a78c80e6c",
@@ -211,7 +211,7 @@
     },
     "ts_test_exercises_sample": {
       "input": "1e8056ba2519558553817df2e7202565d3688a6a2c77cd3008f82139e865da8e",
-      "facts": "d6fed17aae7cebcfb6b3552b10cc05c00cac0c3e77c50cb5bf9cc807fa994087"
+      "facts": "f28837326ce9e563bffbe13948d5ac0512f840fdec2bbb3388386868a63366f7"
     }
   }
 }
