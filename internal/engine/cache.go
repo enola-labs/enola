@@ -4014,7 +4014,11 @@ import (
 // v714: PHP: a Laravel route path or group prefix computed at runtime
 // (`config('horizon.path')`, an interpolated string) marks the route path_partial
 // instead of reading as the root path.
-const cacheVersion = "v714"
+// v715: PHP: the code of a file outside any declaration records on the file's
+// reference fact what it constructs (`new X`), calls statically or as a function,
+// and names; a method called on an object of unknown type there is not recorded,
+// and a function call only when the repository declares the function.
+const cacheVersion = "v715"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
