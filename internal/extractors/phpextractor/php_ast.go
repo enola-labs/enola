@@ -537,6 +537,7 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 				w.recordCallMetrics(target)
 			}
 			w.recordIODirect(phpText(method, w.src), phpIOMethods)
+			w.recordEagerLoads(node, ownerIdx, phpText(method, w.src), w.scopeRef(scope))
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
 		return
@@ -549,6 +550,8 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 			target := phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)
 			w.recordEloquentRelation(node, ownerIdx, target)
+			w.recordRelationMethod(node, ownerIdx, target)
+			w.recordEagerLoads(node, ownerIdx, target, w.plainReceiver(node.ChildByFieldName("object")))
 			w.recordReceiverCall(node, ownerIdx, target)
 			// The edge is the bare method name, because the receiver's type is
 			// unknown. Only `$this->m()` is known to be this class's m: a
@@ -566,6 +569,9 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
 		return
+	case "member_access_expression", "nullsafe_member_access_expression":
+		// A relation read as a property runs its method (relationreads.go).
+		w.recordPropertyRead(node, ownerIdx)
 	case "class_constant_access_expression", "scoped_property_access_expression":
 		// A class naming its own constant is not a use of the class.
 		if class := w.namedClass(node); class != "" && ownerIdx >= 0 && !w.isEnclosingType(class) {

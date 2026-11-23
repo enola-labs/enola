@@ -3887,7 +3887,11 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v704: PHP: an Eloquent relation method (one returning `$this->hasMany(...)`,
+// morphTo included) read as a property (`$status->mentions`) or named in an eager
+// load or relation query (`with('a.b')`, `whereHas`, `withCount('c as n')`) is a
+// calls edge: to the relation of a receiver of declared type, else by bare name.
+const cacheVersion = "v704"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
