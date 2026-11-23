@@ -3935,7 +3935,10 @@ import (
 // v707: Swift: a #selector names a method the Objective-C runtime will send a
 // message to, recorded as a method value is (a calls edge in value_refs); an
 // @IBAction, @IBSegueAction or @objc(name:) method is framework_registered.
-const cacheVersion = "v707"
+// v709: Swift: a type carrying @main is framework_registered on every platform (an
+// executable target, a command line tool, a compiler plugin), not only a SwiftUI
+// App in an iOS target.
+const cacheVersion = "v709"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

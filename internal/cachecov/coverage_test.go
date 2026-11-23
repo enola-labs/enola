@@ -307,6 +307,7 @@ var versionCoverage = map[int][]string{
 	706: {"TestSwiftExtensionInitSubscriptAndDeinitRecordCalls", "TestSwiftExtensionInitBindsMemberCallsByStatedTypeOnly", "TestSwiftTypeNameResolvesToTheVisibleModule"},
 	706: {"TestSwiftBacktickEscapedNamesBind"},
 	707: {"TestSelectorRecordsUse", "TestObjCRuntimeEntryAttributes"},
+	709: {"TestMainAttributeMarksAnyTypeAsEntered"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
