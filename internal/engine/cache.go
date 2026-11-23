@@ -3876,7 +3876,13 @@ import (
 // or set( call that cannot be an accessor (a route after a local property) and with
 // the `field` keyword of a Kotlin 2 explicit backing field blanked, so the enclosing
 // function or class is no longer lost to an ERROR node.
-const cacheVersion = "v701"
+// v702: Swift: a function or method handed over by name rather than called (an
+// argument, a dictionary or array value, the right side of a let or an assignment, a
+// custom operator's operand, a returned value; `self.m`, `Type.m` and a typed
+// receiver's `v.m`) is a calls edge, listed in value_refs and not followed by the
+// performs_io closure. A name bound in the enclosing declaration, a reachable
+// property's name, a supertype's method and a Cocoa delegate callback stay unbound.
+const cacheVersion = "v702"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

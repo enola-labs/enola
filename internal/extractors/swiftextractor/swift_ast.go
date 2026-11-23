@@ -64,6 +64,9 @@ type astWalker struct {
 	// localTypes holds the stated types of the current function's parameters and
 	// locals (receivers.go); nil outside a function body.
 	localTypes map[string]string
+	// boundNames caches, per enclosing declaration (by byte range), the names it
+	// binds (funcvalues.go).
+	boundNames map[[2]uint]map[string]bool
 
 	// Per-function complexity state, set up by handleFunction around walkForCalls.
 	// metrics is nil outside a function body walk. loopDepth is the current loop
@@ -612,7 +615,12 @@ func (w *astWalker) walkFileScopeCalls(root *sitter.Node) {
 
 	// Drop the file-ref fact if none of the statements produced a call edge or a
 	// rooted call for resolveRootedCalls (which drops it if that comes to nothing).
+	// One that holds only functions handed over waits for resolveValueRefs.
 	if f := &w.out[w.fileRefIdx]; len(f.Relations) == 0 && f.PropAny(propRootedCalls) == nil {
+		if f.PropAny(propValueNotes) != nil {
+			f.SetProp(propDropUnlessValues, true)
+			return
+		}
 		w.out = append(w.out[:w.fileRefIdx], w.out[w.fileRefIdx+1:]...)
 		w.fileRefIdx = -1
 	}
@@ -943,6 +951,9 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	if strings.Contains(header, "nonisolated") {
 		f.SetProp("nonisolated", true)
 	}
+	if enclosing != "" && isDelegateCallback(node, name, w.src) {
+		f.SetProp(propDelegateCallback, true)
+	}
 	if strings.Contains(header, "@MainActor") || containsAnnotation(attrs, "MainActor") {
 		f.SetProp("main_actor", true)
 	}
@@ -1180,6 +1191,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "navigation_expression" {
 		w.noteMetatype(node)
 	}
+	w.noteValueOperands(node)
 
 	// A closure is a deferred scope: its body runs when the closure is called, NOT
 	// per-iteration of the enclosing loops — so reset the loop depth for its
