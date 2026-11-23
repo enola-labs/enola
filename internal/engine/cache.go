@@ -4032,6 +4032,12 @@ import (
 // as test refs in the production extraction (CppExtractor.ExtractWithTests): the
 // test files resolve against the production files' pass-one facts, as when they
 // were indexed with them, and the production facts resolve without the tests.
+// v718: Swift: a static path through a lower-case nested namespace
+// (`Config.lens.features`) names it where that type is declared; a conformance
+// written through its owner (`: Dashboard.Model`) names the nested protocol; a name
+// led by an underscore (`_CodingKey`) is a type name; a conformance to a protocol
+// the repository declares names the nested types witnessing its associated types,
+// which a protocol now lists in associated_types.
 const cacheVersion = "v724"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
