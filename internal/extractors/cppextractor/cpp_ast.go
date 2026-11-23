@@ -962,6 +962,8 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	}
 	if receiver != "" {
 		f.SetProp("receiver", receiver)
+	} else if w.isMacroWrittenDefinition(node, nameNode) {
+		f.SetProp(facts.PropFrameworkRoot, rootMacro)
 	}
 	w.applyFuncQualifiers(&f, node, fdecl)
 	if t := returnTypeName(node, w.src); t != "" {

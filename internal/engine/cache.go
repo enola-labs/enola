@@ -4018,7 +4018,10 @@ import (
 // reference fact what it constructs (`new X`), calls statically or as a function,
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
-const cacheVersion = "v715"
+// v717: C++: a definition with no return type whose name is a macro the repository
+// defines (`EXT_ENTRY(name, loader) { … }`) is an entry point (root=macro): the
+// function it makes is named by token pasting and found by symbol lookup.
+const cacheVersion = "v717"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
