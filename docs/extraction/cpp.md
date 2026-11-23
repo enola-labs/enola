@@ -119,15 +119,13 @@ A `for` is constant-bounded only when it both starts and stops at a constant. `f
 Namespaces, templates and class methods are extracted, with header and source methods
 merged into one symbol as above — and as above, that means a pair in the *same*
 directory. A symbol name carries its directory, so the usual C++ split (declaration in
-`include/`, definition in `src/`) stays two symbols: the marked declaration and the
-unmarked body. `find_orphans` then drops the declaration from the dead-code report and
-still lists the definition, at `confidence=low` — the override is findable by its props,
-but the pair was never one symbol, so the report is not fully cleaned up. The fixture
-below is split this way on purpose; a same-directory pair, which does merge, is pinned
-by `qualifiers_test.go`. How often it matters follows from the layout, not the
-extractor: in a 3,274-file engine tree where every header sits beside its `.cpp`, all
-87 marked overrides merged and the split cost nothing; in an `include/` + `src/` tree it
-costs one row per override.
+`include/`, definition in `src/`) stays two symbols: the declaration and the body. The
+body takes the declaration's `virtual`, `override` and `final` when its directory's
+includes reach the declaring header and both carry the same qualified name, so
+`find_orphans` drops both halves of an override. A same-named class in a directory the
+definition cannot include gives it nothing. The fixture below is split this way on
+purpose; a same-directory pair, which merges into one symbol, is pinned by
+`qualifiers_test.go`.
 
 The virtual specifiers are read from the AST, not from the declaration's text:
 `virtual` and `static` are children of the declaration, `override` and `final` hang off

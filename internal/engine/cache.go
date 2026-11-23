@@ -3991,6 +3991,10 @@ import (
 // its unique short name binds only to a free function or a member of the caller's
 // own class, never to another class's method; a qualified name in a file-scope
 // initializer (`= Type::Make(4)`) is resolved as that qualified name.
+// v712: a C++ member defined out of line in another directory than its class
+// takes `override`, `final` and `virtual` from the in-class declaration its
+// directory's includes reach (a class declared under include/ and defined under
+// src/).
 const cacheVersion = "v712"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
