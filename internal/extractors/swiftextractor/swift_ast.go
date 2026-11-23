@@ -951,6 +951,9 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	if strings.Contains(header, "nonisolated") {
 		f.SetProp("nonisolated", true)
 	}
+	if isObjCRuntimeEntry(modifiers, w.src) {
+		f.SetProp("framework_registered", true) // objcroots.go
+	}
 	if enclosing != "" && isDelegateCallback(node, name, w.src) {
 		f.SetProp(propDelegateCallback, true)
 	}

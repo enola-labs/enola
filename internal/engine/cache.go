@@ -3887,7 +3887,10 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v707: Swift: a #selector names a method the Objective-C runtime will send a
+// message to, recorded as a method value is (a calls edge in value_refs); an
+// @IBAction, @IBSegueAction or @objc(name:) method is framework_registered.
+const cacheVersion = "v707"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
