@@ -304,6 +304,7 @@ var versionCoverage = map[int][]string{
 	705: {"TestLaravelMixAliases"},
 	705: {"TestFileScopeValues_WrapperBody", "TestFileScopeValues_TopLevelStatements", "TestFileScopeValues_ImportsStayCalls", "TestFileScopeValues_TypeDeclarationsAreNotCode"},
 	706: {"TestSwiftCallUnderAnOperatorIsACall", "TestSwiftImplicitMemberCallIsAUse"},
+	706: {"TestSwiftExtensionInitSubscriptAndDeinitRecordCalls", "TestSwiftExtensionInitBindsMemberCallsByStatedTypeOnly", "TestSwiftTypeNameResolvesToTheVisibleModule"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -3921,6 +3921,14 @@ import (
 // type its context states (a declared result or Self, an annotation, self, a
 // property's or a labelled parameter's type) whose labels fit the call; never by
 // name alone, and never to the factory it is written in.
+// v706: Swift: an init declared in an extension is a method of its own, Base.init
+// (an entry point by name, and no candidate for any call), that owns the calls and
+// types its body names; before, they were dropped for want of an owner. A subscript's
+// and a deinit's body call in the name of the type declaring them. In those bodies a
+// member call binds only through a receiver type the source states, and a type
+// written qualified names nothing. A bare type name means the type the file sees:
+// its own module's, else the one top-level type of the name in a module it imports
+// (directly first, then through re-exports), never one in a target it does not reach.
 const cacheVersion = "v706"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

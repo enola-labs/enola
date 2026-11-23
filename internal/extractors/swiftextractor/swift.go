@@ -210,7 +210,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 
 	// Canonicalise bare edge targets to "<dir>.<Type>" so reverse traversal
 	// (impact_analysis) connects dependents to their targets.
-	canonicalizeTargets(allFacts, index)
+	canonicalizeTargets(allFacts, index, newSwiftTypeVisibility(allFacts, resolver.targetIdentity, moduleForFile))
 
 	// Bind the walker's tentative bare-short-name member-call edges to concrete
 	// project methods (or drop stdlib/framework calls). Runs after
@@ -362,12 +362,12 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 // file sees (production files see production declarations only). Targets that
 // already contain "." (resolved methods/functions) or that name an unknown
 // (external) type are left unchanged.
-func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes) {
+func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes, vis *swiftTypeVisibility) {
 	for i := range allFacts {
 		if len(allFacts[i].Relations) == 0 {
 			continue
 		}
-		typeIndex := index.forFile(allFacts[i].File).types
+		typeDirs := index.forFile(allFacts[i].File).typeDirs
 		rels := allFacts[i].Relations[:0]
 		for _, r := range allFacts[i].Relations {
 			switch r.Kind {
@@ -375,7 +375,8 @@ func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes) {
 				if strings.Contains(r.Target, ".") {
 					break
 				}
-				if dir, ok := typeIndex[r.Target]; ok {
+				// The type of that name the file sees (typevisibility.go).
+				if dir := vis.resolve(&allFacts[i], typeDirs[r.Target]); dir != "" {
 					r.Target = dir + "." + r.Target
 				} else if r.Kind == facts.RelNames {
 					continue // a metatype of a type the project does not declare
@@ -932,7 +933,7 @@ func newSwiftHierarchy(allFacts []facts.Fact, prodOnly bool) *swiftHierarchy {
 			}
 		case facts.SymbolMethod:
 			recv, _ := f.PropAny("receiver").(string)
-			if recv == "" {
+			if recv == "" || lastDotComponent(f.Name) == "init" { // an extension's init (memberbodies.go)
 				continue
 			}
 			t := lastDotComponent(recv)

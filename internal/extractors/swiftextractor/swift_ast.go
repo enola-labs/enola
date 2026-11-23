@@ -42,6 +42,10 @@ type astWalker struct {
 	dir     string
 	isiOS   bool
 
+	// typedReceiversOnly is set in a body memberbodies.go walks: a member call
+	// there binds through its receiver's stated type alone, never by bare name.
+	typedReceiversOnly bool
+
 	// out is the accumulating fact list.
 	out []facts.Fact
 
@@ -878,6 +882,8 @@ func (w *astWalker) walkTypeBody(body *sitter.Node, iosComponent string) {
 			w.handlePropertyInjection(c, iosComponent)
 		case "init_declaration":
 			w.handleInit(c)
+		case "subscript_declaration", "deinit_declaration":
+			w.handleMemberBody(c)
 		case "class_declaration":
 			w.handleClassDeclaration(c)
 		case "protocol_declaration":
@@ -1119,12 +1125,18 @@ func (w *astWalker) handlePropertyInjection(node *sitter.Node, iosComponent stri
 // RelInjects edge on the enclosing type (Swift constructor injection needs no
 // annotation), and the body is walked for construction calls.
 func (w *astWalker) handleInit(node *sitter.Node) {
+	if restore := w.pushExtensionInit(node); restore != nil {
+		defer restore()
+	}
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
 		if kindOf(c) != "parameter" {
 			continue
 		}
 		typeName := simpleTypeName(parameterTypeNode(c), w.src)
+		if w.typedReceiversOnly && isQualifiedType(parameterTypeNode(c), w.src) {
+			continue
+		}
 		if typeName != "" && !isSystemType(typeName) && isTypeName(typeName) {
 			w.addOwnerEdge(facts.RelInjects, typeName)
 		}
@@ -1324,7 +1336,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// rooted call.
 				if isCapitalized(root) {
 					w.noteRootedCall(callee, root, name)
-				} else {
+				} else if !w.typedReceiversOnly {
 					w.addTentativeMethodCall(name)
 				}
 				w.noteTypedCall(w.receiverType(callee), name)
