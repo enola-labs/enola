@@ -81,7 +81,17 @@ func fileScopeValueRefs(kinds *tsutil.KindTable, root *sitter.Node, ctx *extract
 	if len(ctx.values) == 0 {
 		return nil
 	}
-	w := &tsBodyWalker{callScope: ctx.callScope(kinds, "", nil), seen: map[string]bool{}, locals: map[string]bool{}}
+	// An imported name is already the file's reference wherever it is written
+	// (fileRefs.walk), so only the file's own declarations are read here.
+	own := map[string]string{}
+	for name, target := range ctx.values {
+		if _, imported := ctx.importMap[name]; !imported {
+			own[name] = target
+		}
+	}
+	scopeOf := ctx.callScope(kinds, "", nil)
+	scopeOf.values = own
+	w := &tsBodyWalker{callScope: scopeOf, seen: map[string]bool{}, locals: map[string]bool{}}
 	var expr func(n *sitter.Node)
 	expr = func(n *sitter.Node) {
 		if n == nil {

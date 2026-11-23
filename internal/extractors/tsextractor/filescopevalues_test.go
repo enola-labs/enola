@@ -81,3 +81,18 @@ document.addEventListener('load', init)
 		t.Errorf("a call argument is still referenced: %v", fileRefTargets(ff, "src/top.js"))
 	}
 }
+
+// An imported name is the file's reference wherever it is written already; the
+// file-scope walk adds no second edge to it.
+func TestFileScopeValues_ImportsStayCalls(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/index.js":  "import config from './config'\nwindow.config = config\n",
+		"src/config.js": "export default {}\n",
+	}, false)
+	if names := fileRefNames(ff, "src/index.js"); len(names) != 0 {
+		t.Errorf("an imported value is named twice: %v", names)
+	}
+	if !hasTarget(fileRefTargets(ff, "src/index.js"), "src.config") {
+		t.Errorf("the imported value is no longer referenced: %v", fileRefTargets(ff, "src/index.js"))
+	}
+}
