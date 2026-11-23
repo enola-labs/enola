@@ -763,3 +763,47 @@ func TestExplain_PartialPathsDoNotCompete(t *testing.T) {
 		t.Errorf("two literal paths: want one finding, got %d", len(insights))
 	}
 }
+
+// Two Maven modules each declaring a main are two applications, served apart, and a
+// library module they both import is reached by both. A library module no
+// application imports may be mounted beside anything, so it still competes.
+func TestExplain_JVMBuildModulesWithAMainAreApplications(t *testing.T) {
+	store := facts.NewStore()
+	pkg := func(dir, unit string) facts.Fact {
+		return facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: "shop",
+			Props: map[string]any{"language": "java", "jvm_module": unit, facts.PropModuleRole: facts.ModuleRoleProduction}}
+	}
+	imports := func(from, to string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + to, File: from + "/A.java", Repo: "shop",
+			Props: map[string]any{"language": "java", "source": "internal"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: to}}}
+	}
+	main := func(dir, class string) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: dir + "." + class + ".main", File: dir + "/" + class + ".java", Repo: "shop",
+			Props: map[string]any{"language": "java", "symbol_kind": facts.SymbolMethod, "static": true}}
+	}
+	route := func(path, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, File: file, Line: 1, Repo: "shop",
+			Props: map[string]any{"method": "GET", "language": "java", "framework": "spring"}}
+	}
+	const admin, demo, common, plugin = "admin/src/main/java/shop", "demo/src/main/java/shop/demo",
+		"common/src/main/java/shop/common", "plugin/src/main/java/shop/plugin"
+	store.Add(
+		pkg(admin, "admin"), pkg(demo, "demo"), pkg(common, "common"), pkg(plugin, "plugin"),
+		imports(admin, common), imports(demo, common),
+		main(admin, "AdminApplication"), main(demo, "DemoApplication"),
+		route("/brand/list", admin+"/BrandController.java"), route("/brand/list", demo+"/DemoController.java"),
+		route("/health", admin+"/HealthController.java"), route("/health", common+"/HealthController.java"),
+		route("/status", demo+"/StatusController.java"), route("/status", plugin+"/StatusController.java"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("want one finding, got %+v (%v)", insights, err)
+	}
+	var got []string
+	for _, ev := range insights[0].Evidence {
+		got = append(got, strings.SplitN(ev.Detail, " is registered", 2)[0])
+	}
+	if want := "GET /health,GET /status"; strings.Join(got, ",") != want {
+		t.Errorf("duplicates = %v, want %s", got, want)
+	}
+}
