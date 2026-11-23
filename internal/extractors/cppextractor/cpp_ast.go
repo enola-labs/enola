@@ -192,6 +192,12 @@ type astWalker struct {
 		fdecl, body *sitter.Node
 		locals      map[string]bool
 	}
+	// templateParams holds the enclosing templates' parameter names, and
+	// factoryParams the current function template's own, while returnDepth is
+	// non-zero inside its return statement (construct.go).
+	templateParams                      [][]string
+	pendingFactoryParams, factoryParams []string
+	returnDepth                         int
 }
 
 // cppBodyMetrics accumulates per-function complexity signals during the single
@@ -997,6 +1003,8 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	savedSwallowed, savedClassDepth := w.swallowed, w.localClassDepth
 	w.swallowed, w.localClassDepth = nil, 0
 	savedValueScope := w.valueScope
+	savedFactory, savedReturn := w.factoryParams, w.returnDepth
+	w.factoryParams, w.pendingFactoryParams, w.returnDepth = w.pendingFactoryParams, nil, 0
 	if body := node.ChildByFieldName("body"); body != nil {
 		w.receiverTypes = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
 		w.valueScope.fdecl, w.valueScope.body, w.valueScope.locals = fdecl, body, nil
@@ -1010,6 +1018,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 		w.walkForCalls(body)
 	}
 	w.valueScope = savedValueScope
+	w.factoryParams, w.returnDepth = savedFactory, savedReturn
 	swallowed := w.swallowed
 	w.swallowed, w.localClassDepth = savedSwallowed, savedClassDepth
 	m := w.metrics
@@ -1088,6 +1097,7 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 	}
 
 	// Data member(s): "Foo *a, b;" → one SymbolVariable per declared name.
+	w.emitFieldConstruction(node)
 	constMember := strings.Contains(declTypePrefix(node, w.src), "const")
 	fieldType := w.memberTypeName(node)
 	for i := uint(0); i < node.ChildCount(); i++ {
@@ -1183,7 +1193,14 @@ func (w *astWalker) handleTemplate(node *sitter.Node) {
 		return
 	}
 	before := len(w.out)
+	params := w.templateParamNames(findChildByKind(w.kinds, node, "template_parameter_list"))
+	w.templateParams = append(w.templateParams, params)
+	if kindOf(w.kinds, inner) == "function_definition" {
+		w.pendingFactoryParams = params
+	}
 	w.walkDecl(inner)
+	w.pendingFactoryParams = nil
+	w.templateParams = w.templateParams[:len(w.templateParams)-1]
 	for i := before; i < len(w.out); i++ {
 		if w.out[i].Props != nil {
 			w.out[i].SetProp("templated", true)
@@ -2306,12 +2323,17 @@ func (w *astWalker) walkForCallsAt(nv sitter.Node) {
 	case "declaration":
 		if w.lang == langCpp && w.metrics != nil {
 			w.emitVexingParseRefs(node)
+			w.emitDeclConstructions(node)
 		}
+	case "new_expression":
+		w.emitNewConstruction(node)
 	case "return_statement":
 		// `return Fn<T>;` / `return ns::fn;` hands a function out as a value.
 		if v := firstNamedChild(node); v != nil && w.lang == langCpp {
 			w.emitDeclValueRef(v, false)
 		}
+		w.returnDepth++
+		defer func() { w.returnDepth-- }()
 	case "compound_literal_expression":
 		// An in-body designated initializer — `cfg = (struct regmap_config){ .lock =
 		// fn, ... };` — wires callbacks like a file-scope ops table but inside a
@@ -2353,6 +2375,7 @@ func (w *astWalker) handleCall(node *sitter.Node) {
 
 	callee := node.ChildByFieldName("function")
 	name, kind, root := calleeInfo(w.kinds, callee, w.src)
+	w.handleFactoryCall(callee, name, kind, root)
 	// io_direct: a direct file/socket data-transfer primitive called as a free or
 	// namespaced function (fopen/fread/… , not an obj->method()). Kept deliberately
 	// narrow — console/logging primitives (fprintf/fputs) and the ambiguous socket

@@ -282,6 +282,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	visibility := buildIncludeVisibility(allFacts, headerIndex, headerDirs)
 	carryOverride(allFacts, visibility)
 	resolution := canonicalizeTargets(allFacts, types, indexFunctionNames(allFacts), visibility)
+	resolveConstructions(allFacts, types, visibility)
 	log.Printf("[cpp-extractor] call resolution: total=%d exact=%d type_scoped=%d unique_short=%d qualified_suffix=%d enclosing_scope=%d receiver_resolved=%d receiver_rejected=%d rejected_no_include_path=%d unresolved=%d",
 		resolution.total, resolution.exact, resolution.typeScoped, resolution.uniqueShort, resolution.qualifiedSuffix, resolution.enclosingScope, resolution.receiverResolved, resolution.receiverRejected, resolution.noIncludePath, resolution.unresolved)
 
