@@ -4038,6 +4038,7 @@ import (
 // v720: PHP: a Nextcloud app's appinfo/routes.php entries and #[ApiRoute] and
 // #[FrontpageRoute] action attributes are routes served by their controller action,
 // and appinfo/info.xml names the classes it registers.
+// v721: not used: assigned to a change that did not land; extraction is as at v720.
 // v722: Kotlin: an annotation a test applies is a test reference to its type when
 // the name resolves, through the test file's imports, package or star imports, to a
 // type production code declares; the harness's and libraries' annotations still

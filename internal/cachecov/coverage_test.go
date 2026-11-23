@@ -313,6 +313,7 @@ var versionCoverage = map[int][]string{
 	718: {"TestSwiftStaticPathThroughLowercaseNamespace", "TestSwiftUnderscoreTypeConstructorBindsThroughScope", "TestSwiftQualifiedConformanceNamesNestedProtocol", "TestSwiftProjectAssociatedTypeWitnessIsNamed", "TestGolden"},
 	719: {"TestParameterTypesAreTypeUses", "TestConfigFilesNameTheClassesTheyRegister", "TestGolden"},
 	720: {"TestNextcloudRoutesAreServedByTheirController", "TestNextcloudRouteAttributesAreRoutes", "TestNextcloudInfoXMLNamesTheClassesItRegisters", "TestGolden"},
+	721: {"TestGolden"}, // not used; the goldens pin that extraction is as at v720
 	722: {"TestKotlinTestRefsRecordRepositoryAnnotations", "TestKotlinExtractTestRefsResolvesAnnotationsAgainstProductionSources", "TestGolden"},
 	723: {"TestCppTestGlobsScopeToTestTrees", "TestCppExtractTestRefsEmitsOnlyTestRefFacts", "TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed", "TestCppTestRefsCreditLifecycleAndInheritedMembers", "TestCppTestRefsCreditAProductionHeaderOfTestHelpers", "TestTestAwareExtractorSeesTestsAndKeysTheCacheOnThem", "TestGolden"},
 	724: {"TestCBareNameDoesNotBindAStructMember", "TestCppFreeFunctionBareNameDoesNotBindAMember", "TestCppFreeFunctionBareNameStillConstructs"},
