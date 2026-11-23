@@ -28,6 +28,25 @@ func TestClassifyExcludesDocumentSymbols(t *testing.T) {
 	}
 }
 
+// A Swift conformance extension (`extension Int: Content {}`) is recorded as a
+// `Base+Proto` symbol that no source can spell, so it is never a dead-code
+// candidate, not even under an explicit kind query. The base type is the candidate.
+func TestClassifyExcludesConformanceExtensions(t *testing.T) {
+	syms := []symInput{
+		{Name: "Sources/App.Int+Content", Kind: facts.SymbolExtension, File: "Sources/App/Content.swift", Language: "swift", Exported: true},
+		{Name: "Sources/App.Widget", Kind: facts.SymbolStruct, File: "Sources/App/Widget.swift", Language: "swift", Exported: true},
+	}
+	opts := options{Mode: "both", Visibility: "all"}
+	got := classify(syms, make(refIndex), opts)
+	if len(got) != 1 || got[0].Name != "Sources/App.Widget" || population(syms, opts) != 1 {
+		t.Fatalf("conformance extension counted as a candidate: %+v", got)
+	}
+	opts.Kind = facts.SymbolExtension
+	if n := len(classify(syms, make(refIndex), opts)); n != 0 {
+		t.Errorf("explicit kind=extension query reported %d conformance records as dead code", n)
+	}
+}
+
 func TestCollectNamedReferencesProtectSymbols(t *testing.T) {
 	syms, refs := collectFromJSONL(t, `
 {"kind":"symbol","name":"pkg.callback","file":"pkg/code.py","props":{"symbol_kind":"function"}}

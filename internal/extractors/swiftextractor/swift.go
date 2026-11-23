@@ -226,6 +226,10 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// closure follows the newly-resolved inheritance edges.
 	resolveInheritedCalls(allFacts, &swiftHierarchies{facts: allFacts})
 
+	// Functions and methods handed over by name (funcvalues.go). Runs after every
+	// call is bound, so a value that is also called here adds nothing.
+	allFacts = resolveValueRefs(allFacts, index, &swiftHierarchies{facts: allFacts})
+
 	// Propagate the walk-time io_direct flag up the call graph into a transitive
 	// performs_io prop, so callers of I/O methods are discoverable even when the
 	// call chain runs through ambiguous (kept-bare) member-call edges.
@@ -530,8 +534,9 @@ func computePerformsIO(allFacts []facts.Fact, methodIndex, funcIndex map[string]
 			if b, _ := allFacts[i].PropAny("io_direct").(bool); b {
 				io[name] = true
 			}
+			handedOver := valueRefSet(&allFacts[i])
 			for _, r := range allFacts[i].Relations {
-				if r.Kind != facts.RelCalls {
+				if r.Kind != facts.RelCalls || handedOver[r.Target] {
 					continue
 				}
 				for _, c := range resolveTargets(r.Target) {

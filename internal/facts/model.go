@@ -198,6 +198,11 @@ const (
 	SymbolConstant  = "constant"
 	SymbolEnum      = "enum"
 
+	// SymbolExtension is a Swift conformance declared in an extension
+	// (`extension Int: Content {}`), named `<dir>.<Base>+<Proto>`. It records that
+	// Base implements Proto; no source can name it, so it is never dead code.
+	SymbolExtension = "extension"
+
 	// SymbolDocument and SymbolSection are a Markdown page and one of its headings.
 	SymbolDocument = "document"
 	SymbolSection  = "section"

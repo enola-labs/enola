@@ -3856,7 +3856,38 @@ import (
 // v698: a Python file named *_test.py is test code only inside a test tree, as the
 // default ignore globs already had it. Outside one it is production: its HTTP calls
 // are client routes, and the analyzers rate its symbols like any other module's.
-const cacheVersion = "v698"
+// v699: C++: a bare capitalized callee, Foo(x) or Foo<T>(x), is an instantiation
+// only when a type the caller can see is named Foo. A method of the enclosing class
+// named Foo is a call to it; otherwise a function named Foo is a call (resolved like
+// any bare call, and only to a function or method that is not a constructor), and a
+// method owner notes Foo as a member call. Neither: no edge, as before.
+// v700: Java: a simple type name imported on demand (`import com.acme.mapper.*;`) is
+// looked up as javac does, the file's own package first and then each on-demand
+// package, wherever the walker types a receiver, a `new`, a supertype, an injected
+// type, a field or a return type (javaextractor/typechoice.go). Before, it was read
+// as the own package's, so calls through a field typed by a wildcard import made no
+// edge and `new` of such a type pointed at a type that does not exist.
+// v700: Java: a method's return type and the declared type of a local, an
+// enhanced-for variable and a try-with-resources resource, their type arguments
+// included, are uses of the type, as parameter and field types are since v686
+// (javaextractor/typerefs.go). A result type a service returns and a controller
+// holds in a local no longer reads as dead or test-only.
+// v701: Kotlin: a file that does not parse is parsed again with a `;` before a get(
+// or set( call that cannot be an accessor (a route after a local property) and with
+// the `field` keyword of a Kotlin 2 explicit backing field blanked, so the enclosing
+// function or class is no longer lost to an ERROR node.
+// v702: Swift: a function or method handed over by name rather than called (an
+// argument, a dictionary or array value, the right side of a let or an assignment, a
+// custom operator's operand, a returned value; `self.m`, `Type.m` and a typed
+// receiver's `v.m`) is a calls edge, listed in value_refs and not followed by the
+// performs_io closure. A name bound in the enclosing declaration, a reachable
+// property's name, a supertype's method and a Cocoa delegate callback stay unbound.
+// v703: a PHP anonymous class declared outside a function (a Laravel migration's
+// `return new class extends Migration`) is a class named after its file, and its
+// members are named after it rather than an empty owner; a class's own attributes
+// name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
+// entries of its Fractal include lists (fractal_includes).
+const cacheVersion = "v703"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

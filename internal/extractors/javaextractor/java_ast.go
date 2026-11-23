@@ -944,6 +944,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	defer func() { w.typeParams = w.typeParams[:savedTypeParams] }()
 	w.relateAnnotations(modifiers, ownerIdx)
 	w.relateAnnotations(node.ChildByFieldName("type"), ownerIdx)
+	w.relateTypeUses(node.ChildByFieldName("type"), ownerIdx)
 	w.relateAnnotations(node.ChildByFieldName("parameters"), ownerIdx)
 	w.relateParamTypes(node.ChildByFieldName("parameters"), ownerIdx)
 	savedScope, savedVars := w.scopeNode, w.scopeVars
@@ -1168,6 +1169,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	}
 	kind := kindOf(node)
 	w.noteDeclaration(node, kind)
+	w.relateLocalType(node, kind)
 
 	// A lambda is a deferred scope: its body runs when invoked, NOT per-iteration of
 	// the enclosing loops — so reset the loop depth for its subtree (e.g. a Runnable
@@ -1408,10 +1410,9 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 	}
 }
 
-// targetForType returns a relation target for a `_type` node: the rightmost simple
-// name resolved through the import map to an FQN, a same-package FQN when not
-// imported, or the written FQN when the reference is already qualified. Returns ""
-// for primitive/void/unresolvable types.
+// targetForType returns a relation target for a `_type` node: a simple name
+// resolved by fqnForSimple, or the written FQN when the reference is already
+// qualified. Returns "" for primitive/void/unresolvable types.
 func (w *astWalker) targetForType(typeNode *sitter.Node) string {
 	if typeNode == nil {
 		return ""
@@ -1428,16 +1429,7 @@ func (w *astWalker) targetForType(typeNode *sitter.Node) string {
 		// Already qualified in source — use as written.
 		return full
 	}
-	if fqn, ok := w.importMap[simple]; ok {
-		return fqn
-	}
-	if javaLangTypes[simple] {
-		return ""
-	}
-	if w.pkg != "" {
-		return w.pkg + "." + simple
-	}
-	return simple
+	return w.fqnForSimple(simple)
 }
 
 // supertypeTargets returns canonicalization targets (FQNs) for a type's superclass

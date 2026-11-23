@@ -44,7 +44,7 @@ func (w *phpWalker) namedClasses(node *sitter.Node, skipTypes bool, seen map[str
 	switch kindOf(node) {
 	case "method_declaration", "function_definition":
 		return out
-	case "class_declaration", "interface_declaration", "trait_declaration", "enum_declaration":
+	case "class_declaration", "interface_declaration", "trait_declaration", "enum_declaration", "anonymous_class":
 		if skipTypes {
 			return out
 		}
@@ -60,10 +60,16 @@ func (w *phpWalker) namedClasses(node *sitter.Node, skipTypes bool, seen map[str
 }
 
 // nameClassesInBody records, on a class, the classes its body names outside its
-// methods: a property default, a constant, an attribute.
-func (w *phpWalker) nameClassesInBody(classIdx int, body *sitter.Node) {
-	self := w.out[classIdx].Name
-	for _, class := range w.namedClasses(body, false, map[string]bool{self: true}, nil) {
+// methods (a property default, a constant) and the classes its own attributes name:
+// `#[ObservedBy(OrderObserver::class)]` is how a model registers its observer, and
+// nothing else in the code names that class.
+func (w *phpWalker) nameClassesInBody(classIdx int, nodes ...*sitter.Node) {
+	seen := map[string]bool{w.out[classIdx].Name: true}
+	var classes []string
+	for _, node := range nodes {
+		classes = w.namedClasses(node, false, seen, classes)
+	}
+	for _, class := range classes {
 		w.out[classIdx].Relations = append(w.out[classIdx].Relations, facts.Relation{Kind: facts.RelNames, Target: class})
 	}
 }

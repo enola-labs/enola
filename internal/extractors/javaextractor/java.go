@@ -201,6 +201,7 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex, declaredNames ma
 		}
 	}
 
+	resolveTypeChoices(allFacts, typeIndex)
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency {
