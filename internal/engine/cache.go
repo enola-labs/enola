@@ -3887,7 +3887,10 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v709: Swift: a type carrying @main is framework_registered on every platform (an
+// executable target, a command line tool, a compiler plugin), not only a SwiftUI
+// App in an iOS target.
+const cacheVersion = "v709"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

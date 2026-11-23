@@ -740,6 +740,11 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	if containsAnnotation(attrs, "MainActor") {
 		f.SetProp("main_actor", true)
 	}
+	// @main makes the type the program's entry point on every platform: an
+	// executable, a command line tool, a compiler plugin. The runtime enters it.
+	if containsAnnotation(attrs, "main") {
+		f.SetProp("framework_registered", true)
+	}
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
 	}
