@@ -78,6 +78,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/httphandler"
 	"github.com/enola-labs/enola/internal/linkers/binders/importaliases"
 	"github.com/enola-labs/enola/internal/linkers/binders/inheritedcalls"
+	"github.com/enola-labs/enola/internal/linkers/binders/kmpswift"
 	"github.com/enola-labs/enola/internal/linkers/binders/messagingcontract"
 	"github.com/enola-labs/enola/internal/linkers/binders/mixinowner"
 	"github.com/enola-labs/enola/internal/linkers/binders/moduleedges"
@@ -634,6 +635,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(mixinowner.New())
 	eng.RegisterBinder(inheritedcalls.New())
 	eng.RegisterBinder(storedfuncs.New())
+	eng.RegisterBinder(kmpswift.New())
 	eng.RegisterBinder(storageclients.New())
 	eng.RegisterBinder(frameworkroots.New())
 	eng.RegisterBinder(moduleedges.New())

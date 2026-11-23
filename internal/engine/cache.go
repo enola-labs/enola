@@ -3969,6 +3969,11 @@ import (
 // v711: Kotlin: a Ktor module named in ktor.application.modules of a production
 // source set's application.conf or application.yaml is referenced by that file (a
 // file_ref with calls edges), through its file facade class or declaring class.
+// v711: Kotlin Multiplatform: a top-level function of an Apple source set in a
+// Gradle module building a framework carries kmp_framework and kotlin_facade; a
+// Swift static call on a receiver named like a facade (`Main_iosKt.f()`) is listed
+// in kotlin_facade_calls, and the kmp-swift binder binds it through the framework
+// the Swift file imports.
 const cacheVersion = "v711"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

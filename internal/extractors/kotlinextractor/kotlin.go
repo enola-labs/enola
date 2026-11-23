@@ -190,6 +190,9 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 		})
 	}
 
+	// Top-level functions a Kotlin Multiplatform framework exports to Swift.
+	stampKMPExports(repoPath, allFacts)
+
 	return allFacts, nil
 }
 

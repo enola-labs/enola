@@ -306,6 +306,7 @@ var versionCoverage = map[int][]string{
 	710: {"TestSpring_ApplicationAndAdviceClassesAreComponents", "TestSpring_BeanMethodOfConfigurationIsProvider", "TestSpring_ExceptionHandlerOfAdviceIsRegistered", "TestSpring_AspectAdviceIsRegistered"},
 	710: {"TestJavaXMLConfigTypeRefs", "TestJavaXMLConfigTypeRefsSkipTestResources"},
 	711: {"TestKtorConfigModules_YAML", "TestKtorConfigModules_HOCON", "TestKtorConfigModules_NoConfigNoRef", "TestGolden"},
+	711: {"TestKMPExportsStampFrameworkAndFacade", "TestKMPFrameworkDefaultsToModuleName", "TestKotlinFacadeCallsAreNoted", "TestKMPSwiftCallBindsThroughTheImportedFramework", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
