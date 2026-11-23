@@ -4019,7 +4019,9 @@ import (
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
 // v719: PHP: a function or method names each class its parameters are declared
-// as, when the repository declares the class.
+// as, when the repository declares the class; a .neon file names the classes it
+// registers as services, and `artisan db:seed --class=` in a composer or shell
+// script names the seeder it runs.
 const cacheVersion = "v719"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
