@@ -294,6 +294,7 @@ var versionCoverage = map[int][]string{
 	699: {"TestCppCapitalizedFreeFunctionCall", "TestCppCapitalizedTemplateCallThroughHeader", "TestCppCapitalizedSiblingMethodCall", "TestCppCapitalizedCallKeepsConstructors", "TestCppCapitalizedCallTemplateClassAndTypedef", "TestCppCapitalizedCallSkipsConstructorFallback", "TestCppCapitalizedCallNotesMemberCall", "TestGolden"},
 	700: {"TestJavaWildcardImportedTypesResolveReceiversAndTargets", "TestJavaWildcardUndeclaredTypeKeepsOwnPackageTarget"},
 	700: {"TestJavaReturnAndLocalTypesNameTheType"},
+	701: {"TestLocalPropertyThenGetCallKeepsFunction", "TestExplicitBackingFieldKeepsClass"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

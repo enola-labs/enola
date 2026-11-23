@@ -3872,7 +3872,11 @@ import (
 // included, are uses of the type, as parameter and field types are since v686
 // (javaextractor/typerefs.go). A result type a service returns and a controller
 // holds in a local no longer reads as dead or test-only.
-const cacheVersion = "v700"
+// v701: Kotlin: a file that does not parse is parsed again with a `;` before a get(
+// or set( call that cannot be an accessor (a route after a local property) and with
+// the `field` keyword of a Kotlin 2 explicit backing field blanked, so the enclosing
+// function or class is no longer lost to an ERROR node.
+const cacheVersion = "v701"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
