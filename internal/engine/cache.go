@@ -3887,7 +3887,9 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v708: a C++ type name resolves only to a copy the referencing file can include,
+// also when the repository declares it once; a member narrows among those copies.
+const cacheVersion = "v708"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

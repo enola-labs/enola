@@ -647,14 +647,23 @@ func (t typeIndex) canonical(dir, name string) string {
 }
 
 // resolve returns the directory whose declaration of name a fact in sourceDir
-// refers to, or "" when the name is unknown or cannot be told apart. declares, when
-// set, narrows the candidates to the copies that have the member being referenced
-// (it is ignored when no copy passes, so a namespace-wrapped member still gets a
-// directory for the qualified-suffix pass to work from). One candidate is taken as
-// is, the same as a name declared once; among several, the fact's own directory
-// wins, then the single directory its includes reach. Anything else is ambiguous.
+// refers to, or "" when the name is unknown or cannot be told apart. Only the
+// copies the fact can see count: its own directory and the directories its quoted
+// includes reach. A name declared once is no exception, because a lone copy the
+// source cannot include is another program's type that shares the name (a
+// wrapper library's ScalarFunction, a vendored library's IntType), not the one
+// meant. declares, when set, narrows the visible copies to those that have the
+// member being referenced (it is ignored when no copy passes, so a namespace-wrapped
+// or inherited member still gets a directory for the later passes to work from).
+// Among several visible copies the fact's own directory wins; anything else is
+// ambiguous.
 func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility, declares func(dir string) bool) string {
-	candidates := t.dirs[name]
+	var candidates []string
+	for _, dir := range t.dirs[name] {
+		if visibility.reaches(sourceDir, dir) {
+			candidates = append(candidates, dir)
+		}
+	}
 	if len(candidates) > 1 && declares != nil {
 		var narrowed []string
 		for _, dir := range candidates {
@@ -675,17 +684,7 @@ func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility
 	if slices.Contains(candidates, sourceDir) {
 		return sourceDir
 	}
-	visible := ""
-	for _, dir := range candidates {
-		if !visibility.reaches(sourceDir, dir) {
-			continue
-		}
-		if visible != "" {
-			return ""
-		}
-		visible = dir
-	}
-	return visible
+	return ""
 }
 
 // sourceDir is the directory a fact's edges originate from. A module fact's File
