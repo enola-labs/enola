@@ -114,3 +114,22 @@ func TestUnplacedIncludeDoesNotPickAmongSeveralCopies(t *testing.T) {
 		t.Errorf("Draw should call bamg::Line, got %+v", draw.Relations)
 	}
 }
+
+// Of several copies an unplaced include may reach, the one that has the member is
+// the one meant, as when every copy is in sight.
+func TestMemberPicksAmongCopiesBehindAnUnplacedInclude(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"ng/meshing/meshclass.hpp": `namespace netgen { class Mesh { public: void AddPoint(); }; }`,
+		"ng/meshing/meshclass.cpp": "#include \"meshclass.hpp\"\n" +
+			`namespace netgen { void Mesh::AddPoint() {} }`,
+		"ng/meshing/meshing.hpp": "#include \"meshclass.hpp\"\n",
+		"rvd/meshing.hpp":        `class Mesh { public: int faces; };`,
+		"ng/nglib.cpp": "#include <meshing.hpp>\n" +
+			`using namespace netgen;
+void Ng_AddPoint(Mesh *m) { m->AddPoint(); }`,
+	})
+	ng := mustFact(t, ff, "ng.Ng_AddPoint")
+	if !hasRelation(ng, facts.RelCalls, "ng/meshing.netgen::Mesh::AddPoint") {
+		t.Errorf("Ng_AddPoint should call netgen::Mesh::AddPoint, got %+v", ng.Relations)
+	}
+}

@@ -656,10 +656,11 @@ func (t typeIndex) canonical(dir, name string) string {
 // one meant. declares, when set, narrows the candidates to those that have the
 // member being referenced (it is ignored when no copy passes, so a
 // namespace-wrapped or inherited member still gets a directory for the later
-// passes to work from). A name declared once resolves to its copy. Among several,
-// a lone survivor is taken only when the fact's includes are known to reach it;
-// otherwise the fact's own directory wins, then the single directory its
-// includes reach. Anything else is ambiguous.
+// passes to work from). A name declared once resolves to its copy, and so does
+// the one copy of several that has the member. Otherwise the fact's own directory
+// wins, then the single directory its includes are known to reach: a copy only an
+// unplaced include may reach is not picked from several on that alone. Anything
+// else is ambiguous.
 func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility, declares func(dir string) bool) string {
 	all := t.dirs[name]
 	var candidates []string
@@ -668,6 +669,7 @@ func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility
 			candidates = append(candidates, dir)
 		}
 	}
+	byMember := false
 	if len(candidates) > 1 && declares != nil {
 		var narrowed []string
 		for _, dir := range candidates {
@@ -676,13 +678,13 @@ func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility
 			}
 		}
 		if len(narrowed) > 0 {
-			candidates = narrowed
+			candidates, byMember = narrowed, true
 		}
 	}
 	if len(candidates) == 0 {
 		return ""
 	}
-	if len(all) == 1 {
+	if len(candidates) == 1 && (len(all) == 1 || byMember) {
 		return candidates[0]
 	}
 	if slices.Contains(candidates, sourceDir) {
