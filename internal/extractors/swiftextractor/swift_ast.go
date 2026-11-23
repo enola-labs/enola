@@ -773,6 +773,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	ownerIdx := len(w.out) - 1
 
 	w.pushOwner(ownerIdx)
+	w.noteTypeUsesIn(node)
 	w.pushType(name, collectMethodNames(body, w.src))
 	w.walkTypeBody(body, iosComponent)
 	w.popType()
@@ -822,6 +823,9 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 		addIOSProps(&f, name, attrs, strings.Join(supertypes, ", "))
 	}
 	w.out = append(w.out, f)
+	w.pushOwner(len(w.out) - 1)
+	w.noteTypeUsesIn(node)
+	w.popOwner()
 }
 
 // handleExtension preserves the legacy behaviour: one symbol fact per adopted
@@ -895,6 +899,8 @@ func (w *astWalker) walkTypeBody(body *sitter.Node, iosComponent string) {
 			w.handleProtocol(c)
 		case "typealias_declaration":
 			w.handleTypeAlias(c)
+		case "enum_entry":
+			w.noteTypeUsesIn(c)
 		}
 		w.stampConditional(before)
 	}
@@ -976,6 +982,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
+	w.noteTypeUsesIn(node)
 	// Set up per-function complexity tracking. The Props map is shared by
 	// reference with the fact in w.out, so writing to it after the walk updates
 	// the emitted fact.
@@ -1136,6 +1143,7 @@ func (w *astWalker) handleInit(node *sitter.Node) {
 	if restore := w.pushExtensionInit(node); restore != nil {
 		defer restore()
 	}
+	w.noteTypeUsesIn(node)
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
 		if kindOf(c) != "parameter" {
@@ -1194,6 +1202,19 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 	if doc := swiftDoc(node, w.src); doc != "" {
 		facts.SetDoc(&w.out[len(w.out)-1], doc)
 	}
+	// The aliased type's own name is the instantiates edge above; the types written
+	// around or inside it (a closure type, type arguments) are uses.
+	if valueNode := node.ChildByFieldName("value"); valueNode != nil {
+		w.pushOwner(len(w.out) - 1)
+		if kindOf(valueNode) == "user_type" {
+			for i := uint(0); i < valueNode.ChildCount(); i++ {
+				w.noteTypeUsesIn(valueNode.Child(i))
+			}
+		} else {
+			w.noteTypeUsesIn(valueNode)
+		}
+		w.popOwner()
+	}
 }
 
 // walkForCalls recursively scans an expression subtree for call_expression nodes
@@ -1210,8 +1231,12 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "property_declaration" && w.localTypes != nil {
 		w.bindLocal(node)
 	}
-	if kind == "navigation_expression" {
+	switch kind {
+	case "navigation_expression":
 		w.noteMetatype(node)
+		w.noteStaticPath(node)
+	case "user_type":
+		w.noteTypeUse(node) // typeuses.go
 	}
 	w.noteValueOperands(node)
 

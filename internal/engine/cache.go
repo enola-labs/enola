@@ -3953,7 +3953,14 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v713: Swift: a type written anywhere is a use of it (a names edge): parameter,
+// return, property and local types, enum associated values, generic and associatedtype
+// constraints, closure parameters, cast targets, protocol compositions, a typealias's
+// closure type, and the type path of a static read or of a nested type built through
+// its owner. The name binds as Swift looks it up: nested in an enclosing type first,
+// else top-level in the module the file sees; a generic parameter binds to nothing.
+// A CodingKeys enum of a Codable type is framework_registered.
+const cacheVersion = "v713"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
