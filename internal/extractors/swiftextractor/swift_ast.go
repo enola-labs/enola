@@ -828,6 +828,9 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 	if sig, _ := computeSignature(body, w.src); sig != "" {
 		f.SetProp("signature", sig)
 	}
+	if assoc := associatedTypeNames(body, w.src); len(assoc) > 0 {
+		f.SetProp(propAssociatedTypes, strings.Join(assoc, ","))
+	}
 	if w.isiOS {
 		addIOSProps(&f, name, attrs, strings.Join(supertypes, ", "))
 	}
@@ -850,10 +853,19 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	if base == "" {
 		return
 	}
-	for _, proto := range inheritanceNames(node, w.src) {
+	for _, spec := range inheritanceSpecs(node, w.src) {
+		rels := []facts.Relation{
+			{Kind: facts.RelDeclares, Target: w.dir},
+			{Kind: facts.RelImplements, Target: spec.name},
+		}
+		if strings.Contains(spec.path, ".") {
+			// A conformance written through its owner (`extension Card: Dashboard.Model`)
+			// names the nested protocol (typeuses.go binds it).
+			rels = append(rels, facts.Relation{Kind: facts.RelNames, Target: spec.path})
+		}
 		w.out = append(w.out, facts.Fact{
 			Kind:    facts.KindSymbol,
-			Name:    w.dir + "." + base + "+" + proto,
+			Name:    w.dir + "." + base + "+" + spec.name,
 			File:    w.relFile,
 			Line:    int(node.StartPosition().Row) + 1,
 			EndLine: tsutil.EndLine(node),
@@ -862,10 +874,7 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 				"exported":    true,
 				"language":    "swift",
 			},
-			Relations: []facts.Relation{
-				{Kind: facts.RelDeclares, Target: w.dir},
-				{Kind: facts.RelImplements, Target: proto},
-			},
+			Relations: rels,
 		})
 	}
 
@@ -1608,6 +1617,18 @@ func typeBody(node *sitter.Node) *sitter.Node {
 // declaration's inheritance_specifier children.
 func inheritanceNames(node *sitter.Node, src []byte) []string {
 	var names []string
+	for _, s := range inheritanceSpecs(node, src) {
+		names = append(names, s.name)
+	}
+	return names
+}
+
+// inheritanceSpec is one supertype or protocol a declaration names: its simple name,
+// and the type path as written (`Dashboard.Model`), "" when that is no type path.
+type inheritanceSpec struct{ name, path string }
+
+func inheritanceSpecs(node *sitter.Node, src []byte) []inheritanceSpec {
+	var specs []inheritanceSpec
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
 		if kindOf(c) != "inheritance_specifier" {
@@ -1618,10 +1639,14 @@ func inheritanceNames(node *sitter.Node, src []byte) []string {
 			tn = firstNamedChild(c)
 		}
 		if name := simpleTypeName(tn, src); name != "" {
-			names = append(names, name)
+			s := inheritanceSpec{name: name}
+			if tn != nil && kindOf(tn) == "user_type" {
+				s.path = userTypePath(tn, src)
+			}
+			specs = append(specs, s)
 		}
 	}
-	return names
+	return specs
 }
 
 // attributeNames returns the simple names of attributes (e.g. ["MainActor",
@@ -1897,7 +1922,10 @@ func isOperatorToken(s string) bool {
 // isTypeName reports whether s looks like a simple Swift type name (an uppercase
 // identifier), filtering out junk like "[String]" before it becomes an edge.
 func isTypeName(s string) bool {
-	if !isCapitalized(s) {
+	// `_CodingKey` is a type name too. A bare call of one (`_Encoder()`) may be a
+	// function of the name, so the walker records it as a call and
+	// canonicalizeTargets makes it a construction where a type of the name is visible.
+	if !isCapitalized(strings.TrimLeft(s, "_")) {
 		return false
 	}
 	for _, r := range s {

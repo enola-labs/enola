@@ -4018,7 +4018,13 @@ import (
 // reference fact what it constructs (`new X`), calls statically or as a function,
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
-const cacheVersion = "v715"
+// v718: Swift: a static path through a lower-case nested namespace
+// (`Config.lens.features`) names it where that type is declared; a conformance
+// written through its owner (`: Dashboard.Model`) names the nested protocol; a name
+// led by an underscore (`_CodingKey`) is a type name; a conformance to a protocol
+// the repository declares names the nested types witnessing its associated types,
+// which a protocol now lists in associated_types.
+const cacheVersion = "v718"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

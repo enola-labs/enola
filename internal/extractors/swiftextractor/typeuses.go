@@ -106,6 +106,10 @@ func (w *astWalker) noteTypeUsesIn(n *sitter.Node) {
 	case "user_type":
 		if p := n.Parent(); p == nil || kindOf(p) != "inheritance_specifier" {
 			w.noteTypeUse(n)
+		} else if strings.Contains(userTypePath(n, w.src), ".") {
+			// A supertype written through its owner (`: Dashboard.Model`) names the
+			// nested type; the implements edge carries its last name only.
+			w.noteTypeUse(n)
 		}
 	case "navigation_expression":
 		w.noteStaticPath(n) // a parameter's default value: `= Config.current`
@@ -119,11 +123,17 @@ func (w *astWalker) noteTypeUsesIn(n *sitter.Node) {
 // capitalized components of `Colors.Background.Accent.pressed` or
 // `AFError.UnexpectedInputStreamLength(...)`. A call through the root alone
 // (`Router.shared.go()`) is recorded as a call of the root already.
+//
+// A lower-case component may be a nested type too (`Config.lens.features`, a lens
+// namespace). When the chain goes on past its capitalized components, the whole chain
+// is recorded as well; it binds only where a type of that lower-case name is declared
+// in the type before it (resolveDepth), so a static member (`Router.shared`) adds
+// nothing.
 func (w *astWalker) noteStaticPath(nav *sitter.Node) {
 	if p := nav.Parent(); p != nil && kindOf(p) == "navigation_expression" {
 		return // the outermost navigation records the chain
 	}
-	var parts []string
+	var segs []string
 	var walk func(n *sitter.Node) bool
 	walk = func(n *sitter.Node) bool {
 		switch kindOf(n) {
@@ -132,7 +142,7 @@ func (w *astWalker) noteStaticPath(nav *sitter.Node) {
 			if !isTypeName(name) || name == "Self" {
 				return false
 			}
-			parts = append(parts, name)
+			segs = append(segs, name)
 			return true
 		case "navigation_expression":
 			target := n.ChildByFieldName("target")
@@ -147,27 +157,37 @@ func (w *astWalker) noteStaticPath(nav *sitter.Node) {
 			if id == nil {
 				return false
 			}
-			if name := strings.Trim(nodeText(id, w.src), "`"); isTypeName(name) {
-				parts = append(parts, name)
-				return true
-			}
-			return false
+			segs = append(segs, strings.Trim(nodeText(id, w.src), "`"))
+			return true
 		}
 		return false
 	}
 	walk(nav)
-	if len(parts) == 0 {
+	typed := 0
+	for typed < len(segs) && isTypeName(segs[typed]) {
+		typed++
+	}
+	if typed == 0 || genericParamInScope(nav, segs[0], w.src) {
 		return
 	}
-	if len(parts) == 1 {
-		if p := nav.Parent(); p != nil && kindOf(p) == "call_expression" && firstNamedChild(p) == nav {
-			return
+	p := nav.Parent()
+	if typed > 1 || p == nil || kindOf(p) != "call_expression" || firstNamedChild(p) != nav {
+		w.addOwnerEdge(facts.RelNames, strings.Join(segs[:typed], "."))
+	}
+	if typed < len(segs) {
+		w.addOwnerEdge(facts.RelNames, strings.Join(segs, "."))
+	}
+}
+
+// lowerSegment returns the index of the first component of path that is no type
+// name, or -1.
+func lowerSegment(path string) int {
+	for i, seg := range strings.Split(path, ".") {
+		if !isTypeName(seg) {
+			return i
 		}
 	}
-	if genericParamInScope(nav, parts[0], w.src) {
-		return
-	}
-	w.addOwnerEdge(facts.RelNames, strings.Join(parts, "."))
+	return -1
 }
 
 // swiftNamedTypes indexes the type and typealias declarations a names edge may bind
@@ -261,6 +281,7 @@ func (t *swiftNamedTypes) resolveDepth(from *facts.Fact, path string, vis *swift
 		return "" // markSynthesizedCodingKeys
 	}
 	set := t.forFile(from.File)
+	lower := lowerSegment(path)
 	head, rest, _ := strings.Cut(path, ".")
 	sites := set.sites[head]
 	if len(sites) == 0 {
@@ -312,6 +333,7 @@ func (t *swiftNamedTypes) resolveDepth(from *facts.Fact, path string, vis *swift
 	if found == "" {
 		return ""
 	}
+	consumed := 1
 	for rest != "" {
 		var seg string
 		seg, rest, _ = strings.Cut(rest, ".")
@@ -319,6 +341,10 @@ func (t *swiftNamedTypes) resolveDepth(from *facts.Fact, path string, vis *swift
 			break
 		}
 		found += "." + seg
+		consumed++
+	}
+	if lower >= consumed {
+		return "" // a lower-case component is no nested type: a static member
 	}
 	if found == from.Name {
 		return ""
