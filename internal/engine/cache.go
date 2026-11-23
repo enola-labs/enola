@@ -3888,7 +3888,8 @@ import (
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
 // v708: a call in a C++ constructor's member initializer list (`S() : m(f(x)) {}`)
-// is a call of the constructor.
+// is a call of the constructor; a constructor parameter passed there is not a
+// function value.
 const cacheVersion = "v708"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
