@@ -147,13 +147,23 @@ func (e *CppExtractor) DetectFiles(_ string, files []string) (bool, error) {
 //   - resolveIncludeDependencies rewrites quoted #include targets to module dirs.
 //   - Module facts are emitted per directory.
 func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []string) ([]facts.Fact, error) {
+	return e.extract(ctx, repoPath, files, nil)
+}
+
+// ExtractWithTests implements plugin.TestAwareExtractor: Extract over files, plus
+// one KindTestRef fact per test file (see testpass.go).
+func (e *CppExtractor) ExtractWithTests(ctx context.Context, repoPath string, files, testFiles []string) ([]facts.Fact, error) {
+	return e.extract(ctx, repoPath, files, testFiles)
+}
+
+func (e *CppExtractor) extract(ctx context.Context, repoPath string, files, testFiles []string) ([]facts.Fact, error) {
 	var allFacts []facts.Fact
 
 	// Per-directory grammar attribution for bare .h headers: a header is C++ only
 	// when its own directory subtree contains C++ sources. This localises a handful
 	// of stray .cpp files (e.g. tools/ in a kernel tree) instead of flipping every
 	// .h in the repo to the C++ grammar.
-	hdrLang := buildHeaderLangIndex(files)
+	hdrLang := buildHeaderLangIndex(withTests(files, testFiles))
 
 	modules := make(map[string]bool)
 	dirLang := make(map[string]string)              // dir -> module language ("c"/"cpp")
@@ -192,6 +202,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 			macros[name] = def
 		}
 	}
+	tests := newTestPass(ctx, repoPath, testFiles, hdrLang, cppFiles, perFileMacros)
 
 	// extractFileAST is pure; parse in parallel. The type index below is then
 	// rebuilt by iterating the per-file results in file order, so it (and the order
@@ -269,6 +280,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// arguments, and file-scope macro-call arguments): keep only those that name a
 	// real function, rewriting them to call edges; drop the rest so ordinary data
 	// identifiers create no edge.
+	testRefs := tests.resolve(ctx, repoPath, allFacts)
 	resolveFuncPtrRefs(allFacts, funcNames)
 
 	// Merge header method declarations with source definitions.
@@ -294,7 +306,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// Resolve quoted #include targets to module dirs.
 	allFacts = resolveIncludeDependencies(allFacts, headerIndex)
 
-	return allFacts, nil
+	return append(allFacts, testRefs...), nil
 }
 
 // dedupeSymbols merges duplicate symbol facts that share a canonical name — most

@@ -4019,8 +4019,9 @@ import (
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
 // v723: C and C++ files under test/, tests/ and testing/ are ignored and recovered
-// as test refs by CppExtractor.ExtractTestRefs, which extracts them together with the
-// production files and keeps the usage edges they resolved to.
+// as test refs in the production extraction (CppExtractor.ExtractWithTests): the
+// test files resolve against the production files' pass-one facts, as when they
+// were indexed with them, and the production facts resolve without the tests.
 const cacheVersion = "v723"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

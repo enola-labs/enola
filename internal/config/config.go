@@ -539,7 +539,7 @@ func Default() *Config {
 			// code they test, and testing/ (kernel selftests, an engine's test
 			// harness). Every C or C++ file under these three names across the corpus
 			// is a test, a harness or a fixture. benchmark/ is not a test tree.
-			// Recovered as test refs by CppExtractor.ExtractTestRefs. Keep in sync
+			// Recovered as test refs by CppExtractor.ExtractWithTests. Keep in sync
 			// with TestGlobs below.
 			"**/test/**/*.[ch]",
 			"**/test/**/*.cc",
@@ -741,7 +741,7 @@ func Default() *Config {
 			// Rust. Live: RustExtractor implements TestRefExtractor.
 			"**/tests/**/*.rs",
 			"**/benches/**/*.rs",
-			// C and C++. Live: CppExtractor implements TestRefExtractor.
+			// C and C++. Live: CppExtractor implements TestAwareExtractor.
 			"**/test/**/*.[ch]",
 			"**/test/**/*.cc",
 			"**/test/**/*.hh",

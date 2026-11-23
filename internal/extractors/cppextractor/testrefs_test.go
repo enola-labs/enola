@@ -11,7 +11,49 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
-var _ plugin.TestRefExtractor = (*CppExtractor)(nil)
+var _ plugin.TestAwareExtractor = (*CppExtractor)(nil)
+
+// extractTestRefs runs the production extraction with test files beside it and
+// returns the test_ref facts. It also pins that the production facts are exactly
+// Extract's over the production files alone: the tests change nothing there.
+func extractTestRefs(t *testing.T, repo string, tests, prod []string) ([]facts.Fact, error) {
+	t.Helper()
+	all, err := New().ExtractWithTests(context.Background(), repo, prod, tests)
+	if err != nil {
+		return nil, err
+	}
+	alone, err := New().Extract(context.Background(), repo, prod)
+	if err != nil {
+		return nil, err
+	}
+	var refs, rest []facts.Fact
+	for _, f := range all {
+		if f.Kind == facts.KindTestRef {
+			refs = append(refs, f)
+		} else {
+			rest = append(rest, f)
+		}
+	}
+	if got, want := factKeys(rest), factKeys(alone); !equalStrings(got, want) {
+		t.Errorf("test files changed the production facts:\n got %v\nwant %v", got, want)
+	}
+	return refs, nil
+}
+
+// factKeys renders facts with their relations, sorted, for comparison. Module
+// facts come out of a map, so order is not part of the contract.
+func factKeys(ff []facts.Fact) []string {
+	out := make([]string, 0, len(ff))
+	for _, f := range ff {
+		k := f.Kind + "|" + f.Name + "|" + f.File
+		for _, r := range f.Relations {
+			k += "|" + r.Kind + ">" + r.Target
+		}
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 func writeCppRepo(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -57,7 +99,7 @@ func TestCppExtractTestRefsEmitsOnlyTestRefFacts(t *testing.T) {
 	prod := []string{"src/conn.hpp", "src/conn.cpp", "src/other.hpp", "src/other.cpp", "src/util.c"}
 	tests := []string{"test/api/test_conn.cpp", "lib/tests/util_test.c", "notes.txt"}
 
-	got, err := New().ExtractTestRefs(context.Background(), repo, tests, prod)
+	got, err := extractTestRefs(t, repo, tests, prod)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +168,7 @@ func TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed(t *testing.T) {
 	}
 	want = sortedUnique(want)
 
-	got, err := New().ExtractTestRefs(context.Background(), repo,
+	got, err := extractTestRefs(t, repo,
 		[]string{"test/api/test_conn.cpp"}, []string{"src/conn.cpp", "src/conn.hpp", "src/other.cpp", "src/other.hpp", "src/util.c"})
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +237,7 @@ class Fixture { public: Fixture() { c.Ping(); } Circle c; };
 void TestMake() { Circle made = Circle(); }
 }`,
 	})
-	got, err := New().ExtractTestRefs(context.Background(), repo,
+	got, err := extractTestRefs(t, repo,
 		[]string{"test/shape_test.cpp"}, []string{"src/shape.cpp", "src/shape.hpp"})
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +269,7 @@ int local_twin(int n);`,
 			`static int local_twin(int n) { return n; }
 static void run(void) { make_fixture(1); local_twin(2); }`,
 	})
-	got, err := New().ExtractTestRefs(context.Background(), repo,
+	got, err := extractTestRefs(t, repo,
 		[]string{"drivers/tests/case_test.c", "drivers/tests/helpers.c"},
 		[]string{"include/kunit_helpers.h", "src/core.c"})
 	if err != nil {

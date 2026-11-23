@@ -1,83 +1,12 @@
 package cppextractor
 
 import (
-	"context"
 	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
-	"github.com/enola-labs/enola/internal/linkers/binders/inheritedcalls"
 )
-
-// ExtractTestRefs implements plugin.TestRefExtractor. It walks the C and C++ files
-// the test globs set aside (test/, tests/ and testing/ trees) for the SOLE purpose
-// of capturing their references into production code: one facts.KindTestRef fact
-// per file, carrying only RelCalls edges.
-//
-// C and C++ resolve a call through the whole program: the include graph, the type
-// index and the repository's function names (canonicalizeTargets), then the
-// inherited-calls binder for a member reached through a base class or a field's
-// type. A walk of the test files alone would leave a member call on a typed local
-// or a qualified call unresolved, and its bare name would then vouch for every
-// same-named method in the repository. So the test files are extracted together
-// with the production ones, exactly as Extract saw them before they were ignored,
-// the binder runs over that set as it runs over the snapshot, and each test file
-// keeps the usage edges its own symbols resolved to. A production symbol therefore
-// reads test-only on the same edges that made it so when tests were indexed.
-//
-// An edge to a symbol a test file defines is the test calling itself and is
-// dropped. File-scope references (the body of a test-case macro) hang off a
-// directory's module fact rather than a file; they go to the directory's first
-// test file. A test that creates an object runs its class's constructor and
-// destructor and those of its bases, which the orphan detector credits from an
-// instantiates edge (orphans/cppctor.go); a test ref carries calls only, so they
-// are named here.
-//
-// The cost is a second extraction of the repository's C and C++ files on every
-// snapshot that has C or C++ tests, since test refs are not cached.
-func (e *CppExtractor) ExtractTestRefs(ctx context.Context, repoPath string, testFiles, prodFiles []string) ([]facts.Fact, error) {
-	var cppTests []string
-	isTest := make(map[string]bool)
-	for _, relFile := range testFiles {
-		if e.OwnsFile(relFile) {
-			cppTests = append(cppTests, relFile)
-			isTest[factpath.Slash(relFile)] = true
-		}
-	}
-	if len(cppTests) == 0 {
-		return nil, nil
-	}
-	files := make([]string, 0, len(prodFiles)+len(cppTests))
-	for _, relFile := range prodFiles {
-		if e.OwnsFile(relFile) {
-			files = append(files, relFile)
-		}
-	}
-	files = append(files, cppTests...)
-	sort.Strings(files)
-
-	store, err := e.extractStore(ctx, repoPath, files)
-	if err != nil {
-		return nil, err
-	}
-	if err := inheritedcalls.New().Bind(ctx, store); err != nil {
-		return nil, err
-	}
-	return testRefsFrom(store.FactsRef(), cppTests, isTest), nil
-}
-
-// extractStore runs Extract into a store. The extracted slice dies with this frame:
-// the store holds its own copy, and on a kernel-sized tree each is gigabytes.
-func (e *CppExtractor) extractStore(ctx context.Context, repoPath string, files []string) (*facts.Store, error) {
-	extracted, err := e.Extract(ctx, repoPath, files)
-	if err != nil {
-		return nil, err
-	}
-	store := facts.NewStore()
-	store.Add(extracted...)
-	return store, nil
-}
 
 // testRefsFrom folds the usage edges of the facts declared in test files into one
 // KindTestRef fact per test file.

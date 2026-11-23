@@ -141,6 +141,22 @@ type TestRefExtractor interface {
 	ExtractTestRefs(ctx context.Context, repoPath string, testFiles, prodFiles []string) ([]facts.Fact, error)
 }
 
+// TestAwareExtractor is an optional interface for an extractor whose test
+// references resolve only against the whole program, as C and C++ calls do through
+// the include graph and the repository's type and function indices. Re-extracting
+// the production files in a separate test-reference pass would double the cost of
+// extraction on every snapshot, so the engine calls ExtractWithTests in place of
+// Extract, passing the test files the extractor owns (matched by config.TestGlobs),
+// keys the extractor cache on both sets, and skips the extractor in the
+// test-reference pass.
+//
+// The result is what Extract(files) returns, unchanged by the tests, plus
+// reference-only facts (facts.KindTestRef) for the test files, as a
+// TestRefExtractor emits them.
+type TestAwareExtractor interface {
+	ExtractWithTests(ctx context.Context, repoPath string, files, testFiles []string) ([]facts.Fact, error)
+}
+
 // Annotator is an optional interface an Explainer may implement to write DERIVED
 // VALUES back onto the facts it analysed, in addition to emitting insights.
 //
