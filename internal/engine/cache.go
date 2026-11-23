@@ -3957,6 +3957,11 @@ import (
 // in a package a @MapperScan names, recursively) is an io_type and its abstract
 // methods are io_direct, so a mapper call in a loop is a query in a loop.
 // MapStruct's @Mapper, told apart by its import, stays a plain interface.
+// v710: Java: @SpringBootApplication and @AutoConfiguration classes are Spring
+// configuration and @ControllerAdvice/@RestControllerAdvice classes a Spring
+// component; a @Bean method of a class Spring scans is a di_provider, and an
+// @ExceptionHandler of a controller or advice and the advice and pointcut methods
+// of an @Aspect are framework_registered.
 const cacheVersion = "v710"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
