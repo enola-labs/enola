@@ -4018,7 +4018,11 @@ import (
 // reference fact what it constructs (`new X`), calls statically or as a function,
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
-const cacheVersion = "v715"
+// v722: Kotlin: an annotation a test applies is a test reference to its type when
+// the name resolves, through the test file's imports, package or star imports, to a
+// type production code declares; the harness's and libraries' annotations still
+// record nothing.
+const cacheVersion = "v722"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
