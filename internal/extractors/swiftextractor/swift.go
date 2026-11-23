@@ -218,6 +218,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 	allFacts = resolveRootedCalls(allFacts, index)
 	hier := &swiftHierarchies{facts: allFacts}
 	resolveTypedCalls(allFacts, hier)
+	resolveImplicitCalls(allFacts, index)
 	resolveMethodCalls(allFacts, index)
 
 	// Resolve dangling inherited-method calls (a subclass calling a base-class or

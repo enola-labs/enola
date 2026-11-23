@@ -954,6 +954,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	if enclosing != "" && isDelegateCallback(node, name, w.src) {
 		f.SetProp(propDelegateCallback, true)
 	}
+	noteDeclaredTypes(&f, modifierText, node, w.src)
 	if strings.Contains(header, "@MainActor") || containsAnnotation(attrs, "MainActor") {
 		f.SetProp("main_actor", true)
 	}
@@ -1040,6 +1041,7 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 	if doc := swiftDoc(node, w.src); doc != "" {
 		facts.SetDoc(&w.out[propIdx], doc)
 	}
+	w.notePropertyType(&w.out[propIdx], node)
 
 	// A computed getter or a willSet/didSet observer has a real body that can hold a
 	// loop or per-iteration I/O, so measure its complexity like a function's — a
@@ -1262,7 +1264,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 
 	if kind == "call_expression" {
 		var iterClosure *sitter.Node
-		if callee := firstNamedChild(node); callee != nil {
+		if callee := operatorCallee(firstNamedChild(node), w.src); callee != nil {
+			if member := implicitMember(callee, w.src); member != "" {
+				w.noteImplicitCall(member, node)
+			}
 			name, isNav, root, directSelf := calleeInfo(callee, w.src)
 			// Seed the performs_io closure: flag the enclosing method when its body
 			// directly invokes a network/file I/O primitive. Framework I/O calls are

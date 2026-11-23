@@ -3915,7 +3915,13 @@ import (
 // variable) is named by the file, and a wrapper's functions, classes and kept
 // variables are module values its functions can name. A property assigned on a
 // declaration (`Card.propTypes = ...`) is no use of it.
-const cacheVersion = "v705"
+// v706: Swift: a call the grammar wraps in an arithmetic or prefix operator
+// (`a + f(x)`, `!f(x)`, `-self.g()`) is the call of its right operand or target. An
+// implicit member call (`.inMemory(...)`) binds to the static or class method of the
+// type its context states (a declared result or Self, an annotation, self, a
+// property's or a labelled parameter's type) whose labels fit the call; never by
+// name alone, and never to the factory it is written in.
+const cacheVersion = "v706"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
