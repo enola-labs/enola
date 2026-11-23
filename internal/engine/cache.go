@@ -3910,6 +3910,11 @@ import (
 // v705: TS/JS: Laravel Mix aliases are read from webpack.mix.js (mix.alias({...}) and
 // a resolve.alias handed to mix.webpackConfig), so an import through one resolves to
 // the repository file (resolved_via laravel-mix-alias).
+// v705: TS/JS: a function handed on by value in code that runs at file scope (an
+// expression statement at the top level or in a wrapper's body, a wrapper's plain
+// variable) is named by the file, and a wrapper's functions, classes and kept
+// variables are module values its functions can name. A property assigned on a
+// declaration (`Card.propTypes = ...`) is no use of it.
 const cacheVersion = "v705"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

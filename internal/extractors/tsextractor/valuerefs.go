@@ -20,7 +20,10 @@ import (
 // parameter, a local, a destructured or caught binding) shadows it.
 
 // moduleValues maps the names a file binds at module scope to the symbols they stand
-// for. A namespace import names a module, not a symbol, and is left out.
+// for. A namespace import names a module, not a symbol, and is left out. The body of a
+// function the file calls where it writes it (wrapperBody) is the top level of a
+// script that is not a module, and its declarations are symbols too; of its
+// variables only those that stay symbols count (see withoutPlainVariables).
 func moduleValues(kinds *tsutil.KindTable, root *sitter.Node, src []byte, dir string, importMap, internal map[string]string) map[string]string {
 	out := map[string]string{}
 	for local, target := range internal {
@@ -28,8 +31,15 @@ func moduleValues(kinds *tsutil.KindTable, root *sitter.Node, src []byte, dir st
 			out[local] = target
 		}
 	}
-	for i := range root.NamedChildCount() {
-		stmt := root.NamedChild(i)
+	addScopeValues(kinds, root, src, dir, out, wrapperDepth, false)
+	return out
+}
+
+// addScopeValues adds the declarations of one scope, the module's or a wrapper's, and
+// of the wrappers it calls, at most wrappers deep.
+func addScopeValues(kinds *tsutil.KindTable, scope *sitter.Node, src []byte, dir string, out map[string]string, wrappers int, inWrapper bool) {
+	for i := range scope.NamedChildCount() {
+		stmt := scope.NamedChild(i)
 		if kindOf(kinds, stmt) == "export_statement" {
 			if d := stmt.ChildByFieldName("declaration"); d != nil {
 				stmt = d
@@ -39,17 +49,130 @@ func moduleValues(kinds *tsutil.KindTable, root *sitter.Node, src []byte, dir st
 		case "lexical_declaration", "variable_declaration":
 			for j := range stmt.NamedChildCount() {
 				d := stmt.NamedChild(j)
-				if name := d.ChildByFieldName("name"); kindOf(kinds, d) == "variable_declarator" && name != nil && kindOf(kinds, name) == "identifier" {
-					out[nodeText(name, src)] = dir + "." + nodeText(name, src)
+				name := d.ChildByFieldName("name")
+				if kindOf(kinds, d) != "variable_declarator" || name == nil || kindOf(kinds, name) != "identifier" {
+					continue
 				}
+				if inWrapper && functionValue(kinds, d) == nil && !hasObjectMembers(kinds, d.ChildByFieldName("value"), src) {
+					continue
+				}
+				out[nodeText(name, src)] = dir + "." + nodeText(name, src)
 			}
 		case "function_declaration", "generator_function_declaration", "class_declaration":
 			if name := stmt.ChildByFieldName("name"); name != nil {
 				out[nodeText(name, src)] = dir + "." + nodeText(name, src)
 			}
+		case "expression_statement":
+			if body := wrapperBody(kinds, stmt); body != nil && wrappers > 0 {
+				addScopeValues(kinds, body, src, dir, out, wrappers-1, true)
+			}
 		}
 	}
-	return out
+}
+
+// fileScopeValueRefs returns the `names` drawn by code that runs at file scope, in
+// the module's top level and in a wrapper's body (wrapperBody): a function handed on
+// by value there (`global.Blob = BlobConstructor`, a ternary branch) has no
+// enclosing symbol to carry the use. A declaration that is a symbol carries its own,
+// and a function written inside has its own walk or none, so neither is read here.
+// A call argument is left to the file's call references (fileRefs.callRefs), and a
+// name whose property is assigned (`Card.propTypes = ...`) is not a use of it.
+func fileScopeValueRefs(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx) []facts.Relation {
+	if len(ctx.values) == 0 {
+		return nil
+	}
+	// An imported name is already the file's reference wherever it is written
+	// (fileRefs.walk), so only the file's own declarations are read here.
+	own := map[string]string{}
+	for name, target := range ctx.values {
+		if _, imported := ctx.importMap[name]; !imported {
+			own[name] = target
+		}
+	}
+	scopeOf := ctx.callScope(kinds, "", nil)
+	scopeOf.values = own
+	w := &tsBodyWalker{callScope: scopeOf, seen: map[string]bool{}, locals: map[string]bool{}}
+	var expr func(n *sitter.Node)
+	expr = func(n *sitter.Node) {
+		if n == nil {
+			return
+		}
+		switch k := kindOf(kinds, n); {
+		case tsIsFunctionLike(k), k == "class", k == "class_declaration":
+			return
+		case k == "identifier" || k == "shorthand_property_identifier":
+			if !isCallArgument(kinds, n) && !inAssignedTarget(kinds, n) {
+				w.noteValueRef(n)
+			}
+			return
+		}
+		for i := range n.ChildCount() {
+			expr(n.Child(i))
+		}
+	}
+	var scope func(block *sitter.Node, wrappers int, inWrapper bool)
+	scope = func(block *sitter.Node, wrappers int, inWrapper bool) {
+		for i := range block.NamedChildCount() {
+			stmt := block.NamedChild(i)
+			switch kindOf(kinds, stmt) {
+			case "import_statement", "export_statement", "type_alias_declaration", "interface_declaration",
+				"enum_declaration", "internal_module", "module", "ambient_declaration":
+				// Bindings, and declarations that are symbols or only types.
+				continue
+			case "lexical_declaration", "variable_declaration":
+				// A module's variable is a symbol carrying what its value names; a
+				// wrapper's plain one is not (withoutPlainVariables), so the file does.
+				if !inWrapper {
+					continue
+				}
+				for j := range stmt.NamedChildCount() {
+					d := stmt.NamedChild(j)
+					if kindOf(kinds, d) == "variable_declarator" && functionValue(kinds, d) == nil && !hasObjectMembers(kinds, d.ChildByFieldName("value"), ctx.src) {
+						expr(d.ChildByFieldName("value"))
+					}
+				}
+				continue
+			}
+			if body := wrapperBody(kinds, stmt); body != nil {
+				if wrappers > 0 {
+					scope(body, wrappers-1, true)
+				}
+				continue
+			}
+			expr(stmt)
+		}
+	}
+	scope(root, wrapperDepth, false)
+	return w.rels
+}
+
+// isCallArgument reports an identifier passed straight to a call.
+func isCallArgument(kinds *tsutil.KindTable, n *sitter.Node) bool {
+	p := n.Parent()
+	return p != nil && kindOf(kinds, p) == "arguments"
+}
+
+// inAssignedTarget reports an identifier that is the object an assignment writes a
+// property of: `Card` in `Card.propTypes = ...` or `Card.a.b = ...`.
+func inAssignedTarget(kinds *tsutil.KindTable, n *sitter.Node) bool {
+	for cur := n; ; {
+		p := cur.Parent()
+		if p == nil {
+			return false
+		}
+		switch kindOf(kinds, p) {
+		case "member_expression", "subscript_expression":
+			if obj := p.ChildByFieldName("object"); obj == nil || !sameTSNode(obj, cur) {
+				return false
+			}
+			cur = p
+		case "assignment_expression", "augmented_assignment_expression":
+			left := p.ChildByFieldName("left")
+			return cur != n && left != nil && sameTSNode(left, cur)
+		default:
+			return false
+		}
+	}
 }
 
 // noteValueRef records `names` for an identifier in value position that stands for a
