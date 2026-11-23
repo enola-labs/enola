@@ -216,6 +216,13 @@ func laravelRoots(symbols []facts.Fact, fileRefs []facts.Fact) (map[string]bool,
 		}
 	}
 
+	for name := range x.discoveredPolicies() {
+		roots[name] = true
+	}
+	for name := range x.flarumCommandHandlers(symbols, fileRefs) {
+		roots[name] = true
+	}
+
 	observers := x.observers(symbols, fileRefs)
 	modelTraits := x.modelTraits()
 	scopes := map[string][]string{}
