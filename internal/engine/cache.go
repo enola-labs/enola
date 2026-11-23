@@ -3999,6 +3999,14 @@ import (
 // specifier, the `consume` and `copy` operators and the freestanding macros of a type
 // body blanked out (bytes and lines kept), so a class using them keeps its symbol and
 // the declarations in a macro's trailing closure read as members of the type.
+// v713: Swift: a type written anywhere is a use of it (a names edge): parameter,
+// return, property and local types, enum associated values, generic and associatedtype
+// constraints, closure parameters, cast targets, protocol compositions, a typealias's
+// closure type, and the type path of a static read or of a nested type built through
+// its owner. The name binds as Swift looks it up: nested in an enclosing type first,
+// else top-level in the module the file sees; a generic parameter binds to nothing.
+// A CodingKeys enum of a Codable type is framework_registered. A constructor's type
+// binds the same way (a nested type first); a @Reducer type implements Reducer.
 const cacheVersion = "v713"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

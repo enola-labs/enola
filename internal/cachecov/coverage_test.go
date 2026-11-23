@@ -313,6 +313,7 @@ var versionCoverage = map[int][]string{
 	712: {"TestCppArgumentLocalIsNotAFunction", "TestCppArgumentParameterIsNotAFunction", "TestCppBareArgumentDoesNotNameAnotherClassMethod", "TestCppBareArgumentStillNamesAFunction", "TestCppQualifiedNameInFileScopeInitializer"},
 	712: {"TestCppOutOfLineDefinitionInAnotherDirectoryKeepsOverride", "TestCppOverrideIsNotCarriedFromAHeaderOutOfSight", "TestGolden"},
 	713: {"TestSwiftSendingAndConsumeKeepTheType", "TestSwiftTypeBodyMacroKeepsTheType", "TestSwiftRecoveryRewritesPreserveOffsets"},
+	713: {"TestSwiftTypeUsesInDeclarationsAreNames", "TestSwiftTypeUseBindsThroughScope", "TestSwiftSynthesizedCodingKeysAreRegistered", "TestSwiftConstructorBindsThroughScope"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

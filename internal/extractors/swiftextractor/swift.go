@@ -210,7 +210,9 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 
 	// Canonicalise bare edge targets to "<dir>.<Type>" so reverse traversal
 	// (impact_analysis) connects dependents to their targets.
-	canonicalizeTargets(allFacts, index, newSwiftTypeVisibility(allFacts, resolver.targetIdentity, moduleForFile))
+	canonicalizeTargets(allFacts, index, newSwiftTypeVisibility(allFacts, resolver.targetIdentity, moduleForFile),
+		newSwiftNamedTypes(allFacts, moduleForFile))
+	markSynthesizedCodingKeys(allFacts)
 
 	// Bind the walker's tentative bare-short-name member-call edges to concrete
 	// project methods (or drop stdlib/framework calls). Runs after
@@ -362,7 +364,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 // file sees (production files see production declarations only). Targets that
 // already contain "." (resolved methods/functions) or that name an unknown
 // (external) type are left unchanged.
-func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes, vis *swiftTypeVisibility) {
+func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes, vis *swiftTypeVisibility, named *swiftNamedTypes) {
 	for i := range allFacts {
 		if len(allFacts[i].Relations) == 0 {
 			continue
@@ -370,16 +372,28 @@ func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes, vis *swiftT
 		typeDirs := index.forFile(allFacts[i].File).typeDirs
 		rels := allFacts[i].Relations[:0]
 		for _, r := range allFacts[i].Relations {
+			if r.Kind == facts.RelNames {
+				// A type written by name binds as Swift looks it up (typeuses.go); a
+				// name the project declares no visible type of records nothing.
+				t := named.resolve(&allFacts[i], r.Target, vis)
+				if t == "" || slices.ContainsFunc(rels, func(x facts.Relation) bool { return x.Kind == r.Kind && x.Target == t }) {
+					continue
+				}
+				r.Target = t
+				rels = append(rels, r)
+				continue
+			}
 			switch r.Kind {
-			case facts.RelInstantiates, facts.RelInjects, facts.RelCalls, facts.RelDependsOn, facts.RelNames:
+			case facts.RelInstantiates, facts.RelInjects, facts.RelCalls, facts.RelDependsOn:
 				if strings.Contains(r.Target, ".") {
 					break
 				}
-				// The type of that name the file sees (typevisibility.go).
-				if dir := vis.resolve(&allFacts[i], typeDirs[r.Target]); dir != "" {
+				// The type of that name the file sees, nested in an enclosing type
+				// first (typeuses.go), else top-level (typevisibility.go).
+				if t := named.resolve(&allFacts[i], r.Target, vis); t != "" {
+					r.Target = t
+				} else if dir := vis.resolve(&allFacts[i], typeDirs[r.Target]); dir != "" {
 					r.Target = dir + "." + r.Target
-				} else if r.Kind == facts.RelNames {
-					continue // a metatype of a type the project does not declare
 				}
 			}
 			rels = append(rels, r)
