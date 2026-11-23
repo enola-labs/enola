@@ -653,15 +653,17 @@ func (t typeIndex) canonical(dir, name string) string {
 // includes may reach (mayReach). A name declared once is no exception, because a
 // lone copy the source cannot include is another program's type that shares the
 // name (a wrapper library's ScalarFunction, a vendored library's IntType), not the
-// one meant. declares, when set, narrows the candidates to those that have
-// the member being referenced (it is ignored when no copy passes, so a
+// one meant. declares, when set, narrows the candidates to those that have the
+// member being referenced (it is ignored when no copy passes, so a
 // namespace-wrapped or inherited member still gets a directory for the later
-// passes to work from). One candidate is taken; among several, the fact's own
-// directory wins, then the single directory its includes reach. Anything else is
-// ambiguous.
+// passes to work from). A name declared once resolves to its copy. Among several,
+// a lone survivor is taken only when the fact's includes are known to reach it;
+// otherwise the fact's own directory wins, then the single directory its
+// includes reach. Anything else is ambiguous.
 func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility, declares func(dir string) bool) string {
+	all := t.dirs[name]
 	var candidates []string
-	for _, dir := range t.dirs[name] {
+	for _, dir := range all {
 		if visibility.mayReach(sourceDir, dir) {
 			candidates = append(candidates, dir)
 		}
@@ -677,10 +679,10 @@ func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility
 			candidates = narrowed
 		}
 	}
-	switch len(candidates) {
-	case 0:
+	if len(candidates) == 0 {
 		return ""
-	case 1:
+	}
+	if len(all) == 1 {
 		return candidates[0]
 	}
 	if slices.Contains(candidates, sourceDir) {

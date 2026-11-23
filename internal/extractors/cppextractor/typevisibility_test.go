@@ -92,3 +92,25 @@ void Ng_AddPoint(Mesh *m) { m->AddPoint(); }`,
 		t.Errorf("Draw should call Mesh::AddPoint, got %+v", draw.Relations)
 	}
 }
+
+// An include the index cannot place only keeps copies in sight. It does not pick
+// one of several: a name declared twice, one copy behind such an include, stays
+// ambiguous, so a capitalized call to a same-named function remains a call.
+func TestUnplacedIncludeDoesNotPickAmongSeveralCopies(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"occ/mesh.hpp":  `namespace ng { class Line { public: Line(int); }; }`,
+		"csg/line.hpp":  `class Line { public: Line(int); };`,
+		"bamg/draw.hpp": `namespace bamg { inline void Line(int x) {} }`,
+		"bamg/draw.cpp": "#include \"draw.hpp\"\n#include <mesh.hpp>\n" +
+			`namespace bamg { void Draw() { Line(1); } }`,
+	})
+	draw := mustFact(t, ff, "bamg.bamg::Draw")
+	for _, r := range draw.Relations {
+		if r.Kind == facts.RelInstantiates {
+			t.Errorf("Line is declared twice and neither copy is known to be included, got %+v", r)
+		}
+	}
+	if !hasRelation(draw, facts.RelCalls, "bamg.bamg::Line") {
+		t.Errorf("Draw should call bamg::Line, got %+v", draw.Relations)
+	}
+}
