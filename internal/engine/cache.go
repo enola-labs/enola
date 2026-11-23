@@ -3953,11 +3953,10 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-// v712: an unqualified C++ call binds as C++ unqualified lookup does: to the
-// function an enclosing namespace of the caller declares, innermost first, among
-// the declarations the caller's file may include; a member function's own class or
-// a base declaring the name keeps the call. A same-named function in a directory
-// the file cannot include no longer leaves the call unbound.
+// v712: a name passed as a C++ call argument is no function value when the
+// enclosing function declares it as a parameter or local, and a bare name bound by
+// its unique short name binds only to a free function or a member of the caller's
+// own class, never to another class's method.
 const cacheVersion = "v712"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
