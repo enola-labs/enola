@@ -23,6 +23,10 @@ func extractFileAST(src []byte, relFile string) []facts.Fact {
 	if err := parser.SetLanguage(sitter.NewLanguage(php.LanguagePHP())); err != nil {
 		return nil
 	}
+	blade := isBladeFile(relFile)
+	if blade {
+		src = bladeToPHP(src)
+	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
 
@@ -33,7 +37,11 @@ func extractFileAST(src []byte, relFile string) []facts.Fact {
 		importMap: map[string]string{},
 	}
 	w.walkProgram(tree.RootNode())
-	w.emitFileScopeNames(tree.RootNode())
+	if blade {
+		w.walkTemplate(tree.RootNode())
+	} else {
+		w.emitFileScopeNames(tree.RootNode())
+	}
 	return w.out
 }
 
@@ -537,6 +545,9 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 				w.recordCallMetrics(target)
 			}
 			w.recordIODirect(phpText(method, w.src), phpIOMethods)
+			if isBladeDirectiveCall(target) {
+				w.bladeDirectiveCode(node, ownerIdx, seen)
+			}
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
 		return

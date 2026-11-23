@@ -3887,7 +3887,12 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v704: a PHP Blade view (`.blade.php`) is read as the PHP it runs: its echoes,
+// directive arguments, `@php` blocks, `@inject` and `@use` are walked like a function
+// body onto the view's file_ref fact, so a class or method used only from a view is
+// no longer dead. The `<?php ?>` string a `Blade::directive` callback returns is
+// walked onto the method registering it.
+const cacheVersion = "v704"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

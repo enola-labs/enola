@@ -256,7 +256,8 @@ func bindReceiverCalls(allFacts []facts.Fact) {
 	}
 	for i := range allFacts {
 		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol || f.Props == nil {
+		// A Blade view's code is walked onto its file reference fact (blade.go).
+		if (f.Kind != facts.KindSymbol && f.Kind != facts.KindFileRef) || f.Props == nil {
 			continue
 		}
 		calls, _ := f.Props[propReceiverCalls].([]string)
