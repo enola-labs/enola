@@ -3995,7 +3995,11 @@ import (
 // takes `override`, `final` and `virtual` from the in-class declaration its
 // directory's includes reach (a class declared under include/ and defined under
 // src/).
-const cacheVersion = "v712"
+// v713: Swift: a file that does not parse is parsed again with the `sending` type
+// specifier, the `consume` and `copy` operators and the freestanding macros of a type
+// body blanked out (bytes and lines kept), so a class using them keeps its symbol and
+// the declarations in a macro's trailing closure read as members of the type.
+const cacheVersion = "v713"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
