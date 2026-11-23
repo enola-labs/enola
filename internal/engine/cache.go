@@ -3953,7 +3953,11 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v710: Java: an XML resource under src/main/resources that names a repository
+// type by its fully-qualified name in a type, resultType, parameterType or ofType
+// attribute (MyBatis mappers, MyBatis Generator plugins) is a KindFileRef naming
+// that type. Short names (type aliases) bind nothing.
+const cacheVersion = "v710"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

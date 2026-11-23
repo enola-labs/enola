@@ -130,6 +130,8 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 	// loaded by name (ExtensionLoader/ServiceLoader) — never called in code — is not
 	// reported as dead code.
 	allFacts = append(allFacts, extractSPIRefs(repoPath, files, typeIndex)...)
+	// Classes XML configuration loads by name (xmltyperefs.go).
+	allFacts = append(allFacts, extractXMLTypeRefs(repoPath, files, typeIndex)...)
 
 	for dir := range modules {
 		props := map[string]any{
