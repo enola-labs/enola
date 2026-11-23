@@ -3888,10 +3888,12 @@ import (
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
 // v704: PHP: an Eloquent relation method (one returning `$this->hasMany(...)`,
-// morphTo included) read as a property (`$status->mentions`) or named in an eager
-// load or relation query (`with('a.b')`, `whereHas`, `withCount('c as n')`) is a
-// calls edge: to the relation of a receiver of declared type, else to the one
-// relation of that name, else by bare name unless a global function has the name.
+// morphTo included) read as a property of a receiver of declared type
+// (`$status->mentions` with `Status $status`) or named in an eager load or relation
+// query on a model class or typed receiver (`Media::with('status.mentions')`,
+// `whereHas`, `withCount('c as n')`) is a calls edge to that relation, a path's later
+// segments looked up on the model the previous relation names. A read on a receiver
+// of unknown type records nothing: the extractor does not know the columns.
 const cacheVersion = "v704"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

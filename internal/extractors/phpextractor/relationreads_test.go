@@ -61,51 +61,57 @@ func relationCalls(t *testing.T, name string, sources ...string) []string {
 	return out
 }
 
-// TestEloquentRelationPropertyReadIsAUse: reading a relation as a property runs the
-// relation method. A typed receiver binds to the model's method; an untyped one to
-// the one relation of that name, else by bare name as an untyped method call is,
-// unless a function has that name. A column or a write records nothing.
+// TestEloquentRelationPropertyReadIsAUse: reading a relation as a property of a
+// receiver of declared type runs that model's relation method. A column of the model,
+// a write and a read on a receiver of unknown type record nothing: without the
+// model's columns, `$x->status` may be a column.
 func TestEloquentRelationPropertyReadIsAUse(t *testing.T) {
 	got := relationCalls(t, `App\Services\Notes::update`, relationModels, `<?php
 namespace App\Services;
 use App\Models\Status;
+use App\Models\Media;
 class Notes {
-    public function update(Status $status, $other) {
+    public function update(Status $status, Media $media, $other) {
         $a = $status->mentions->map(fn ($m) => $m->id);
-        $b = $other?->poll;
-        $c = $other->profile;
+        $b = $media?->owner;
+        $c = $other->profile . $other->poll;
         $d = $status->caption;
-        $e = $other->profile_id . $other->author;
-        $other->owner = null;
-        return [$a, $b, $c, $d, $e];
+        $media->author = null;
+        return [$a, $b, $c, $d];
     }
 }
-`, "<?php\nfunction author() { return null; }\n")
-	wantRelationCalls(t, got, []string{`App\Models\Status::mentions`, `App\Models\Status::poll`, "profile"},
-		[]string{"mentions", "poll", "caption", `App\Models\Status::caption`, "profile_id",
-			"author", `App\Models\Status::author`, `App\Models\Media::author`, `App\Models\Media::owner`})
+`)
+	wantRelationCalls(t, got, []string{`App\Models\Status::mentions`, `App\Models\Media::owner`},
+		[]string{"mentions", "profile", "poll", `App\Models\Status::poll`, `App\Models\Status::profile`,
+			`App\Models\Media::profile`, "caption", `App\Models\Status::caption`, `App\Models\Media::author`})
 }
 
-// TestEloquentRelationNamedInEagerLoadIsAUse: a relation named in with(), load(),
-// whereHas() and friends, dotted paths per segment, is a use; on a model class the
-// first segment binds to that model's method. A key/value with() (a redirect's
-// flash data) names no relation.
+// TestEloquentRelationNamedInEagerLoadIsAUse: a relation path named in with(),
+// load(), withCount() and friends on a model class or a typed receiver is a use of
+// each relation along it; a later segment is looked up on the model the previous
+// relation names. On a receiver of unknown type, and as a keyed value that is no
+// closure (flash data), it records nothing.
 func TestEloquentRelationNamedInEagerLoadIsAUse(t *testing.T) {
 	got := relationCalls(t, `App\Services\MediaService::get`, relationModels, `<?php
 namespace App\Services;
 use App\Models\Media;
+use App\Models\Status;
 class MediaService {
-    public function get($q) {
-        Media::with('contentCredential')->first();
-        $q->whereHas('status.mentions', fn ($s) => $s)->withCount(['poll as polls'])->with(['parent' => fn ($p) => $p]);
-        redirect()->back()->with(['owner' => 'Saved']);
+    public function get($q, Media $media) {
+        Media::with('contentCredential', 'status.mentions:id')->first();
+        Status::withCount(['poll as polls']);
+        Status::with(['parent' => fn ($p) => $p]);
+        $q->whereHas('profile');
+        Media::with(['owner' => 'Saved']);
+        $media->load('author');
         return redirect()->with('caption', 'saved');
     }
 }
 `)
 	wantRelationCalls(t, got, []string{`App\Models\Media::contentCredential`, `App\Models\Media::status`,
-		`App\Models\Status::mentions`, `App\Models\Status::poll`, `App\Models\Status::parent`},
-		[]string{"caption", "owner", `App\Models\Media::owner`, "polls", "status.mentions"})
+		`App\Models\Status::mentions`, `App\Models\Status::poll`, `App\Models\Status::parent`, `App\Models\Media::author`},
+		[]string{"profile", `App\Models\Status::profile`, `App\Models\Media::profile`, "owner", `App\Models\Media::owner`,
+			"caption", "polls", "status", "mentions"})
 }
 
 // wantRelationCalls checks that got holds every name in want and none in absent.

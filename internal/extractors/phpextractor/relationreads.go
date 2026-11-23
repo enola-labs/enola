@@ -70,10 +70,10 @@ func (w *phpWalker) recordPropertyRead(node *sitter.Node, ownerIdx int) {
 // recordEagerLoads notes the relations an eager load or relation query names:
 // `with('author.profile')`, `withCount(['comments as total'])`,
 // `with(['posts' => fn ($q) => ...])`. typ is the receiver's class when declared; it
-// types the first segment of each path. A two-argument `with` whose second argument
-// is not a closure is a key and a value (a view's or a redirect's data).
+// types the first segment of each path; without it nothing is recorded, so a view's
+// or a redirect's `with('key', $value)` names no relation.
 func (w *phpWalker) recordEagerLoads(call *sitter.Node, ownerIdx int, method, typ string) {
-	if !eagerLoadMethods[method] || ownerIdx < 0 {
+	if !eagerLoadMethods[method] || ownerIdx < 0 || typ == "" {
 		return
 	}
 	var args []*sitter.Node
@@ -83,9 +83,6 @@ func (w *phpWalker) recordEagerLoads(call *sitter.Node, ownerIdx int, method, ty
 				args = append(args, a.NamedChild(a.NamedChildCount()-1))
 			}
 		}
-	}
-	if method == "with" && len(args) == 2 && !isClosure(args[1]) {
-		return
 	}
 	for _, arg := range args {
 		switch kindOf(arg) {
@@ -116,8 +113,9 @@ func isClosure(node *sitter.Node) bool {
 	return false
 }
 
-// addRelationPath notes each segment of a dotted relation path, without an
-// `as alias` suffix or a `:columns` selection.
+// addRelationPath notes a dotted relation path, without an `as alias` suffix or a
+// `:columns` selection, on a receiver of declared type. bindRelationReads follows
+// each segment through the class the previous relation names.
 func (w *phpWalker) addRelationPath(ownerIdx int, typ, path string) {
 	if i := strings.Index(strings.ToLower(path), " as "); i >= 0 {
 		path = path[:i]
@@ -125,12 +123,13 @@ func (w *phpWalker) addRelationPath(ownerIdx int, typ, path string) {
 	if i := strings.IndexByte(path, ':'); i >= 0 {
 		path = path[:i]
 	}
-	for i, seg := range strings.Split(strings.TrimSpace(path), ".") {
-		if i > 0 {
-			typ = ""
+	path = strings.TrimSpace(path)
+	for _, seg := range strings.Split(path, ".") {
+		if !isIdentifier(seg) {
+			return
 		}
-		w.addRead(ownerIdx, typ, seg)
 	}
+	w.addRead(ownerIdx, typ, path)
 }
 
 // plainReceiver is receiverOf for a receiver whose class is known without a later
@@ -146,15 +145,14 @@ func (w *phpWalker) plainReceiver(obj *sitter.Node) string {
 	return typ
 }
 
-// addRead appends a read to the owner's property reads, each once.
+// addRead appends a read, `Type::name` or `Type::a.b` for a path, to the owner's
+// property reads, each once. A read on a receiver of unknown type is not recorded:
+// without the model's columns, `$x->status` may as well be a column as a relation.
 func (w *phpWalker) addRead(ownerIdx int, typ, name string) {
-	if name == "" || !isIdentifier(name) {
+	if typ == "" || name == "" {
 		return
 	}
-	entry := name
-	if typ != "" {
-		entry = typ + "::" + name
-	}
+	entry := typ + "::" + name
 	reads, _ := w.out[ownerIdx].Props[propPropertyReads].([]string)
 	for _, r := range reads {
 		if r == entry {
@@ -175,46 +173,35 @@ func isIdentifier(s string) bool {
 	return s != ""
 }
 
-// bindRelationReads adds a calls edge for each property read or eager-loaded name
-// that is a relation method, in place, and removes the carrier props.
+// bindRelationReads adds a calls edge for each property read or eager-loaded path
+// that reaches a relation method, in place, and removes the carrier props.
 //
-// A read on a receiver of declared type reaches that class's relation (declared on
-// it, a parent or a trait) or nothing: a column of that model shares the name with
-// no relation of its own. A read on any other receiver reaches the relation when
-// exactly one relation method has the name, and is otherwise a bare-name call, as an
-// untyped method call is. A bare name that is also a function's would bind to that
-// function in the graph, so it records nothing.
+// Every read has a receiver of declared type. It reaches that class's relation
+// (declared on it, a parent or a trait) or nothing: a column of that model shares the
+// name with no relation of its own. A path's later segments are looked up on the
+// class the previous relation names (eloquent_target); a morphTo names none, and the
+// path stops there.
 func bindRelationReads(allFacts []facts.Fact) {
-	relations := map[string]bool{}
-	byName := map[string][]string{}
-	functions := map[string]bool{}
-	typed := false
+	relations := map[string]string{}
+	reads := false
 	for i := range allFacts {
 		f := &allFacts[i]
-		if f.Kind == facts.KindSymbol && f.PropString("symbol_kind") == facts.SymbolFunc {
-			functions[f.Name] = true
-		}
 		if f.Props == nil {
 			continue
 		}
 		if f.PropBool(propRelationMethod) {
 			delete(f.Props, propRelationMethod)
-			if sep := strings.LastIndex(f.Name, "::"); sep >= 0 && !relations[f.Name] {
-				relations[f.Name] = true
-				byName[f.Name[sep+2:]] = append(byName[f.Name[sep+2:]], f.Name)
-			}
+			relations[f.Name] = f.PropString(propEloquentTarget)
 		}
-		if reads, ok := f.Props[propPropertyReads].([]string); ok && !typed {
-			for _, r := range reads {
-				if strings.Contains(r, "::") {
-					typed = true
-					break
-				}
-			}
+		if _, ok := f.Props[propPropertyReads]; ok {
+			reads = true
 		}
 	}
+	if !reads {
+		return
+	}
 	var ix *classIndex
-	if typed && len(relations) > 0 {
+	if len(relations) > 0 {
 		ix = newClassIndex(allFacts)
 	}
 	for i := range allFacts {
@@ -222,23 +209,30 @@ func bindRelationReads(allFacts []facts.Fact) {
 		if (f.Kind != facts.KindSymbol && f.Kind != facts.KindFileRef) || f.Props == nil {
 			continue
 		}
-		reads, _ := f.Props[propPropertyReads].([]string)
+		entries, _ := f.Props[propPropertyReads].([]string)
 		delete(f.Props, propPropertyReads)
-		for _, r := range reads {
-			target := ""
-			if sep := strings.LastIndex(r, "::"); sep >= 0 {
-				if ix != nil && ix.hasClass(r[:sep]) {
-					if m := ix.declaringMethod(r[:sep], r[sep+2:]); relations[m] {
-						target = m
-					}
-				}
-			} else if named := byName[r]; len(named) == 1 {
-				target = named[0]
-			} else if len(named) > 1 && !functions[r] {
-				target = r
+		if ix == nil {
+			continue
+		}
+		for _, r := range entries {
+			sep := strings.LastIndex(r, "::")
+			if sep <= 0 {
+				continue
 			}
-			if target != "" && target != f.Name && !f.HasRelation(facts.RelCalls, target) {
-				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
+			class := r[:sep]
+			for _, seg := range strings.Split(r[sep+2:], ".") {
+				if class == "" || !ix.hasClass(class) {
+					break
+				}
+				m := ix.declaringMethod(class, seg)
+				target, ok := relations[m]
+				if !ok {
+					break
+				}
+				if m != f.Name && !f.HasRelation(facts.RelCalls, m) {
+					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: m})
+				}
+				class = target
 			}
 		}
 	}
