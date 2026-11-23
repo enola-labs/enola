@@ -1907,6 +1907,11 @@ func (w *astWalker) emitFuncPtrRef(name string) {
 	if name == "" || isAllCapsConst(name) || w.paramNames[name] {
 		return
 	}
+	// In C++ a parameter or local of the enclosing function hides a function of
+	// that name: `SetListSize(result, offset)` passes the variable.
+	if w.lang == langCpp && w.valueLocal(name) {
+		return
+	}
 	if target := w.resolveCall(name); target != "" {
 		w.addOwnerEdge(relFuncPtrCandidate, target)
 	}

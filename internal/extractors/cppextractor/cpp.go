@@ -57,6 +57,14 @@ const relQualifiedFuncValue = "qualified_func_value"
 // c); it never appears in emitted facts.
 const relDeclValueCandidate = "decl_value_candidate"
 
+// relBareFuncValue is a C++ relFuncPtrCandidate that named a function by its short
+// name: a bare name passed as a value. canonicalizeTargets resolves it as a call,
+// except that a short name unique in the repository binds it only to a free
+// function or a member of the caller's own class: a bare name never names another
+// class's method, so `Fill(result, offset)` does not call some T::offset. It never
+// appears in emitted facts.
+const relBareFuncValue = "bare_func_value"
+
 // CppExtractor extracts architectural facts from C and C++ source code using
 // tree-sitter AST parsing (see cpp_ast.go for the walker implementation). It owns
 // both languages: a per-file grammar choice (see parsedLanguage) routes .c files
@@ -315,11 +323,14 @@ func resolveFuncPtrRefs(allFacts []facts.Fact, funcNames map[string]bool) {
 				if !funcNames[lastScopeComponent(r.Target)] {
 					continue // not a real function — drop the provisional edge
 				}
-				r.Kind = facts.RelCalls
-				if seen[r.Kind+"\x00"+r.Target] {
+				if seen[facts.RelCalls+"\x00"+r.Target] {
 					continue // already a real call edge to the same target
 				}
-				seen[r.Kind+"\x00"+r.Target] = true
+				seen[facts.RelCalls+"\x00"+r.Target] = true
+				r.Kind = facts.RelCalls
+				if allFacts[i].PropString("language") == langCpp {
+					r.Kind = relBareFuncValue
+				}
 			}
 			out = append(out, r)
 		}
@@ -414,6 +425,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 	var stats callResolutionStats
 	known := make(map[string]bool)
 	callable := make(map[string]bool)
+	methods := make(map[string]bool)
 	dataMembers := make(map[string]bool) // Class::field
 	for i := range allFacts {
 		if allFacts[i].Kind == facts.KindSymbol {
@@ -421,6 +433,9 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 			switch sk := allFacts[i].PropString("symbol_kind"); sk {
 			case facts.SymbolFunc, facts.SymbolMethod:
 				callable[allFacts[i].Name] = true
+				if sk == facts.SymbolMethod {
+					methods[allFacts[i].Name] = true
+				}
 			case facts.SymbolVariable, facts.SymbolConstant:
 				if allFacts[i].PropString("receiver") != "" {
 					dataMembers[allFacts[i].Name] = true
@@ -447,6 +462,11 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 			if r.Kind == relQualifiedFuncValue {
 				r.Kind = facts.RelCalls
 				callOnly = true
+			}
+			bareValue := false
+			if r.Kind == relBareFuncValue {
+				r.Kind = facts.RelCalls
+				bareValue = true
 			}
 			if r.Kind == relCapitalizedCallCandidate {
 				if types.resolve(r.Target, source, visibility, nil) != "" {
@@ -604,7 +624,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 								}
 							}
 						} else {
-							if canonical := functions.short[candidate]; canonical != "" {
+							if canonical := functions.short[candidate]; canonical != "" && (!bareValue || namesFreeOrOwnMember(canonical, &allFacts[i], source, callable, methods)) {
 								if visibility.allows(source, canonical) {
 									r.Target = canonical
 									stats.uniqueShort++
@@ -628,11 +648,41 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 				// constructor is a type the index could not resolve: no edge, as before.
 				continue
 			}
+			if bareValue && containsRelation(kept, r) {
+				continue // the caller already calls it
+			}
 			kept = append(kept, r)
 		}
 		allFacts[i].Relations = kept
 	}
 	return stats
+}
+
+func containsRelation(rels []facts.Relation, r facts.Relation) bool {
+	for _, e := range rels {
+		if e.Kind == r.Kind && e.Target == r.Target {
+			return true
+		}
+	}
+	return false
+}
+
+// namesFreeOrOwnMember reports whether a bare name passed as a value may name
+// canonical: a free function, or a member of the class the caller belongs to (a
+// static member function named from inside its class).
+func namesFreeOrOwnMember(canonical string, caller *facts.Fact, source string, callable, methods map[string]bool) bool {
+	if !callable[canonical] {
+		return false
+	}
+	if !methods[canonical] {
+		return true
+	}
+	class, _, ok := cutLast(canonical[strings.Index(canonical, ".")+1:], "::")
+	if !ok {
+		return true
+	}
+	own, _, ok := cutLast(strings.TrimPrefix(caller.Name, source+"."), "::")
+	return ok && own == class
 }
 
 // cutLast splits s around the last sep.
