@@ -681,9 +681,17 @@ func newAppRoots(store *facts.Store) *appRoots {
 		}
 	}
 	modules := store.ByKind(facts.KindModule)
+	jvmRoots := map[string]bool{} // repo+"\x00"+root of a Maven, Gradle or sbt module
 	for _, m := range modules {
 		if m.PropAny("msbuild") != nil {
 			addRoot(m.Repo, repoRelative(m))
+		}
+		// A JVM build module compiles on its own, and an application among them is
+		// started by its own main: two Spring Boot modules of one repository are two
+		// servers.
+		if unit := m.PropString("jvm_module"); unit != "" {
+			addRoot(m.Repo, unit)
+			jvmRoots[m.Repo+"\x00"+path.Clean(unit)] = true
 		}
 	}
 	// Which root each module node sits under, and the edges between roots.
@@ -766,8 +774,9 @@ func newAppRoots(store *facts.Store) *appRoots {
 			}
 		}
 	}
+	mains := jvmMainRoots(store, a)
 	for i, u := range units {
-		if usedUnit[i] {
+		if usedUnit[i] || !isApplication(u, jvmRoots, mains) {
 			continue
 		}
 		app := u[0] // the unit's smallest root names it
@@ -788,6 +797,50 @@ func newAppRoots(store *facts.Store) *appRoots {
 		}
 	}
 	return a
+}
+
+// jvmMainRoots are the JVM build modules declaring a program entry point: a static
+// main method in Java, a main function or method in Kotlin and Scala.
+func jvmMainRoots(store *facts.Store, a *appRoots) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range store.ByKind(facts.KindSymbol) {
+		lang := f.PropString("language")
+		if lang != "java" && lang != "kotlin" && lang != "scala" {
+			continue
+		}
+		if i := strings.LastIndexAny(f.Name, "./"); i < 0 || f.Name[i+1:] != "main" {
+			continue
+		}
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolMethod, facts.SymbolFunc:
+		default:
+			continue
+		}
+		if lang == "java" && !f.PropBool("static") {
+			continue
+		}
+		if facts.IsTestPath(f.File) {
+			continue
+		}
+		if r, ok := a.rootOf(f.Repo, repoRelative(f)); ok {
+			out[f.Repo+"\x00"+r] = true
+		}
+	}
+	return out
+}
+
+// isApplication reports whether a unit nothing uses is an application. A unit holding a
+// root of another kind is one, as before; a unit of JVM build modules only when one
+// of them declares a main. A library module nothing in the repository depends on is
+// served by an application outside it, which may mount it beside any other, so it is
+// not known to be apart from anything.
+func isApplication(unit []string, jvmRoots, mains map[string]bool) bool {
+	for _, r := range unit {
+		if !jvmRoots[r] || mains[r] {
+			return true
+		}
+	}
+	return false
 }
 
 // rootOf is the nearest app root above a repo-relative file.
