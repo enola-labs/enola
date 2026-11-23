@@ -4028,6 +4028,10 @@ import (
 // v724: C and C++: a bare name found by its unique short name binds to a member
 // (`Type::member`) only from inside a C++ member function. From C, where a bare
 // name is a parameter or local, and from a C++ free function, it binds nothing.
+// v723: C and C++ files under test/, tests/ and testing/ are ignored and recovered
+// as test refs in the production extraction (CppExtractor.ExtractWithTests): the
+// test files resolve against the production files' pass-one facts, as when they
+// were indexed with them, and the production facts resolve without the tests.
 const cacheVersion = "v724"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

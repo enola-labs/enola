@@ -858,7 +858,7 @@ func (e *Engine) detect(ext extractors.Extractor, repoPath string, allNames []st
 //
 // It also reports the SHADOWED extractors: those registered and applicable to this
 // repository, but excluded by an explicit `extractors:` list. See reportShadowed.
-func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allNames []string, hashes map[string]string, cache *extractorCache, progress *extractionProgress) ([]string, []string, []facts.ParseError, error) {
+func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, testFiles, allNames []string, hashes map[string]string, cache *extractorCache, progress *extractionProgress) ([]string, []string, []facts.ParseError, error) {
 	var usedNames []string
 	var shadowed []string
 	var parseErrs []facts.ParseError
@@ -894,6 +894,15 @@ func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allN
 			continue
 		}
 
+		// A test-aware extractor sees its test files in the same pass, and its
+		// cache entry is keyed on them too.
+		ownedTests := e.ownedTestFiles(ext, testFiles)
+		if cache != nil && len(ownedTests) > 0 {
+			if key, ok := keys[ext.Name()]; ok {
+				keys[ext.Name()] = testAwareKey(key, ownedTests, e.computeFileHashes(ctx, repoPath, ownedTests))
+			}
+		}
+
 		// Reuse cached facts when this extractor's inputs are unchanged.
 		if cache != nil {
 			if key, ok := keys[ext.Name()]; ok {
@@ -910,7 +919,12 @@ func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allN
 		log.Printf("[engine] running extractor: %s", ext.Name())
 		tExt := time.Now()
 		extCtx, probes := plugin.WithDiskProbes(ctx)
-		extracted, err := ext.Extract(extCtx, repoPath, files)
+		var extracted []facts.Fact
+		if ta, ok := ext.(plugin.TestAwareExtractor); ok && len(ownedTests) > 0 {
+			extracted, err = ta.ExtractWithTests(extCtx, repoPath, files, ownedTests)
+		} else {
+			extracted, err = ext.Extract(extCtx, repoPath, files)
+		}
 		if err != nil {
 			// A fatal extractor error fails the snapshot rather than being recorded
 			// and stepped over. Declarations use it: an invalid one would otherwise
@@ -962,6 +976,32 @@ func (e *Engine) reportShadowed(repoPath string, shadowed []string) {
 		strings.Join(shadowed, ", "), repoPath, where)
 }
 
+// ownedTestFiles returns the test files a test-aware extractor owns, or nil for
+// any other extractor.
+func (e *Engine) ownedTestFiles(ext plugin.Extractor, testFiles []string) []string {
+	if _, ok := ext.(plugin.TestAwareExtractor); !ok || len(testFiles) == 0 {
+		return nil
+	}
+	fo, ok := ext.(plugin.FileOwner)
+	if !ok {
+		return testFiles
+	}
+	var owned []string
+	for _, f := range testFiles {
+		if fo.OwnsFile(f) {
+			owned = append(owned, f)
+		}
+	}
+	return owned
+}
+
+// testAwareKey extends an extractor's cache key with the test files it reads.
+func testAwareKey(key string, testFiles []string, hashes map[string]string) string {
+	h := sha256.New()
+	h.Write([]byte(key + "\x00tests\x00" + hashFileSet(testFiles, hashes)))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // runTestRefExtractors runs reference-only extraction over the test/spec files
 // for every enabled, detected extractor that implements plugin.TestRefExtractor.
 // It scopes each extractor to the test files it owns and adds the resulting
@@ -982,6 +1022,9 @@ func (e *Engine) runTestRefExtractors(ctx context.Context, repoPath string, test
 		tr, ok := ext.(plugin.TestRefExtractor)
 		if !ok {
 			continue
+		}
+		if _, testAware := ext.(plugin.TestAwareExtractor); testAware {
+			continue // its test refs came with its extraction
 		}
 		if detected, err := e.detect(ext, repoPath, allNames); err != nil || !detected {
 			continue

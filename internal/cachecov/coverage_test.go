@@ -311,6 +311,7 @@ var versionCoverage = map[int][]string{
 	716: {"TestCppDeclarationInstantiates", "TestCppNewExpressionInstantiates", "TestCppFactoryTemplatesInstantiate", "TestCppValueMemberInstantiates", "TestCppConstructionBindsOnlyAWrittenVisibleType", "TestCppConstructionYieldsToTypedefsAndFileLocalTypes"},
 	717: {"TestCppMacroWrittenDefinitionIsAnEntryPoint", "TestCppUnknownMacroDefinitionIsNotAnEntryPoint"},
 	724: {"TestCBareNameDoesNotBindAStructMember", "TestCppFreeFunctionBareNameDoesNotBindAMember", "TestCppFreeFunctionBareNameStillConstructs"},
+	723: {"TestCppTestGlobsScopeToTestTrees", "TestCppExtractTestRefsEmitsOnlyTestRefFacts", "TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed", "TestCppTestRefsCreditLifecycleAndInheritedMembers", "TestCppTestRefsCreditAProductionHeaderOfTestHelpers", "TestTestAwareExtractorSeesTestsAndKeysTheCacheOnThem", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
