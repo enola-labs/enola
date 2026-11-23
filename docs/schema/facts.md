@@ -132,7 +132,10 @@ Contract props:
   `interface`, `type`, `class`, `variable`, `constant`, `enum`, or, for
   Markdown, `document` (a page) and `section` (one of its headings). A
   document or section is queryable but takes no edge in the dependency graph:
-  prose about the code is not a dependency of it.
+  prose about the code is not a dependency of it. Swift also emits
+  `extension` for a conformance declared in an extension (`extension Int:
+  Content {}`), named `<dir>.<Base>+<Proto>` with an `implements` edge to the
+  protocol. No source can name it, so dead-code analysis never reports it.
 
 ### module
 

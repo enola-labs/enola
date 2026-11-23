@@ -675,6 +675,12 @@ func isExcluded(sym symInput, opts options) bool {
 	if sym.Kind == facts.SymbolDocument || sym.Kind == facts.SymbolSection {
 		return true
 	}
+	// A Swift conformance extension is a record that its base type implements a
+	// protocol, named `Base+Proto`. No source spells that name, so nothing can
+	// reference it; whether the code is used is its base type's question.
+	if sym.Kind == facts.SymbolExtension {
+		return true
+	}
 	bn := bareName(sym.Name)
 	// Dunders (__init__, __enter__, …) are invoked implicitly, never by name.
 	if isDunder(bn) {
