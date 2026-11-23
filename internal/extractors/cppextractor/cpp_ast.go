@@ -1394,6 +1394,11 @@ func (w *astWalker) walkInitializerRefs(node *sitter.Node) {
 	case "pointer_expression": // &func / *func
 		w.walkInitializerRefs(node.ChildByFieldName("argument"))
 		return
+	case "qualified_identifier":
+		// ns::fn or Type::member names that declaration, not whatever shares its
+		// last component.
+		w.emitValueRef(node)
+		return
 	case "initializer_pair":
 		// Recurse only into the value — never the ".field" / "[i]" designator.
 		w.walkInitializerRefs(node.ChildByFieldName("value"))
@@ -1905,6 +1910,11 @@ func (w *astWalker) valueLocal(name string) bool {
 // ordinary data identifiers never produce a spurious reference.
 func (w *astWalker) emitFuncPtrRef(name string) {
 	if name == "" || isAllCapsConst(name) || w.paramNames[name] {
+		return
+	}
+	// In C++ a parameter or local of the enclosing function hides a function of
+	// that name: `SetListSize(result, offset)` passes the variable.
+	if w.lang == langCpp && w.valueLocal(name) {
 		return
 	}
 	if target := w.resolveCall(name); target != "" {
