@@ -3966,7 +3966,10 @@ import (
 // type by its fully-qualified name in a type, resultType, parameterType or ofType
 // attribute (MyBatis mappers, MyBatis Generator plugins) is a KindFileRef naming
 // that type. Short names (type aliases) bind nothing.
-const cacheVersion = "v710"
+// v711: Kotlin: a Ktor module named in ktor.application.modules of a production
+// source set's application.conf or application.yaml is referenced by that file (a
+// file_ref with calls edges), through its file facade class or declaring class.
+const cacheVersion = "v711"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

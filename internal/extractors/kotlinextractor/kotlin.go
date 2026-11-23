@@ -164,6 +164,9 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 	resolveCapitalCalls(allFacts)
 	resolveValueRefs(allFacts)
 
+	// Ktor modules EngineMain loads by name from application.conf or .yaml.
+	allFacts = append(allFacts, extractKtorModuleRefs(repoPath, kotlinFiles, packageDirs, allFacts)...)
+
 	// The walker marks only the round-trip itself (a Retrofit endpoint, a Room DAO
 	// operation). A method with a calls edge to one is I/O through it.
 	ioclosure.Propagate(allFacts)
@@ -214,6 +217,9 @@ func (e *KotlinExtractor) OwnsFile(relFile string) bool { return isKotlinFile(re
 // declaration feeds the cross-language package index used to resolve Kotlin
 // imports, so a change to either must invalidate the Kotlin extractor's cache.
 func (e *KotlinExtractor) AffectsKey(relFile string) bool {
+	if isKtorConfigFile(relFile) {
+		return true // Ktor modules named in configuration (ktorconfig.go)
+	}
 	l := strings.ToLower(relFile)
 	return strings.HasSuffix(l, ".java") || strings.HasSuffix(l, ".scala") || strings.HasSuffix(l, ".sc")
 }
