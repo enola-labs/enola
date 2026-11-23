@@ -3887,7 +3887,12 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v705: TS/JS: a function handed on by value in code that runs at file scope (an
+// expression statement at the top level or in a wrapper's body, a wrapper's plain
+// variable) is named by the file, and a wrapper's functions, classes and kept
+// variables are module values its functions can name. A property assigned on a
+// declaration (`Card.propTypes = ...`) is no use of it.
+const cacheVersion = "v705"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

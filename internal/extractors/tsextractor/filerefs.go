@@ -21,6 +21,7 @@ type fileRefs struct {
 	namespaces  map[string]string // `import * as ns` local -> module dir
 	reexports   []string          // canonical targets re-exported via `export { x } from './y'`
 	defaultRefs []string          // default-export targets of default-imported modules
+	named       []facts.Relation  // values handed on at file scope (fileScopeValueRefs)
 
 	targets []string
 	seen    map[string]bool
@@ -72,17 +73,19 @@ func (e *TSExtractor) collectTSFileRefs(kinds *tsutil.KindTable, root *sitter.No
 	for _, t := range r.defaultRefs {
 		r.add(t)
 	}
+	r.named = fileScopeValueRefs(kinds, root, ctx)
 	return r.fact(kind)
 }
 
 func (r *fileRefs) fact(kind string) []facts.Fact {
-	if len(r.targets) == 0 {
+	if len(r.targets) == 0 && len(r.named) == 0 {
 		return nil
 	}
-	rels := make([]facts.Relation, 0, len(r.targets))
+	rels := make([]facts.Relation, 0, len(r.targets)+len(r.named))
 	for _, t := range r.targets {
 		rels = append(rels, facts.Relation{Kind: facts.RelCalls, Target: t})
 	}
+	rels = append(rels, r.named...)
 	return []facts.Fact{{
 		Kind:      kind,
 		Name:      r.ctx.relFile,
