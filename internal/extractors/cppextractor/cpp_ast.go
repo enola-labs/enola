@@ -1792,6 +1792,53 @@ func (w *astWalker) emitDeclValueRef(v *sitter.Node, bare bool) {
 	w.emitValueRef(v)
 }
 
+// emitVexingParseRefs reads a local direct-initialization that tree-sitter parsed
+// as a function declaration, because every argument looks like a type:
+// `CompressionFunction result(CompressionType::RLE, data_type, InitAnalyze<T>)`.
+// A parameter list whose entries name no parameter is that argument list, so each
+// entry is a value; non-functions are dropped later, as for any argument.
+func (w *astWalker) emitVexingParseRefs(node *sitter.Node) {
+	for i := uint(0); i < node.ChildCount(); i++ {
+		if node.FieldNameForChild(uint32(i)) != "declarator" {
+			continue
+		}
+		fdecl := node.Child(i)
+		if kindOf(w.kinds, fdecl) != "function_declarator" {
+			continue
+		}
+		params := fdecl.ChildByFieldName("parameters")
+		if params == nil {
+			continue
+		}
+		var types []*sitter.Node
+		for j := uint(0); j < params.ChildCount(); j++ {
+			p := params.Child(j)
+			if !p.IsNamed() {
+				continue
+			}
+			if kindOf(w.kinds, p) != "parameter_declaration" || p.ChildByFieldName("declarator") != nil {
+				types = nil // a real prototype: its parameters have names
+				break
+			}
+			if t := p.ChildByFieldName("type"); t != nil {
+				types = append(types, t)
+			}
+		}
+		for _, t := range types {
+			switch kindOf(w.kinds, t) {
+			case "type_identifier":
+				if name := nodeText(t, w.src); !w.valueLocal(name) {
+					w.emitFuncPtrRef(name)
+				}
+			case "template_type":
+				w.emitFuncPtrRef(identifierLeaf(w.kinds, t, w.src))
+			case "qualified_identifier":
+				w.emitValueRef(t)
+			}
+		}
+	}
+}
+
 // valueLocal reports whether the function being walked declares name as a
 // parameter or a local.
 func (w *astWalker) valueLocal(name string) bool {
@@ -2217,6 +2264,10 @@ func (w *astWalker) walkForCallsAt(nv sitter.Node) {
 		case "":
 		default:
 			w.emitDeclValueRef(value, false)
+		}
+	case "declaration":
+		if w.lang == langCpp && w.metrics != nil {
+			w.emitVexingParseRefs(node)
 		}
 	case "return_statement":
 		// `return Fn<T>;` / `return ns::fn;` hands a function out as a value.

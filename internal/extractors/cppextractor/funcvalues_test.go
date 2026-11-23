@@ -135,3 +135,28 @@ void use(int tag) {
 		}
 	}
 }
+
+// `T result(Kind::A, type, Fn<X>)` with only type-looking arguments parses as a
+// function declaration; its "parameter types" are the arguments.
+func TestCppFunctionValueInAVexingParse(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/rle.cpp": `
+namespace db {
+enum class Kind { RLE };
+struct Compression { Compression(Kind k, int t, int (*a)(int), int (*b)(int)) {} };
+template <class T> int InitAnalyze(int x) { return x; }
+template <class T> int Analyze(int x) { return x; }
+template <class T> Compression GetFunction(int data_type) {
+	Compression result(Kind::RLE, data_type, InitAnalyze<T>, Analyze<T>);
+	return result;
+}
+}
+`,
+	})
+	get := mustFact(t, ff, "src.db::GetFunction")
+	for _, want := range []string{"src.db::InitAnalyze", "src.db::Analyze"} {
+		if !hasRelation(get, facts.RelCalls, want) {
+			t.Errorf("GetFunction should reference %s, got %+v", want, get.Relations)
+		}
+	}
+}
