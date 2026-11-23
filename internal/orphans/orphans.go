@@ -205,6 +205,9 @@ type symInput struct {
 	// own members, as invoked by a framework (a routed action, a job, a registry
 	// contract, …). Its callers are the framework, so no reference is expected.
 	FrameworkRoot bool
+	// MainHolder: a Java class declaring a static main, which the launcher runs
+	// by naming the class on its command line or in a manifest.
+	MainHolder bool
 	// Published: the symbol's module, or one above it, ships as a package
 	// (facts.PropPublished). Its exported surface is written for callers outside
 	// the repository, so tests may be its only in-repo callers by design.
@@ -746,7 +749,7 @@ func isExcluded(sym symInput, opts options) bool {
 		}
 	}
 	if !opts.IncludeEntrypoints {
-		if bn == "main" || bn == "init" {
+		if bn == "main" || bn == "init" || sym.MainHolder {
 			return true
 		}
 		// Framework/DI entry points (Kotlin `override` callbacks — Android lifecycle,
@@ -1160,6 +1163,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	order := make([]string, 0, len(symbols))
 	refSources := make(refIndex)
 	rootedOwners := map[string]bool{}
+	mainOwners := map[string]bool{}
 	// A Go repository's module path, from its root package, so a symbol can be matched
 	// under the import path another repository's code uses for it.
 	modulePaths := map[string]string{}
@@ -1299,6 +1303,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			si.FrameworkRoot = true
 			rootedOwners[memberOwner(f.Name)] = true
 		}
+		if f.PropString(propLanguage) == "java" && bareName(f.Name) == "main" && f.PropBool("static") {
+			mainOwners[ownerOf(f.Name)] = true
+		}
 		recordRefs(f, si)
 	}
 
@@ -1306,6 +1313,13 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	for owner := range rootedOwners {
 		if si := byName[owner]; si != nil {
 			si.FrameworkRoot = true
+		}
+	}
+
+	// A class whose static main the launcher runs is entered as its main is.
+	for owner := range mainOwners {
+		if si := byName[owner]; si != nil {
+			si.MainHolder = true
 		}
 	}
 
