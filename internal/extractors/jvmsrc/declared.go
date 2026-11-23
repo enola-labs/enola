@@ -200,3 +200,17 @@ func DeclaringDir(importPath string, index, names map[string]string) (string, bo
 	}
 	return "", false
 }
+
+// TopLevelNames returns the package a JVM source declares and the top-level names
+// it declares, read line by line as BuildDeclaredNames reads them. A file with no
+// package clause is in the root package ("").
+func TopLevelNames(src []byte) (string, []string) {
+	pkg, _ := scanPackage(bytes.NewReader(src))
+	var names []string
+	for _, line := range strings.Split(string(src), "\n") {
+		if name := declaredName(strings.TrimRight(line, "\r")); name != "" {
+			names = append(names, name)
+		}
+	}
+	return pkg, names
+}

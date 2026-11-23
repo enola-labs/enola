@@ -1,6 +1,9 @@
 package jvmsrc
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A package declared by a library's shared and platform source sets and by a
 // testing-support module: the package-only answer is a production directory, never
@@ -56,5 +59,15 @@ func TestResolveImportBindsTheDeclaringDirectory(t *testing.T) {
 	}
 	if _, ok := names["com.acme.TestOnly"]; ok {
 		t.Errorf("a name only a test source set declares must not bind production imports")
+	}
+}
+
+func TestTopLevelNamesReadsPackageAndTopLevelDeclarations(t *testing.T) {
+	pkg, names := TopLevelNames([]byte("package com.ex.lib\n\n@Retention(AnnotationRetention.RUNTIME)\nannotation class SpecScope\n\nclass Service {\n  annotation class Nested\n}\nfun String.helper() = 1\n"))
+	if pkg != "com.ex.lib" {
+		t.Errorf("pkg = %q", pkg)
+	}
+	if got := strings.Join(names, ","); got != "SpecScope,Service,helper" {
+		t.Errorf("names = %s", got)
 	}
 }
