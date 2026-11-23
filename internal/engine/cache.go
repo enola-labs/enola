@@ -3953,7 +3953,12 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v711: Kotlin Multiplatform: a top-level function of an Apple source set in a
+// Gradle module building a framework carries kmp_framework and kotlin_facade; a
+// Swift static call on a receiver named like a facade (`Main_iosKt.f()`) is listed
+// in kotlin_facade_calls, and the kmp-swift binder binds it through the framework
+// the Swift file imports.
+const cacheVersion = "v711"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

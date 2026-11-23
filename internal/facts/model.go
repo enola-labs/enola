@@ -242,6 +242,19 @@ const PropInheritedCalls = "inherited_calls"
 // module edge rolled up from it points against the import that exists.
 const PropStoredCalls = "stored_calls"
 
+// Kotlin Multiplatform exports a file's top-level functions to Swift as static
+// members of the file's facade class (`main.ios.kt` is `Main_iosKt`), in the Apple
+// framework a Gradle module builds. PropKMPFramework (the framework's name) and
+// PropKotlinFacade (the facade class) sit on each such Kotlin function, and
+// PropKotlinFacadeCalls on a Swift caller lists the `Facade.member` calls it makes
+// on a receiver named like one. The kmp-swift binder ties the two through the
+// framework the Swift file imports.
+const (
+	PropKMPFramework      = "kmp_framework"
+	PropKotlinFacade      = "kotlin_facade"
+	PropKotlinFacadeCalls = "kotlin_facade_calls"
+)
+
 // PropMuxScope is the prop on a Go server route naming the mux it is registered on,
 // where the extractor can tell: MuxScopeDefault for net/http's process-wide
 // DefaultServeMux, or "local:<function>#<variable>@<line>" for a mux the

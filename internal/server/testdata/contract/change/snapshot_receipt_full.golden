@@ -52,6 +52,7 @@
     "http-handler",
     "mixin-owner",
     "inherited-calls",
+    "kmp-swift",
     "framework-roots",
     "module-edges",
     "workload-source",

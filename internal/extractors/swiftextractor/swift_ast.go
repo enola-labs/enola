@@ -1330,6 +1330,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				w.addOwnerEdge(facts.RelCalls, root)
 				w.recordCallMetrics(root, node)
 				w.noteRootedCall(callee, root, name)
+				w.noteKotlinFacadeCall(callee, root, name)
 				// Type.member(), Outer.Type.member(): a static call on a type binds to
 				// its method.
 				if typ := staticReceiver(callee.ChildByFieldName("target"), w.src); typ != "" {
