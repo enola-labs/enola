@@ -878,6 +878,8 @@ func (w *astWalker) walkTypeBody(body *sitter.Node, iosComponent string) {
 			w.handlePropertyInjection(c, iosComponent)
 		case "init_declaration":
 			w.handleInit(c)
+		case "subscript_declaration", "deinit_declaration":
+			w.handleMemberBody(c)
 		case "class_declaration":
 			w.handleClassDeclaration(c)
 		case "protocol_declaration":
@@ -1117,6 +1119,9 @@ func (w *astWalker) handlePropertyInjection(node *sitter.Node, iosComponent stri
 // RelInjects edge on the enclosing type (Swift constructor injection needs no
 // annotation), and the body is walked for construction calls.
 func (w *astWalker) handleInit(node *sitter.Node) {
+	if w.pushExtensionInit(node) {
+		defer w.popOwner()
+	}
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
 		if kindOf(c) != "parameter" {

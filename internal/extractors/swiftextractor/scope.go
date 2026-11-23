@@ -84,8 +84,10 @@ func (ix *swiftNameIndex) add(fact *facts.Fact, dir string) {
 	case facts.SymbolMethod:
 		// Index methods by short name so the resolveMethodCalls post-pass can
 		// bind tentative member-call edges (self?.x(), coordinator?.y()) to a
-		// concrete method, or drop them when no project method matches.
-		if short != "" {
+		// concrete method, or drop them when no project method matches. An
+		// extension's init (memberbodies.go) is no candidate for any call: the
+		// resolvers bind `init` as they did before it was a fact.
+		if short != "" && short != "init" {
 			ix.methods[short] = append(ix.methods[short], fact.Name)
 		}
 	case facts.SymbolFunc:

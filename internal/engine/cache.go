@@ -3887,7 +3887,11 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v706: Swift: an init declared in an extension is a method of its own, Base.init
+// (an entry point by name, and no candidate for any call), that owns the calls and
+// types its body names; before, they were dropped for want of an owner. A subscript's
+// and a deinit's body call in the name of the type declaring them.
+const cacheVersion = "v706"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

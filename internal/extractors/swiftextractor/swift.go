@@ -931,7 +931,7 @@ func newSwiftHierarchy(allFacts []facts.Fact, prodOnly bool) *swiftHierarchy {
 			}
 		case facts.SymbolMethod:
 			recv, _ := f.PropAny("receiver").(string)
-			if recv == "" {
+			if recv == "" || lastDotComponent(f.Name) == "init" { // an extension's init (memberbodies.go)
 				continue
 			}
 			t := lastDotComponent(recv)
