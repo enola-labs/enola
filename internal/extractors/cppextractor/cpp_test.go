@@ -609,7 +609,7 @@ func TestQualifiedCallResolvesByUniqueQualifiedSuffix(t *testing.T) {
 		{Kind: facts.KindSymbol, Name: "lib.DB::Util::check", File: "lib/check.cpp", Props: map[string]any{"symbol_kind": facts.SymbolMethod}},
 		{Kind: facts.KindSymbol, Name: "app.run", File: "app/run.cpp", Props: map[string]any{"symbol_kind": facts.SymbolFunc}, Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Util::check"}}},
 	}
-	visibility := &includeVisibility{edges: map[string]map[string]bool{"app": {"lib": true}}, cache: map[string]map[string]bool{}}
+	visibility := &includeVisibility{edges: map[string]map[string]bool{"app": {"lib": true}}, cache: map[string]map[string]bool{}, maybeCache: map[string]map[string]bool{}}
 	types := newTypeIndex()
 	types.add("Util", "lib", "lib.DB::Util")
 	stats := canonicalizeTargets(ff, types, indexFunctionNames(ff), visibility)
