@@ -95,6 +95,12 @@ var swiftValueFields = map[string][]string{
 
 // noteValueOperands records the names node holds in a value position.
 func (w *astWalker) noteValueOperands(node *sitter.Node) {
+	if kindOf(node) == "selector_expression" { // objcroots.go
+		if w.currentOwner() >= 0 {
+			w.noteValueOperand(selectorOperand(node, w.src))
+		}
+		return
+	}
 	fields, ok := swiftValueFields[kindOf(node)]
 	if !ok || w.currentOwner() < 0 {
 		return

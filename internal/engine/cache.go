@@ -3932,7 +3932,10 @@ import (
 // v706: Swift: a function or property named with a keyword escaped in backticks
 // (`default`, `for`) is named without them, as a call after a dot writes it, so
 // `ErrorMiddleware.default(...)` binds and a test's call to it is a reference.
-const cacheVersion = "v706"
+// v707: Swift: a #selector names a method the Objective-C runtime will send a
+// message to, recorded as a method value is (a calls edge in value_refs); an
+// @IBAction, @IBSegueAction or @objc(name:) method is framework_registered.
+const cacheVersion = "v707"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
