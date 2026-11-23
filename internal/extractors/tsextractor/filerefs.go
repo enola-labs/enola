@@ -323,6 +323,7 @@ func (r *fileRefs) memberRef(n *sitter.Node) bool {
 // (`connect(mapStateToProps, actions)`, HOC/callback wiring) — otherwise a
 // symbol used only that way is falsely reported dead.
 func (r *fileRefs) callRefs(n *sitter.Node) {
+	r.loadedComponentRef(n)
 	if fn := n.ChildByFieldName("function"); fn != nil && kindOf(r.kinds, fn) == "identifier" {
 		r.add(resolveLocalOrImport(nodeText(fn, r.src), r.ctx.dir, r.internal))
 	}
@@ -335,4 +336,27 @@ func (r *fileRefs) callRefs(n *sitter.Node) {
 			r.add(resolveLocalOrImport(nodeText(a, r.src), r.ctx.dir, r.internal))
 		}
 	}
+}
+
+// loadedComponentRef records `require('./X.vue')` and `import('./X.vue')` as a use
+// of the component the file declares, the way a static default import of it is
+// (bindImport's defaultRefs). A single-file component has no other export, so
+// loading the file can only be for that: `Vue.component('x', require('./X.vue')
+// .default)` registers it, and `component: () => import('./X.vue')` routes to it.
+// A script module is left out: a require() of one may run it for its side
+// effects, and the names it binds are followed in bindRequires.
+func (r *fileRefs) loadedComponentRef(call *sitter.Node) {
+	fn := call.ChildByFieldName("function")
+	if fn == nil {
+		return
+	}
+	isRequire := kindOf(r.kinds, fn) == "identifier" && nodeText(fn, r.src) == "require"
+	if !isRequire && kindOf(r.kinds, fn) != "import" {
+		return
+	}
+	moduleDir, file, ok := r.resolveModule(findChildByKind(r.kinds, call.ChildByFieldName("arguments"), "string"))
+	if !ok || file == "" || (!isVueFile(file) && !isSvelteFile(file)) {
+		return
+	}
+	r.add(moduleDir + "." + fileSymbolName(file))
 }

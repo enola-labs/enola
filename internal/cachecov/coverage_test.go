@@ -300,6 +300,7 @@ var versionCoverage = map[int][]string{
 	704: {"TestPHPRecursion_GlobalFunctionCallInMethodIsNotSelfCall", "TestPHPRecursion_FunctionCallingItselfStillFlagged"},
 	704: {"TestEloquentRelationPropertyReadIsAUse", "TestEloquentRelationNamedInEagerLoadIsAUse"},
 	704: {"TestNullsafeMemberCallIsACall"},
+	705: {"TestLoadedComponent_RequireOfVueFile", "TestLoadedComponent_DynamicImportOfVueFile", "TestLoadedComponent_RequireOfScriptIsNotAComponentUse"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

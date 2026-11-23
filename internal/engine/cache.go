@@ -3904,7 +3904,10 @@ import (
 // of unknown type records nothing: the extractor does not know the columns.
 // v704: PHP: a nullsafe method call (`$obj?->m()`) is a call, as `$obj->m()` is: a
 // bare-name edge, the receiver-typed edge, loop and recursion metrics, I/O names.
-const cacheVersion = "v704"
+// v705: TS/JS: a require() or dynamic import() of a .vue or .svelte file is a use of
+// the component it declares, as a static default import is (`Vue.component('x',
+// require('./X.vue').default)`, `component: () => import('./X.vue')`).
+const cacheVersion = "v705"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
