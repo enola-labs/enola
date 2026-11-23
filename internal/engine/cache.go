@@ -3941,6 +3941,10 @@ import (
 // v708: a call in a C++ constructor's member initializer list (`S() : m(f(x)) {}`)
 // is a call of the constructor; a constructor parameter passed there is not a
 // function value.
+// v708: a C++ type name resolves only to a copy the referencing file may include,
+// also when the repository declares it once; an include the header index cannot
+// place (a bare <name.h>, an installed <pkg/name.h>) may reach every directory
+// with a header of that name; a member narrows among those copies.
 const cacheVersion = "v709"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

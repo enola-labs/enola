@@ -149,6 +149,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 		}
 	}
 	headerIndex := buildHeaderPathIndex(cppFiles)
+	headerDirs := buildHeaderDirIndex(cppFiles)
 
 	// Pre-pass: build a project-wide #define table (parallel scan), so a file-scope
 	// macro invocation (CONFIGFS_ATTR, DEVICE_ATTR_RO, …) can be expanded using the
@@ -256,7 +257,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// the repository has the same short name, bind it to that declaration. This
 	// recovers free functions declared through headers without guessing among
 	// overloads or common helper names.
-	resolution := canonicalizeTargets(allFacts, types, indexFunctionNames(allFacts), buildIncludeVisibility(allFacts, headerIndex))
+	resolution := canonicalizeTargets(allFacts, types, indexFunctionNames(allFacts), buildIncludeVisibility(allFacts, headerIndex, headerDirs))
 	log.Printf("[cpp-extractor] call resolution: total=%d exact=%d type_scoped=%d unique_short=%d qualified_suffix=%d receiver_resolved=%d receiver_rejected=%d rejected_no_include_path=%d unresolved=%d",
 		resolution.total, resolution.exact, resolution.typeScoped, resolution.uniqueShort, resolution.qualifiedSuffix, resolution.receiverResolved, resolution.receiverRejected, resolution.noIncludePath, resolution.unresolved)
 
@@ -647,15 +648,29 @@ func (t typeIndex) canonical(dir, name string) string {
 }
 
 // resolve returns the directory whose declaration of name a fact in sourceDir
-// refers to, or "" when the name is unknown or cannot be told apart. declares, when
-// set, narrows the candidates to the copies that have the member being referenced
-// (it is ignored when no copy passes, so a namespace-wrapped member still gets a
-// directory for the qualified-suffix pass to work from). One candidate is taken as
-// is, the same as a name declared once; among several, the fact's own directory
-// wins, then the single directory its includes reach. Anything else is ambiguous.
+// refers to, or "" when the name is unknown or cannot be told apart. Only the
+// copies the fact may see count: its own directory and the directories its
+// includes may reach (mayReach). A name declared once is no exception, because a
+// lone copy the source cannot include is another program's type that shares the
+// name (a wrapper library's ScalarFunction, a vendored library's IntType), not the
+// one meant. declares, when set, narrows the candidates to those that have the
+// member being referenced (it is ignored when no copy passes, so a
+// namespace-wrapped or inherited member still gets a directory for the later
+// passes to work from). A name declared once resolves to its copy, and so does
+// the one copy of several that has the member. Otherwise the fact's own directory
+// wins, then the single directory its includes are known to reach: a copy only an
+// unplaced include may reach is not picked from several on that alone. Anything
+// else is ambiguous.
 func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility, declares func(dir string) bool) string {
-	candidates := t.dirs[name]
-	if len(candidates) > 1 && declares != nil {
+	all := t.dirs[name]
+	var candidates []string
+	for _, dir := range all {
+		if visibility.mayReach(sourceDir, dir) {
+			candidates = append(candidates, dir)
+		}
+	}
+	byMember := false
+	if declares != nil {
 		var narrowed []string
 		for _, dir := range candidates {
 			if declares(dir) {
@@ -663,13 +678,13 @@ func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility
 			}
 		}
 		if len(narrowed) > 0 {
-			candidates = narrowed
+			candidates, byMember = narrowed, true
 		}
 	}
-	switch len(candidates) {
-	case 0:
+	if len(candidates) == 0 {
 		return ""
-	case 1:
+	}
+	if len(candidates) == 1 && (len(all) == 1 || byMember) {
 		return candidates[0]
 	}
 	if slices.Contains(candidates, sourceDir) {
@@ -752,13 +767,23 @@ func sourceDir(f *facts.Fact) string {
 type includeVisibility struct {
 	edges map[string]map[string]bool
 	cache map[string]map[string]bool
+	// maybe holds, for an include the index cannot place (a bare <name.h> found
+	// through an -I path, an installed <pkg/name.h>, a path several headers end
+	// with), an edge to every directory with a header of that file name. What
+	// such a file sees is not known, so mayReach counts those directories as
+	// possibly in sight.
+	maybe      map[string]map[string]bool
+	maybeCache map[string]map[string]bool
 }
 
 // buildIncludeVisibility records the module graph established by quoted includes.
 // It deliberately uses the same basename index as resolveIncludeDependencies, so
 // call resolution and the module graph cannot disagree about what an include names.
-func buildIncludeVisibility(allFacts []facts.Fact, headerIndex headerPathIndex) *includeVisibility {
-	v := &includeVisibility{edges: map[string]map[string]bool{}, cache: map[string]map[string]bool{}}
+// headerDirs (file name to the directories with a header of that name) supplies the
+// possible targets of an include the index does not place.
+func buildIncludeVisibility(allFacts []facts.Fact, headerIndex headerPathIndex, headerDirs map[string][]string) *includeVisibility {
+	v := &includeVisibility{edges: map[string]map[string]bool{}, cache: map[string]map[string]bool{},
+		maybe: map[string]map[string]bool{}, maybeCache: map[string]map[string]bool{}}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindDependency {
@@ -767,15 +792,29 @@ func buildIncludeVisibility(allFacts []facts.Fact, headerIndex headerPathIndex) 
 		inc := f.PropString("include")
 		target := headerIndex.resolve(f.File, inc, f.PropString("include_style"))
 		source := factpath.Dir(f.File)
-		if source == "" || target == "" || source == target {
+		if source == "" {
 			continue
 		}
-		if v.edges[source] == nil {
-			v.edges[source] = map[string]bool{}
+		if target == "" {
+			for _, dir := range headerDirs[path.Base(filepath.ToSlash(inc))] {
+				if dir != source {
+					addEdge(v.maybe, source, dir)
+				}
+			}
+			continue
 		}
-		v.edges[source][target] = true
+		if source != target {
+			addEdge(v.edges, source, target)
+		}
 	}
 	return v
+}
+
+func addEdge(edges map[string]map[string]bool, from, to string) {
+	if edges[from] == nil {
+		edges[from] = map[string]bool{}
+	}
+	edges[from][to] = true
 }
 
 func (v *includeVisibility) allows(source, targetName string) bool {
@@ -795,21 +834,43 @@ func (v *includeVisibility) reaches(source, target string) bool {
 	if reachable, ok := v.cache[source]; ok {
 		return reachable[target]
 	}
+	reachable := closure(source, v.edges, nil)
+	v.cache[source] = reachable
+	return reachable[target]
+}
+
+// mayReach is reaches with the includes the index could not place followed to
+// every directory they may name: false only when source cannot include target.
+func (v *includeVisibility) mayReach(source, target string) bool {
+	if source == target {
+		return true
+	}
+	if reachable, ok := v.maybeCache[source]; ok {
+		return reachable[target]
+	}
+	reachable := closure(source, v.edges, v.maybe)
+	v.maybeCache[source] = reachable
+	return reachable[target]
+}
+
+// closure is the set of modules source's includes lead to over edges and extra.
+func closure(source string, edges, extra map[string]map[string]bool) map[string]bool {
 	reachable := map[string]bool{}
 	queue := []string{source}
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
-		for next := range v.edges[cur] {
-			if reachable[next] {
-				continue
+		for _, next := range [2]map[string]bool{edges[cur], extra[cur]} {
+			for dir := range next {
+				if reachable[dir] {
+					continue
+				}
+				reachable[dir] = true
+				queue = append(queue, dir)
 			}
-			reachable[next] = true
-			queue = append(queue, next)
 		}
 	}
-	v.cache[source] = reachable
-	return reachable[target]
+	return reachable
 }
 
 type functionNames struct {
@@ -923,6 +984,22 @@ func buildHeaderPathIndex(files []string) headerPathIndex {
 		}
 	}
 	return index
+}
+
+// buildHeaderDirIndex maps a header's file name to every directory with a header
+// of that name, in file order.
+func buildHeaderDirIndex(files []string) map[string][]string {
+	out := map[string][]string{}
+	for _, file := range files {
+		if !isHeaderExt(file) {
+			continue
+		}
+		base, dir := path.Base(filepath.ToSlash(file)), factpath.Dir(file)
+		if !slices.Contains(out[base], dir) {
+			out[base] = append(out[base], dir)
+		}
+	}
+	return out
 }
 
 func (index headerPathIndex) resolve(sourceFile, include, style string) string {

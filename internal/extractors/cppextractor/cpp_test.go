@@ -430,11 +430,12 @@ func TestReceiverCallBindsToTheOnlyCopyDeclaringTheMethod(t *testing.T) {
 		"lib/worker.cpp":   `void Worker::step() {}`,
 		"other/worker.h":   `class Worker { public: int id; };`,
 		"other/worker.cpp": `int unrelated() { return 0; }`,
-		"app/run.cpp":      `void run(Worker *worker) { worker->step(); }`,
+		"app/run.cpp": "#include \"../lib/worker.h\"\n#include \"../other/worker.h\"\n" +
+			`void run(Worker *worker) { worker->step(); }`,
 	})
 	run := mustFact(t, ff, "app.run")
 	if !hasRelation(run, facts.RelCalls, "lib.Worker::step") {
-		t.Fatalf("Worker::step is declared once in the repository and should resolve: %+v", run.Relations)
+		t.Fatalf("Worker::step is declared by one of the copies the caller sees and should resolve: %+v", run.Relations)
 	}
 }
 
@@ -608,7 +609,7 @@ func TestQualifiedCallResolvesByUniqueQualifiedSuffix(t *testing.T) {
 		{Kind: facts.KindSymbol, Name: "lib.DB::Util::check", File: "lib/check.cpp", Props: map[string]any{"symbol_kind": facts.SymbolMethod}},
 		{Kind: facts.KindSymbol, Name: "app.run", File: "app/run.cpp", Props: map[string]any{"symbol_kind": facts.SymbolFunc}, Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Util::check"}}},
 	}
-	visibility := &includeVisibility{edges: map[string]map[string]bool{"app": {"lib": true}}, cache: map[string]map[string]bool{}}
+	visibility := &includeVisibility{edges: map[string]map[string]bool{"app": {"lib": true}}, cache: map[string]map[string]bool{}, maybeCache: map[string]map[string]bool{}}
 	types := newTypeIndex()
 	types.add("Util", "lib", "lib.DB::Util")
 	stats := canonicalizeTargets(ff, types, indexFunctionNames(ff), visibility)
