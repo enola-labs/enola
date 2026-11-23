@@ -170,6 +170,23 @@ Fixture: [`refs.cpp`](../../internal/engine/testdata/repos/cpp_sample/drivers/re
 > the Linux kernel) are pre-C++11 and never write `override` or `final`, so those two
 > specifiers are pinned by the fixture above rather than by a measured repository.
 
+## Test trees
+
+C and C++ files under a `test/`, `tests/` or `testing/` directory are test code: no
+symbols, modules or dependencies of their own. No build tool reserves a directory, so
+these are the names the corpus keeps its tests under: a CMake project's unit tests,
+the kernel's KUnit `tests/` and `tools/testing/` selftests, an engine's test harness.
+`benchmark/` stays production. What the tests call is recovered as `test_ref` facts,
+so a function only its tests call reads test-only rather than dead.
+
+Those references are resolved exactly as they were when the tests were indexed: the
+test files are extracted together with the production ones and the inherited-calls
+binder runs over the set, so a call on a typed local binds to that type's method
+rather than to every method of the name. A call to a helper the test defines is not a
+reference, and creating an object names its constructor and destructor and those of
+its bases. The price is a second extraction of the repository's C and C++ files on a
+snapshot that has C or C++ tests, since test references are not cached.
+
 ## What is deliberately not extracted
 
 - **Preprocessor evaluation.** `#if`/`#ifdef` branches are all parsed; enola does not pick

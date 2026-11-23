@@ -4018,7 +4018,10 @@ import (
 // reference fact what it constructs (`new X`), calls statically or as a function,
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
-const cacheVersion = "v715"
+// v723: C and C++ files under test/, tests/ and testing/ are ignored and recovered
+// as test refs by CppExtractor.ExtractTestRefs, which extracts them together with the
+// production files and keeps the usage edges they resolved to.
+const cacheVersion = "v723"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
