@@ -1320,6 +1320,20 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 	}
 
+	// Swift protocol witnesses, called through a protocol the repository cannot
+	// declare (swiftwitness.go), are dispatched as an override is.
+	witnesses, previews := swiftWitnesses(symbols)
+	for name := range witnesses {
+		if si := byName[name]; si != nil {
+			si.Override = true
+		}
+	}
+	for name := range previews {
+		if si := byName[name]; si != nil {
+			si.FrameworkRoot = true
+		}
+	}
+
 	published := publishedModules(store)
 	if len(published) > 0 {
 		// Symbols share their directory with many others, so each (repository,
