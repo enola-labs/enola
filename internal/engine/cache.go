@@ -3953,7 +3953,10 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v711: Kotlin: a Ktor module named in ktor.application.modules of a production
+// source set's application.conf or application.yaml is referenced by that file (a
+// file_ref with calls edges), through its file facade class or declaring class.
+const cacheVersion = "v711"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
