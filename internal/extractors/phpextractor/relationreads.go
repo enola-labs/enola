@@ -180,22 +180,28 @@ func isIdentifier(s string) bool {
 //
 // A read on a receiver of declared type reaches that class's relation (declared on
 // it, a parent or a trait) or nothing: a column of that model shares the name with
-// no relation of its own. A read on any other receiver is a bare-name call, as an
-// untyped method call is, and only when some relation method has the name.
+// no relation of its own. A read on any other receiver reaches the relation when
+// exactly one relation method has the name, and is otherwise a bare-name call, as an
+// untyped method call is. A bare name that is also a function's would bind to that
+// function in the graph, so it records nothing.
 func bindRelationReads(allFacts []facts.Fact) {
 	relations := map[string]bool{}
-	names := map[string]bool{}
+	byName := map[string][]string{}
+	functions := map[string]bool{}
 	typed := false
 	for i := range allFacts {
 		f := &allFacts[i]
+		if f.Kind == facts.KindSymbol && f.PropString("symbol_kind") == facts.SymbolFunc {
+			functions[f.Name] = true
+		}
 		if f.Props == nil {
 			continue
 		}
 		if f.PropBool(propRelationMethod) {
 			delete(f.Props, propRelationMethod)
-			relations[f.Name] = true
-			if sep := strings.LastIndex(f.Name, "::"); sep >= 0 {
-				names[f.Name[sep+2:]] = true
+			if sep := strings.LastIndex(f.Name, "::"); sep >= 0 && !relations[f.Name] {
+				relations[f.Name] = true
+				byName[f.Name[sep+2:]] = append(byName[f.Name[sep+2:]], f.Name)
 			}
 		}
 		if reads, ok := f.Props[propPropertyReads].([]string); ok && !typed {
@@ -219,19 +225,19 @@ func bindRelationReads(allFacts []facts.Fact) {
 		reads, _ := f.Props[propPropertyReads].([]string)
 		delete(f.Props, propPropertyReads)
 		for _, r := range reads {
-			target := r
+			target := ""
 			if sep := strings.LastIndex(r, "::"); sep >= 0 {
-				target = ""
 				if ix != nil && ix.hasClass(r[:sep]) {
-					target = ix.declaringMethod(r[:sep], r[sep+2:])
+					if m := ix.declaringMethod(r[:sep], r[sep+2:]); relations[m] {
+						target = m
+					}
 				}
-				if !relations[target] {
-					continue
-				}
-			} else if !names[r] {
-				continue
+			} else if named := byName[r]; len(named) == 1 {
+				target = named[0]
+			} else if len(named) > 1 && !functions[r] {
+				target = r
 			}
-			if target != f.Name && !f.HasRelation(facts.RelCalls, target) {
+			if target != "" && target != f.Name && !f.HasRelation(facts.RelCalls, target) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
 			}
 		}

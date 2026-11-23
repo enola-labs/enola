@@ -3890,7 +3890,8 @@ import (
 // v704: PHP: an Eloquent relation method (one returning `$this->hasMany(...)`,
 // morphTo included) read as a property (`$status->mentions`) or named in an eager
 // load or relation query (`with('a.b')`, `whereHas`, `withCount('c as n')`) is a
-// calls edge: to the relation of a receiver of declared type, else by bare name.
+// calls edge: to the relation of a receiver of declared type, else to the one
+// relation of that name, else by bare name unless a global function has the name.
 const cacheVersion = "v704"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

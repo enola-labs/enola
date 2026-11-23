@@ -15,11 +15,15 @@ class Status extends Model {
     public function poll() { return $this->hasOne(Poll::class); }
     public function parent() { return $this->morphTo(); }
     public function caption() { return $this->caption_text; }
+    public function profile() { return $this->belongsTo(Profile::class); }
+    public function author() { return $this->belongsTo(Profile::class); }
 }
 class Media extends Model {
     public function contentCredential() { return $this->hasOne(MediaContentCredential::class); }
     public function status() { return $this->belongsTo(Status::class); }
     public function owner() { return $this->belongsTo(Profile::class); }
+    public function profile() { return $this->belongsTo(Profile::class); }
+    public function author() { return $this->belongsTo(Profile::class); }
 }
 `
 
@@ -58,9 +62,9 @@ func relationCalls(t *testing.T, name string, sources ...string) []string {
 }
 
 // TestEloquentRelationPropertyReadIsAUse: reading a relation as a property runs the
-// relation method. A typed receiver binds to the model's method; an untyped one is
-// a bare-name call, as an untyped method call is. A property that is no relation
-// (a column) records nothing.
+// relation method. A typed receiver binds to the model's method; an untyped one to
+// the one relation of that name, else by bare name as an untyped method call is,
+// unless a function has that name. A column or a write records nothing.
 func TestEloquentRelationPropertyReadIsAUse(t *testing.T) {
 	got := relationCalls(t, `App\Services\Notes::update`, relationModels, `<?php
 namespace App\Services;
@@ -69,16 +73,17 @@ class Notes {
     public function update(Status $status, $other) {
         $a = $status->mentions->map(fn ($m) => $m->id);
         $b = $other?->poll;
-        $c = $other->parent;
+        $c = $other->profile;
         $d = $status->caption;
-        $e = $other->profile_id;
-        $status->poll = null;
+        $e = $other->profile_id . $other->author;
+        $other->owner = null;
         return [$a, $b, $c, $d, $e];
     }
 }
-`)
-	wantRelationCalls(t, got, []string{`App\Models\Status::mentions`, "poll", "parent"},
-		[]string{"mentions", "caption", `App\Models\Status::caption`, `App\Models\Status::poll`, "profile_id"})
+`, "<?php\nfunction author() { return null; }\n")
+	wantRelationCalls(t, got, []string{`App\Models\Status::mentions`, `App\Models\Status::poll`, "profile"},
+		[]string{"mentions", "poll", "caption", `App\Models\Status::caption`, "profile_id",
+			"author", `App\Models\Status::author`, `App\Models\Media::author`, `App\Models\Media::owner`})
 }
 
 // TestEloquentRelationNamedInEagerLoadIsAUse: a relation named in with(), load(),
@@ -98,8 +103,9 @@ class MediaService {
     }
 }
 `)
-	wantRelationCalls(t, got, []string{`App\Models\Media::contentCredential`, "status", "mentions", "poll", "parent"},
-		[]string{"caption", "owner", "polls", "status.mentions"})
+	wantRelationCalls(t, got, []string{`App\Models\Media::contentCredential`, `App\Models\Media::status`,
+		`App\Models\Status::mentions`, `App\Models\Status::poll`, `App\Models\Status::parent`},
+		[]string{"caption", "owner", `App\Models\Media::owner`, "polls", "status.mentions"})
 }
 
 // wantRelationCalls checks that got holds every name in want and none in absent.
