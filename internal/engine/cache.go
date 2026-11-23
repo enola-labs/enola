@@ -3867,6 +3867,11 @@ import (
 // type, a field or a return type (javaextractor/typechoice.go). Before, it was read
 // as the own package's, so calls through a field typed by a wildcard import made no
 // edge and `new` of such a type pointed at a type that does not exist.
+// v700: Java: a method's return type and the declared type of a local, an
+// enhanced-for variable and a try-with-resources resource, their type arguments
+// included, are uses of the type, as parameter and field types are since v686
+// (javaextractor/typerefs.go). A result type a service returns and a controller
+// holds in a local no longer reads as dead or test-only.
 const cacheVersion = "v700"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

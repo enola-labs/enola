@@ -944,6 +944,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	defer func() { w.typeParams = w.typeParams[:savedTypeParams] }()
 	w.relateAnnotations(modifiers, ownerIdx)
 	w.relateAnnotations(node.ChildByFieldName("type"), ownerIdx)
+	w.relateTypeUses(node.ChildByFieldName("type"), ownerIdx)
 	w.relateAnnotations(node.ChildByFieldName("parameters"), ownerIdx)
 	w.relateParamTypes(node.ChildByFieldName("parameters"), ownerIdx)
 	savedScope, savedVars := w.scopeNode, w.scopeVars
@@ -1168,6 +1169,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	}
 	kind := kindOf(node)
 	w.noteDeclaration(node, kind)
+	w.relateLocalType(node, kind)
 
 	// A lambda is a deferred scope: its body runs when invoked, NOT per-iteration of
 	// the enclosing loops — so reset the loop depth for its subtree (e.g. a Runnable

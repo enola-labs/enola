@@ -293,6 +293,7 @@ var versionCoverage = map[int][]string{
 	698: {"TestPythonHTTPClientInProductionModuleNamedLikeATest", "TestIsTestPath", "TestPythonExclusions"},
 	699: {"TestCppCapitalizedFreeFunctionCall", "TestCppCapitalizedTemplateCallThroughHeader", "TestCppCapitalizedSiblingMethodCall", "TestCppCapitalizedCallKeepsConstructors", "TestCppCapitalizedCallTemplateClassAndTypedef", "TestCppCapitalizedCallSkipsConstructorFallback", "TestCppCapitalizedCallNotesMemberCall", "TestGolden"},
 	700: {"TestJavaWildcardImportedTypesResolveReceiversAndTargets", "TestJavaWildcardUndeclaredTypeKeepsOwnPackageTarget"},
+	700: {"TestJavaReturnAndLocalTypesNameTheType"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
