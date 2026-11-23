@@ -3953,7 +3953,11 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v713: Swift: exported follows access control. Only a public or open declaration,
+// in types that are public or open themselves, is exported; internal (the default),
+// package, fileprivate and private are not. A member stating no access in a public
+// extension is public.
+const cacheVersion = "v713"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

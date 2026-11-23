@@ -87,31 +87,6 @@ func TestParseSupertypes(t *testing.T) {
 	}
 }
 
-func TestIsPrivateAccess(t *testing.T) {
-	tests := []struct {
-		name string
-		text string
-		want bool
-	}{
-		{"private", "private ", true},
-		{"fileprivate", "fileprivate ", true},
-		{"private(set) only", "private(set) ", false},
-		{"fileprivate(set) only", "fileprivate(set) ", false},
-		{"public", "public ", false},
-		{"empty", "", false},
-		{"internal", "internal ", false},
-		{"private(set) with private", "private(set) private ", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isPrivateAccess(tt.text)
-			if got != tt.want {
-				t.Errorf("isPrivateAccess(%q) = %v, want %v", tt.text, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestExtractTypeName(t *testing.T) {
 	tests := []struct {
 		input string

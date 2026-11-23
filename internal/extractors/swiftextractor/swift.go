@@ -860,23 +860,6 @@ func supertypeMatches(supertypes string, names ...string) bool {
 	return false
 }
 
-// privateRe / privateSetRe support isPrivateAccess.
-var (
-	privateRe    = regexp.MustCompile(`\b(private|fileprivate)\b`)
-	privateSetRe = regexp.MustCompile(`\b(private|fileprivate)\s*\(set\)`)
-)
-
-// isPrivateAccess returns true if the text contains private or fileprivate access control
-// that is NOT the private(set) pattern (which only restricts the setter, keeping the getter public).
-func isPrivateAccess(text string) bool {
-	if !privateRe.MatchString(text) {
-		return false
-	}
-	// Remove all private(set) / fileprivate(set) occurrences and re-check.
-	cleaned := privateSetRe.ReplaceAllString(text, "")
-	return privateRe.MatchString(cleaned)
-}
-
 func isSwiftFile(path string) bool {
 	return strings.HasSuffix(strings.ToLower(path), ".swift")
 }
