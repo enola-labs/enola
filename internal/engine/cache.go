@@ -3887,7 +3887,10 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v705: TS/JS: Laravel Mix aliases are read from webpack.mix.js (mix.alias({...}) and
+// a resolve.alias handed to mix.webpackConfig), so an import through one resolves to
+// the repository file (resolved_via laravel-mix-alias).
+const cacheVersion = "v705"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
