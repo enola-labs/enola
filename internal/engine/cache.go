@@ -3945,6 +3945,14 @@ import (
 // also when the repository declares it once; an include the header index cannot
 // place (a bare <name.h>, an installed <pkg/name.h>) may reach every directory
 // with a header of that name; a member narrows among those copies.
+// v708: a C++ function named in value position is a use also as a qualified name
+// (`ns::fn`, `&ns::fn`) or a template id (`fn<T>`), in a call argument, an
+// assignment, a local declaration's initializer (`Holder h("a", Fn)`), an in-body
+// braced table, or a returned qualified or template value; in a local declaration
+// a name the function declares as a parameter or local is a variable; a local
+// direct-initialization tree-sitter reads as a prototype (`T r(Kind::A, Fn<X>)`)
+// passes its arguments as values. A bare name there counts only when it resolves
+// to a function and is not a data member of the caller's class.
 const cacheVersion = "v709"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

@@ -310,6 +310,7 @@ var versionCoverage = map[int][]string{
 	709: {"TestMainAttributeMarksAnyTypeAsEntered"},
 	708: {"TestCppCtorInitializerListCalls", "TestCppCtorInitializerListOutOfLine", "TestCppCtorInitializerListParameterIsNotAFunction", "TestGolden"},
 	708: {"TestReceiverCallSkipsAnOutOfSightCopyDeclaringTheMember", "TestTypeDeclaredOnceOutOfSightIsNotInstantiated", "TestTypeDeclaredOnceInSightStillBinds", "TestTypeBehindABareAngleIncludeStillBinds", "TestUnplacedIncludeDoesNotPickAmongSeveralCopies", "TestMemberPicksAmongCopiesBehindAnUnplacedInclude", "TestReceiverCallBindsToTheOnlyCopyDeclaringTheMethod", "TestGolden"},
+	708: {"TestCppFunctionValueInDirectInitialization", "TestCppQualifiedFunctionValue", "TestCppTemplateFunctionValue", "TestCppInitializerTableInsideFunction", "TestCppQualifiedValueThatIsNotAFunction", "TestCppDeclarationValueThatIsALocal", "TestCppFunctionValueInAVexingParse", "TestCppDeclarationValueThatIsADataMember", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
