@@ -10,7 +10,7 @@ import (
 // own module's first; else the one top-level type of that name in a module the file
 // imports. A nested type is in scope by its bare name only inside its outer type,
 // an extension of it in another module included, or from a folder of the same
-// Swift module. A type of the name in a target the file does not reach through its
+// Swift module. A type of the name in a target the file's module does not reach through its
 // imports is a different type that happens to share the name (a GraphQL fragment's
 // nested `Project` against the app's `Project`), so it is never the one meant. A
 // module that is no import unit (a loose folder, a package of a subdivided app
@@ -33,8 +33,8 @@ type swiftTypeDeclSite struct {
 type swiftTypeVisibility struct {
 	moduleOf    func(file string) string
 	importUnits map[string]bool            // module identities a file must import to see
-	direct      map[string]map[string]bool // file -> module identities it imports
-	imports     map[string]map[string]bool // file -> module identities it reaches
+	direct      map[string]map[string]bool // module -> module identities its files import
+	imports     map[string]map[string]bool // module -> module identities it reaches
 }
 
 // swiftModuleName is the name `import` writes for a target: `Kickstarter-Framework`
@@ -49,8 +49,9 @@ func swiftModuleName(target string) string {
 }
 
 // newSwiftTypeVisibility reads the import units (SwiftPM targets among allFacts,
-// and units, the XcodeGen target names to their identities) and what each file
-// reaches through its imports.
+// and units, the XcodeGen target names to their identities) and what each module
+// reaches through its imports. Imports are read per module, not per file: one
+// module's import facts are recorded once, at the first file that writes them.
 func newSwiftTypeVisibility(allFacts []facts.Fact, units map[string]string, moduleOf func(string) string) *swiftTypeVisibility {
 	byName := map[string]string{}
 	for name, id := range units {
@@ -68,8 +69,7 @@ func newSwiftTypeVisibility(allFacts []facts.Fact, units map[string]string, modu
 	for _, id := range byName {
 		v.importUnits[id] = true
 	}
-	direct := map[string]map[string]bool{}     // file -> imported modules
-	moduleDeps := map[string]map[string]bool{} // module -> modules its files import
+	direct := map[string]map[string]bool{} // module -> modules its files import
 	for _, f := range allFacts {
 		if f.Kind != facts.KindDependency {
 			continue
@@ -79,11 +79,10 @@ func newSwiftTypeVisibility(allFacts []facts.Fact, units map[string]string, modu
 			if !ok || r.Kind != facts.RelImports {
 				continue
 			}
-			addTo(direct, f.File, id)
-			addTo(moduleDeps, moduleOf(f.File), id)
+			addTo(direct, moduleOf(f.File), id)
 		}
 	}
-	for file, mods := range direct {
+	for mod, mods := range direct {
 		reach := map[string]bool{}
 		queue := make([]string, 0, len(mods))
 		for m := range mods {
@@ -96,11 +95,11 @@ func newSwiftTypeVisibility(allFacts []facts.Fact, units map[string]string, modu
 				continue
 			}
 			reach[m] = true
-			for d := range moduleDeps[m] {
+			for d := range direct[m] {
 				queue = append(queue, d)
 			}
 		}
-		v.imports[file] = reach
+		v.imports[mod] = reach
 	}
 	v.direct = direct
 	return v
@@ -122,10 +121,10 @@ func (v *swiftTypeVisibility) resolve(from *facts.Fact, decls []swiftTypeDeclSit
 			return own
 		}
 	}
-	if dir, found := v.pick(from, decls, v.direct[from.File]); found {
+	if dir, found := v.pick(from, decls, v.direct[own]); found {
 		return dir
 	}
-	dir, _ := v.pick(from, decls, v.imports[from.File])
+	dir, _ := v.pick(from, decls, v.imports[own])
 	return dir
 }
 
