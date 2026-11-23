@@ -3953,7 +3953,10 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v711: Kotlin: a Metro @BindingContainer is a di_module, and a Metro or Anvil
+// @ContributesTo container is framework_registered, on every platform; the
+// annotations count only when imported from the framework.
+const cacheVersion = "v711"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
