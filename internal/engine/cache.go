@@ -3962,6 +3962,10 @@ import (
 // component; a @Bean method of a class Spring scans is a di_provider, and an
 // @ExceptionHandler of a controller or advice and the advice and pointcut methods
 // of an @Aspect are framework_registered.
+// v710: Java: an XML resource under src/main/resources that names a repository
+// type by its fully-qualified name in a type, resultType, parameterType or ofType
+// attribute (MyBatis mappers, MyBatis Generator plugins) is a KindFileRef naming
+// that type. Short names (type aliases) bind nothing.
 const cacheVersion = "v710"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

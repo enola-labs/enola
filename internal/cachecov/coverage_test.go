@@ -304,6 +304,7 @@ var versionCoverage = map[int][]string{
 	709: {"TestMainAttributeMarksAnyTypeAsEntered"},
 	710: {"TestJavaIO_MapperScanPackageInterfaceIsIO", "TestJavaIO_MyBatisMapperAnnotationIsIO", "TestJavaIO_MapStructMapperIsNotIO", "TestJavaIO_ScannedMapperInheritedCallIsIO"},
 	710: {"TestSpring_ApplicationAndAdviceClassesAreComponents", "TestSpring_BeanMethodOfConfigurationIsProvider", "TestSpring_ExceptionHandlerOfAdviceIsRegistered", "TestSpring_AspectAdviceIsRegistered"},
+	710: {"TestJavaXMLConfigTypeRefs", "TestJavaXMLConfigTypeRefsSkipTestResources"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
