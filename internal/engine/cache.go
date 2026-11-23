@@ -3938,6 +3938,9 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
+// v708: a call in a C++ constructor's member initializer list (`S() : m(f(x)) {}`)
+// is a call of the constructor; a constructor parameter passed there is not a
+// function value.
 const cacheVersion = "v709"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

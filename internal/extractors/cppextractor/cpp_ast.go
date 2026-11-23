@@ -182,6 +182,10 @@ type astWalker struct {
 	// errorGuardDepth is non-zero while walking a preprocessor guard reached
 	// through an ERROR node, where only definitions are trusted.
 	errorGuardDepth int
+	// paramNames holds the enclosing constructor's parameter names while its member
+	// initializer list is walked. There a bare argument is almost always a parameter
+	// forwarded to a member (`name(std::move(name))`), never a function value.
+	paramNames map[string]bool
 }
 
 // cppBodyMetrics accumulates per-function complexity signals during the single
@@ -988,6 +992,13 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	w.swallowed, w.localClassDepth = nil, 0
 	if body := node.ChildByFieldName("body"); body != nil {
 		w.receiverTypes = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
+		// A constructor's member initializer list (S() : m(helper(x)) {}) runs as
+		// part of the constructor, before its body.
+		if inits := findChildByKind(w.kinds, node, "field_initializer_list"); inits != nil {
+			w.paramNames = parameterNames(w.kinds, fdecl, w.src)
+			w.walkForCalls(inits)
+			w.paramNames = nil
+		}
 		w.walkForCalls(body)
 	}
 	swallowed := w.swallowed
@@ -1735,7 +1746,7 @@ func (w *astWalker) emitArgRefs(args *sitter.Node) {
 // Extract when the target's short name is an actual function in the snapshot, so
 // ordinary data identifiers never produce a spurious reference.
 func (w *astWalker) emitFuncPtrRef(name string) {
-	if name == "" || isAllCapsConst(name) {
+	if name == "" || isAllCapsConst(name) || w.paramNames[name] {
 		return
 	}
 	if target := w.resolveCall(name); target != "" {
@@ -2311,6 +2322,27 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 			continue // a lambda has its own scope; the walk this replaced skipped them
 		}
 		addDeclaration(decl)
+	}
+	return out
+}
+
+// parameterNames returns the names a function declarator gives its parameters.
+func parameterNames(kinds *tsutil.KindTable, fdecl *sitter.Node, src []byte) map[string]bool {
+	out := map[string]bool{}
+	params := fdecl.ChildByFieldName("parameters")
+	if params == nil {
+		return out
+	}
+	for i := uint(0); i < params.ChildCount(); i++ {
+		p := params.Child(i)
+		switch kindOf(kinds, p) {
+		case "parameter_declaration", "optional_parameter_declaration", "variadic_parameter_declaration":
+			if d := p.ChildByFieldName("declarator"); d != nil {
+				if name := declaratorLeafName(kinds, referencedDeclarator(kinds, d), src); name != "" {
+					out[name] = true
+				}
+			}
+		}
 	}
 	return out
 }
