@@ -302,6 +302,7 @@ var versionCoverage = map[int][]string{
 	707: {"TestSelectorRecordsUse", "TestObjCRuntimeEntryAttributes"},
 	708: {"TestCppCtorInitializerListCalls", "TestCppCtorInitializerListOutOfLine", "TestCppCtorInitializerListParameterIsNotAFunction", "TestGolden", "TestReceiverCallSkipsAnOutOfSightCopyDeclaringTheMember", "TestTypeDeclaredOnceOutOfSightIsNotInstantiated", "TestTypeDeclaredOnceInSightStillBinds", "TestTypeBehindABareAngleIncludeStillBinds", "TestUnplacedIncludeDoesNotPickAmongSeveralCopies", "TestMemberPicksAmongCopiesBehindAnUnplacedInclude", "TestReceiverCallBindsToTheOnlyCopyDeclaringTheMethod", "TestCppFunctionValueInDirectInitialization", "TestCppQualifiedFunctionValue", "TestCppTemplateFunctionValue", "TestCppInitializerTableInsideFunction", "TestCppQualifiedValueThatIsNotAFunction", "TestCppDeclarationValueThatIsALocal", "TestCppFunctionValueInAVexingParse", "TestCppDeclarationValueThatIsADataMember"},
 	709: {"TestMainAttributeMarksAnyTypeAsEntered"},
+	710: {"TestJavaIO_MapperScanPackageInterfaceIsIO", "TestJavaIO_MyBatisMapperAnnotationIsIO", "TestJavaIO_MapStructMapperIsNotIO", "TestJavaIO_ScannedMapperInheritedCallIsIO"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
