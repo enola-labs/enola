@@ -91,9 +91,10 @@ func typeParameterName(tp *sitter.Node, src []byte) string {
 	return ""
 }
 
-// noteTypeUsesIn records every user_type under n, outside function bodies, computed
-// property bodies and lambdas: the walk of the body records those. An inheritance
-// specifier's own type is an implements edge already; its type arguments are uses.
+// noteTypeUsesIn records every user_type under n, and the type path of a static read
+// in a parameter's default value, outside function bodies, computed property bodies
+// and lambdas: the walk of the body records those. An inheritance specifier's own
+// type is an implements edge already; its type arguments are uses.
 func (w *astWalker) noteTypeUsesIn(n *sitter.Node) {
 	if n == nil {
 		return
@@ -106,6 +107,8 @@ func (w *astWalker) noteTypeUsesIn(n *sitter.Node) {
 		if p := n.Parent(); p == nil || kindOf(p) != "inheritance_specifier" {
 			w.noteTypeUse(n)
 		}
+	case "navigation_expression":
+		w.noteStaticPath(n) // a parameter's default value: `= Config.current`
 	}
 	for i := uint(0); i < n.ChildCount(); i++ {
 		w.noteTypeUsesIn(n.Child(i))

@@ -83,7 +83,11 @@ final class Client {
     }
 
     func style(_ s: LayerStyle) {}
+
+    func fire(config: Int = Defaults.current) {}
 }
+
+enum Defaults { static let current = 1 }
 `,
 	})
 	names := namesOf(ff)
@@ -102,6 +106,7 @@ final class Client {
 		{"Sources/Lib.Client.refresh", "Sources/Lib.Inputs"},
 		{"Sources/Lib.Client.refresh", "Sources/Lib.Outputs"},
 		{"Sources/Lib.Client.style", "Sources/Lib.LayerStyle"},
+		{"Sources/Lib.Client.fire", "Sources/Lib.Defaults"},
 		{"Sources/Lib.LayerStyle", "Sources/Lib.Layer"},
 		{"Sources/Lib.Failure", "Sources/Lib.Payload"},
 	} {
