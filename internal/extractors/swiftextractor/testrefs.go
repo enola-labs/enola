@@ -197,18 +197,20 @@ func (c *swiftTestRefCollector) collectDeclared(n *sitter.Node) {
 }
 
 // ignoredName reports a name no production symbol can stand for: the harness,
-// Swift's own spellings for the current type and instance, initializers, closure
-// shorthand arguments ($0) and backquoted keywords.
+// Swift's own spellings for the current type and instance, initializers and
+// closure shorthand arguments ($0).
 func (c *swiftTestRefCollector) ignoredName(name string) bool {
 	switch name {
 	case "", "self", "Self", "super", "init", "Type", "Protocol":
 		return true
 	}
-	return swiftTestHarnessNames[name] || strings.HasPrefix(name, "$") || strings.HasPrefix(name, "`")
+	return swiftTestHarnessNames[name] || strings.HasPrefix(name, "$")
 }
 
-// add records a bare name: a call, a construction, a type.
+// add records a bare name: a call, a construction, a type. A keyword escaped in
+// backticks (`default`) is named without them, as its declaration is.
 func (c *swiftTestRefCollector) add(name string) {
+	name = strings.Trim(name, "`")
 	if c.ignoredName(name) || isSystemType(name) || c.declared[name] {
 		return
 	}
@@ -389,7 +391,7 @@ func swiftNavigationMember(nav *sitter.Node, src []byte) string {
 		return ""
 	}
 	if id := suffix.ChildByFieldName("suffix"); id != nil && kindOf(id) == "simple_identifier" {
-		return nodeText(id, src)
+		return swiftIdentifier(id, src)
 	}
 	return ""
 }

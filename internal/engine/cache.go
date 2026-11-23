@@ -3929,6 +3929,9 @@ import (
 // written qualified names nothing. A bare type name means the type the file sees:
 // its own module's, else the one top-level type of the name in a module it imports
 // (directly first, then through re-exports), never one in a target it does not reach.
+// v706: Swift: a function or property named with a keyword escaped in backticks
+// (`default`, `for`) is named without them, as a call after a dot writes it, so
+// `ErrorMiddleware.default(...)` binds and a test's call to it is a reference.
 const cacheVersion = "v706"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
