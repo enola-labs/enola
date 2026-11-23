@@ -3892,6 +3892,9 @@ import (
 // body onto the view's file_ref fact, so a class or method used only from a view is
 // no longer dead. The `<?php ?>` string a `Blade::directive` callback returns is
 // walked onto the method registering it.
+// v704: PHP: a plain function call inside a method (`url(...)` in `Profile::url`) no
+// longer sets recursive_self; a function call never runs a method. It still counts
+// as a call in a loop.
 const cacheVersion = "v704"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
