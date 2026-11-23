@@ -68,3 +68,20 @@ class Big : public Widget {};`,
 		t.Errorf("Big should implement lib.Widget, got %+v", big.Relations)
 	}
 }
+
+// A bare <name.hpp> naming a project header is found through an -I path the
+// extractor does not know, so what the file sees is unknown: a lone copy still binds.
+func TestTypeBehindABareAngleIncludeStillBinds(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"ng/meshing/meshclass.hpp": `namespace netgen { class Mesh { public: void AddPoint(); }; }`,
+		"ng/meshing/meshclass.cpp": "#include \"meshclass.hpp\"\n" +
+			`namespace netgen { void Mesh::AddPoint() {} }`,
+		"ng/nglib.cpp": "#include <meshclass.hpp>\n" +
+			`using namespace netgen;
+void Ng_AddPoint(Mesh *m) { m->AddPoint(); }`,
+	})
+	ng := mustFact(t, ff, "ng.Ng_AddPoint")
+	if !hasRelation(ng, facts.RelCalls, "ng/meshing.netgen::Mesh::AddPoint") {
+		t.Errorf("Ng_AddPoint should call Mesh::AddPoint, got %+v", ng.Relations)
+	}
+}

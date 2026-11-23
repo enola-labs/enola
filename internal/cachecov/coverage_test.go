@@ -296,7 +296,7 @@ var versionCoverage = map[int][]string{
 	701: {"TestLocalPropertyThenGetCallKeepsFunction", "TestExplicitBackingFieldKeepsClass"},
 	702: {"TestFunctionValuesRecordUse", "TestFunctionValuesSkipNonFunctions", "TestFunctionValuesDoNotCarryIO", "TestFunctionValuesIgnoreInheritedNames", "TestFunctionValuesBindPrivateDuplicates", "TestFunctionValuesSkipDelegateCallbacks", "TestFunctionValuesFileScopeFact"},
 	703: {"TestAnonymousMigrationClassIsNamedByItsFile", "TestSecondAnonymousClassInAFileTakesASuffix", "TestClassAttributeNamesAClass", "TestFractalIncludeListsAreRecorded"},
-	708: {"TestReceiverCallSkipsAnOutOfSightCopyDeclaringTheMember", "TestTypeDeclaredOnceOutOfSightIsNotInstantiated", "TestTypeDeclaredOnceInSightStillBinds", "TestReceiverCallBindsToTheOnlyCopyDeclaringTheMethod", "TestGolden"},
+	708: {"TestReceiverCallSkipsAnOutOfSightCopyDeclaringTheMember", "TestTypeDeclaredOnceOutOfSightIsNotInstantiated", "TestTypeDeclaredOnceInSightStillBinds", "TestTypeBehindABareAngleIncludeStillBinds", "TestReceiverCallBindsToTheOnlyCopyDeclaringTheMethod", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

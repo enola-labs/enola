@@ -3888,7 +3888,9 @@ import (
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
 // v708: a C++ type name resolves only to a copy the referencing file can include,
-// also when the repository declares it once; a member narrows among those copies.
+// also when the repository declares it once, unless one of its includes names a
+// project header the index cannot place (a bare <name.h>); a member narrows among
+// those copies.
 const cacheVersion = "v708"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

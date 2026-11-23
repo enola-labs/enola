@@ -647,22 +647,29 @@ func (t typeIndex) canonical(dir, name string) string {
 }
 
 // resolve returns the directory whose declaration of name a fact in sourceDir
-// refers to, or "" when the name is unknown or cannot be told apart. Only the
-// copies the fact can see count: its own directory and the directories its quoted
-// includes reach. A name declared once is no exception, because a lone copy the
-// source cannot include is another program's type that shares the name (a
-// wrapper library's ScalarFunction, a vendored library's IntType), not the one
-// meant. declares, when set, narrows the visible copies to those that have the
-// member being referenced (it is ignored when no copy passes, so a namespace-wrapped
-// or inherited member still gets a directory for the later passes to work from).
-// Among several visible copies the fact's own directory wins; anything else is
+// refers to, or "" when the name is unknown or cannot be told apart. When every
+// include the fact's directory makes is placed, only the copies it can see count:
+// its own directory and the directories its includes reach. A name declared once
+// is no exception, because a lone copy the source cannot include is another
+// program's type that shares the name (a wrapper library's ScalarFunction, a
+// vendored library's IntType), not the one meant. When some include is not placed
+// (a bare <name.h> found through -I), what the fact sees is unknown and every copy
+// stays a candidate. declares, when set, narrows the candidates to those that have
+// the member being referenced (it is ignored when no copy passes, so a
+// namespace-wrapped or inherited member still gets a directory for the later
+// passes to work from). One candidate is taken; among several, the fact's own
+// directory wins, then the single directory its includes reach. Anything else is
 // ambiguous.
 func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility, declares func(dir string) bool) string {
-	var candidates []string
-	for _, dir := range t.dirs[name] {
-		if visibility.reaches(sourceDir, dir) {
-			candidates = append(candidates, dir)
+	candidates := t.dirs[name]
+	if visibility.complete(sourceDir) {
+		var seen []string
+		for _, dir := range candidates {
+			if visibility.reaches(sourceDir, dir) {
+				seen = append(seen, dir)
+			}
 		}
+		candidates = seen
 	}
 	if len(candidates) > 1 && declares != nil {
 		var narrowed []string
@@ -684,7 +691,17 @@ func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility
 	if slices.Contains(candidates, sourceDir) {
 		return sourceDir
 	}
-	return ""
+	visible := ""
+	for _, dir := range candidates {
+		if !visibility.reaches(sourceDir, dir) {
+			continue
+		}
+		if visible != "" {
+			return ""
+		}
+		visible = dir
+	}
+	return visible
 }
 
 // sourceDir is the directory a fact's edges originate from. A module fact's File
@@ -751,13 +768,18 @@ func sourceDir(f *facts.Fact) string {
 type includeVisibility struct {
 	edges map[string]map[string]bool
 	cache map[string]map[string]bool
+	// opaque marks the directories with an include that names a project header
+	// the index cannot place: a bare <name.h> (toolchain or -I path, never
+	// resolved) or a path several headers end with. What such a directory sees is
+	// not known, so seen reports it as unknown rather than out of sight.
+	opaque map[string]bool
 }
 
 // buildIncludeVisibility records the module graph established by quoted includes.
 // It deliberately uses the same basename index as resolveIncludeDependencies, so
 // call resolution and the module graph cannot disagree about what an include names.
 func buildIncludeVisibility(allFacts []facts.Fact, headerIndex headerPathIndex) *includeVisibility {
-	v := &includeVisibility{edges: map[string]map[string]bool{}, cache: map[string]map[string]bool{}}
+	v := &includeVisibility{edges: map[string]map[string]bool{}, cache: map[string]map[string]bool{}, opaque: map[string]bool{}}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindDependency {
@@ -766,6 +788,9 @@ func buildIncludeVisibility(allFacts []facts.Fact, headerIndex headerPathIndex) 
 		inc := f.PropString("include")
 		target := headerIndex.resolve(f.File, inc, f.PropString("include_style"))
 		source := factpath.Dir(f.File)
+		if source != "" && target == "" && headerIndex.names(f.File, inc) {
+			v.opaque[source] = true
+		}
 		if source == "" || target == "" || source == target {
 			continue
 		}
@@ -791,8 +816,13 @@ func (v *includeVisibility) reaches(source, target string) bool {
 	if source == target {
 		return true
 	}
+	return v.closure(source)[target]
+}
+
+// closure is the set of modules source's includes lead to.
+func (v *includeVisibility) closure(source string) map[string]bool {
 	if reachable, ok := v.cache[source]; ok {
-		return reachable[target]
+		return reachable
 	}
 	reachable := map[string]bool{}
 	queue := []string{source}
@@ -808,7 +838,22 @@ func (v *includeVisibility) reaches(source, target string) bool {
 		}
 	}
 	v.cache[source] = reachable
-	return reachable[target]
+	return reachable
+}
+
+// complete reports whether every include source makes, directly or through the
+// headers it reaches, was placed. Only then is a module it does not reach known
+// to be out of its sight.
+func (v *includeVisibility) complete(source string) bool {
+	if v.opaque[source] {
+		return false
+	}
+	for dir := range v.closure(source) {
+		if v.opaque[dir] {
+			return false
+		}
+	}
+	return true
 }
 
 type functionNames struct {
@@ -938,6 +983,20 @@ func (index headerPathIndex) resolve(sourceFile, include, style string) string {
 		return index[relative]
 	}
 	return index[include]
+}
+
+// names reports whether include could name a project header that resolve did not
+// place: a bare <name.h>, or a path several headers end with.
+func (index headerPathIndex) names(sourceFile, include string) bool {
+	include = path.Clean(filepath.ToSlash(include))
+	if include == "." || include == "" {
+		return false
+	}
+	if _, ok := index[path.Clean(path.Join(factpath.Dir(sourceFile), include))]; ok {
+		return true
+	}
+	_, ok := index[include]
+	return ok
 }
 
 // lastScopeComponent returns the final "::"-separated component of a "<dir>.<...>"
