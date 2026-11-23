@@ -22,6 +22,7 @@ class ByShared { public: ByShared(); };
 class ByUniq { public: ByUniq(); };
 class ByUniqBase : public Base { public: ByUniqBase(); };
 class ByWrapped { public: ByWrapped(); };
+class ByAlias { public: ByAlias(); };
 class ByField { public: ByField(); };
 class PtrOnly { public: PtrOnly(); };
 class RefOnly { public: RefOnly(); };
@@ -48,6 +49,11 @@ std::unique_ptr<T> make_wrapped(ARGS &&...args) {
 template <class T, class... ARGS>
 std::shared_ptr<T> make_shared_ptr(ARGS &&...args) {
 	return std::make_shared<T>(std::forward<ARGS>(args)...);
+}
+namespace base_std = std;
+template <class T, class... ARGS>
+std::shared_ptr<T> make_alias_ptr(ARGS &&...args) {
+	return std::shared_ptr<T>(base_std::make_shared<T>(std::forward<ARGS>(args)...));
 }
 template <class T>
 T *cast_only(void *p) {
@@ -113,11 +119,12 @@ void run() {
 	auto u = make_uniq<ByUniq>();
 	auto ub = make_uniq_base<Base, ByUniqBase>();
 	auto w = make_wrapped<ByWrapped>();
+	auto a = make_alias_ptr<ByAlias>();
 	auto c = cast_only<ByDecl>(nullptr);
 }
 }`)
 	run := mustFact(t, ff, "src.db::run")
-	for _, want := range []string{"include.db::ByStd", "include.db::ByShared", "include.db::ByUniq", "include.db::ByUniqBase", "include.db::ByWrapped"} {
+	for _, want := range []string{"include.db::ByStd", "include.db::ByShared", "include.db::ByUniq", "include.db::ByUniqBase", "include.db::ByWrapped", "include.db::ByAlias"} {
 		if !hasRelation(run, facts.RelInstantiates, want) {
 			t.Errorf("run should instantiate %s, got %+v", want, run.Relations)
 		}
@@ -181,6 +188,32 @@ void run() {
 	for _, r := range run.Relations {
 		if r.Kind == facts.RelInstantiates {
 			t.Errorf("run sees no such type, got %+v", r)
+		}
+	}
+}
+
+// A typedef or alias the caller sees, and a type its own file declares where the
+// index has no copy (a struct nested in a class template), name what the source
+// means; a class of the same simple name elsewhere is not it.
+func TestCppConstructionYieldsToTypedefsAndFileLocalTypes(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"post/shapes.hpp":  `class tetrahedron { public: tetrahedron(); }; class Node { public: Node(); };`,
+		"mesh/tet.hpp":     "#include \"../post/shapes.hpp\"\nclass tetmesh { public: typedef double **tetrahedron; void build(); };",
+		"mesh/tet.cpp":     "#include \"tet.hpp\"\nvoid tetmesh::build() { tetrahedron t = new double *[4]; tetrahedron *u = new tetrahedron[2]; }",
+		"common/rtree.hpp": "#include \"../post/shapes.hpp\"\n#define QUAL RTree<T>\ntemplate <class T> class RTree { struct Node { int n; }; Node *Alloc(); };\ntemplate <class T> typename QUAL::Node *QUAL::Alloc() { return new Node; }\nvoid use() { Node n; }",
+		"app/main.cpp":     "#include \"../post/shapes.hpp\"\nvoid run() { Node n; tetrahedron t; }",
+	})
+	for _, f := range ff {
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelInstantiates && strings.HasPrefix(f.File, "mesh/") || r.Kind == facts.RelInstantiates && strings.HasPrefix(f.File, "common/") {
+				t.Errorf("%s does not create a %s", f.Name, r.Target)
+			}
+		}
+	}
+	run := mustFact(t, ff, "app.run")
+	for _, want := range []string{"post.Node", "post.tetrahedron"} {
+		if !hasRelation(run, facts.RelInstantiates, want) {
+			t.Errorf("run should instantiate %s, got %+v", want, run.Relations)
 		}
 	}
 }

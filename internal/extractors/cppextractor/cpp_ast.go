@@ -54,6 +54,7 @@ func extractFileAST(src []byte, relFile, lang string, macros macroTable) []facts
 		dir:            factpath.Dir(relFile),
 		lang:           lang,
 		fileMethods:    buildFileMethodIndex(kinds, tree.RootNode(), src),
+		root:           tree.RootNode(),
 		moduleOwnerIdx: -1,
 		macros:         macros,
 	}
@@ -198,6 +199,10 @@ type astWalker struct {
 	templateParams                      [][]string
 	pendingFactoryParams, factoryParams []string
 	returnDepth                         int
+	// root is the file's tree, and fileTypes the type names it declares, built on
+	// first use (construct.go).
+	root      *sitter.Node
+	fileTypes map[string]bool
 }
 
 // cppBodyMetrics accumulates per-function complexity signals during the single

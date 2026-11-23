@@ -6,6 +6,7 @@ import (
 
 	sitter "github.com/enola-labs/enola/internal/treesitter"
 
+	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -49,8 +50,9 @@ const (
 	propFactoryForwards = "factory_forwards"
 )
 
-// stdFactories construct their first type argument. Unqualified, they are the
-// standard ones brought in by a using-directive.
+// stdFactories construct their first type argument, whatever qualifies them: the
+// standard ones, brought in by a using-directive or reached through a namespace
+// alias of std (`base_std::make_shared<T>`).
 var stdFactories = map[string]bool{
 	"make_unique": true, "make_shared": true, "make_unique_for_overwrite": true,
 	"make_shared_for_overwrite": true, "allocate_shared": true,
@@ -267,7 +269,7 @@ func (w *astWalker) handleFactoryCall(callee *sitter.Node, name string, kind cal
 		}
 		written = append(written, strings.Join(strings.Fields(typ), ""))
 	}
-	std := stdFactories[name] && (kind == calleePlain || root == "std")
+	std := stdFactories[name]
 	if w.returnDepth > 0 && len(w.factoryParams) > 0 {
 		for pos, a := range written {
 			own := paramPosition(w.factoryParams, a)
@@ -322,7 +324,54 @@ func (w *astWalker) writtenTypeText(text string) string {
 			return ""
 		}
 	}
+	if w.declaresTypeInFile(leaf) {
+		return fileLocalMark + text
+	}
 	return text
+}
+
+// fileLocalMark prefixes a written type whose simple name this file declares
+// itself (a nested class, a typedef or an alias): the name may only bind to a
+// class of the caller's own directory, since the declaration the source means
+// may be one the type index does not hold.
+const fileLocalMark = "@"
+
+// declaresTypeInFile reports whether the file defines a class, struct, union or
+// enum (with a body), a typedef or an alias of that simple name.
+func (w *astWalker) declaresTypeInFile(name string) bool {
+	if w.fileTypes == nil {
+		w.fileTypes = map[string]bool{}
+		if w.root != nil {
+			collectFileTypeNames(w, *w.root)
+		}
+	}
+	return w.fileTypes[name]
+}
+
+// collectFileTypeNames recurses by value, for the reason walkForCallsAt gives.
+func collectFileTypeNames(w *astWalker, nv sitter.Node) {
+	n := &nv
+	switch kindOf(w.kinds, n) {
+	case "class_specifier", "struct_specifier", "union_specifier", "enum_specifier":
+		if name := n.ChildByFieldName("name"); name != nil && n.ChildByFieldName("body") != nil {
+			w.fileTypes[simpleTypeName(name, w.src)] = true
+		}
+	case "type_definition":
+		for i := uint(0); i < n.ChildCount(); i++ {
+			if n.FieldNameForChild(uint32(i)) == "declarator" {
+				w.fileTypes[declaratorLeafName(w.kinds, n.Child(i), w.src)] = true
+			}
+		}
+	case "alias_declaration":
+		if name := n.ChildByFieldName("name"); name != nil {
+			w.fileTypes[nodeText(name, w.src)] = true
+		}
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if c, ok := n.ChildAt(i); ok {
+			collectFileTypeNames(w, c)
+		}
+	}
 }
 
 // resolveConstructions turns the provisional construction edges into instantiates
@@ -331,9 +380,14 @@ func (w *astWalker) writtenTypeText(text string) string {
 // with the factory props.
 func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *includeVisibility) {
 	kinds := map[string]string{}
+	aliases := newTypeIndex()
 	for i := range allFacts {
 		if allFacts[i].Kind == facts.KindSymbol {
-			kinds[allFacts[i].Name] = allFacts[i].PropString("symbol_kind")
+			sk := allFacts[i].PropString("symbol_kind")
+			kinds[allFacts[i].Name] = sk
+			if sk == facts.SymbolType {
+				aliases.add(lastScopeComponent(allFacts[i].Name), factpath.Dir(allFacts[i].File), allFacts[i].Name)
+			}
 		}
 	}
 	factories := factoryPositions(allFacts)
@@ -362,7 +416,7 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 		}
 		source := sourceDir(f)
 		for _, typ := range built {
-			class := resolveWrittenType(typ, source, types, visibility)
+			class := resolveWrittenType(typ, source, types, aliases, visibility)
 			if k := kinds[class]; k != facts.SymbolClass && k != facts.SymbolStruct {
 				continue
 			}
@@ -377,13 +431,20 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 
 // resolveWrittenType finds the declaration a written type names: its simple name
 // through the type index and the caller's include visibility, kept only when the
-// declaration's qualified name ends with what the source wrote.
-func resolveWrittenType(written, source string, types typeIndex, visibility *includeVisibility) string {
-	dir := types.resolve(lastScopeComponent(written), source, visibility, nil)
-	if dir == "" {
+// declaration's qualified name ends with what the source wrote. A typedef or alias
+// of that name the caller sees in another directory may be what it means, and a
+// name its own file declares binds only in its own directory: both are dropped.
+func resolveWrittenType(written, source string, types, aliases typeIndex, visibility *includeVisibility) string {
+	written, local := strings.CutPrefix(written, fileLocalMark)
+	simple := lastScopeComponent(written)
+	dir := types.resolve(simple, source, visibility, nil)
+	if dir == "" || local && dir != source {
 		return ""
 	}
-	class := types.canonical(dir, lastScopeComponent(written))
+	if alias := aliases.resolve(simple, source, visibility, nil); alias != "" && alias != dir {
+		return ""
+	}
+	class := types.canonical(dir, simple)
 	if !strings.Contains(written, "::") {
 		return class
 	}
