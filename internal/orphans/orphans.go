@@ -1528,6 +1528,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// the member would make every type its own referent and no type could ever be
 	// dead.
 	creditScopes(laravelScopes, refSources)
+	creditCppLifecycle(symbols, refSources)
 	foldMemberUseIntoOwner(order, byName, refSources)
 
 	// Python __init__.py re-exports (`from .x import Y`) surface Y as part of the
