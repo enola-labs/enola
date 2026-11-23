@@ -89,3 +89,21 @@ void Setup() {
 		t.Errorf("Setup passes the function OnReady, got %+v", fn.Relations)
 	}
 }
+
+// A qualified name in a file-scope initializer names its own declaration.
+func TestCppQualifiedNameInFileScopeInitializer(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/include/radix.hpp": `struct RadixPartitioning { static unsigned NumberOfPartitions(unsigned bits); };`,
+		"src/sort/tracker.cpp": "#include \"../include/radix.hpp\"\n" +
+			`static const unsigned CAPACITY = RadixPartitioning::NumberOfPartitions(4);`,
+	})
+	found := false
+	for _, f := range ff {
+		if hasRelation(f, facts.RelCalls, "src/include.RadixPartitioning::NumberOfPartitions") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the initializer calls RadixPartitioning::NumberOfPartitions, got %v", factNames(ff))
+	}
+}

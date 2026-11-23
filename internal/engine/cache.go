@@ -3956,7 +3956,8 @@ import (
 // v712: a name passed as a C++ call argument is no function value when the
 // enclosing function declares it as a parameter or local, and a bare name bound by
 // its unique short name binds only to a free function or a member of the caller's
-// own class, never to another class's method.
+// own class, never to another class's method; a qualified name in a file-scope
+// initializer (`= Type::Make(4)`) is resolved as that qualified name.
 const cacheVersion = "v712"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

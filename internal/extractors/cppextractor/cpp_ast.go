@@ -1394,6 +1394,11 @@ func (w *astWalker) walkInitializerRefs(node *sitter.Node) {
 	case "pointer_expression": // &func / *func
 		w.walkInitializerRefs(node.ChildByFieldName("argument"))
 		return
+	case "qualified_identifier":
+		// ns::fn or Type::member names that declaration, not whatever shares its
+		// last component.
+		w.emitValueRef(node)
+		return
 	case "initializer_pair":
 		// Recurse only into the value — never the ".field" / "[i]" designator.
 		w.walkInitializerRefs(node.ChildByFieldName("value"))
