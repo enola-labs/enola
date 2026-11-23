@@ -4011,7 +4011,10 @@ import (
 // in types that are public or open themselves, is exported; internal (the default),
 // package, fileprivate and private are not. A member stating no access in a public
 // extension is public.
-const cacheVersion = "v713"
+// v714: PHP: a Laravel route path or group prefix computed at runtime
+// (`config('horizon.path')`, an interpolated string) marks the route path_partial
+// instead of reading as the root path.
+const cacheVersion = "v714"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

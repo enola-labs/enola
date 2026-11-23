@@ -315,6 +315,7 @@ var versionCoverage = map[int][]string{
 	713: {"TestSwiftSendingAndConsumeKeepTheType", "TestSwiftTypeBodyMacroKeepsTheType", "TestSwiftRecoveryRewritesPreserveOffsets"},
 	713: {"TestSwiftTypeUsesInDeclarationsAreNames", "TestSwiftTypeUseBindsThroughScope", "TestSwiftSynthesizedCodingKeysAreRegistered", "TestSwiftConstructorBindsThroughScope"},
 	713: {"TestSwiftExportedFollowsAccessControl"},
+	714: {"TestLaravelRoutes_RuntimePathIsPartial", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

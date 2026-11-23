@@ -1,5 +1,5 @@
 {
-  "cache_version": "v713",
+  "cache_version": "v714",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -163,7 +163,7 @@
     },
     "swift_sample": {
       "input": "3cab2fee87730ccce24b63c162c41e2e27d88923b08864ba1ef5bda0c894e096",
-      "facts": "bdeb1c81761291b9cb3d4e471cecf90ded268457342085a3553033df4571e842"
+      "facts": "96f8dd41badd46f0c4d14b68fa26d3b6685bab7fe6c39988626b39a30930653e"
     },
     "ts_custom_client_configured": {
       "input": "98ff702a08188d562df2c36a0c7be073e4435c043cabe9f8f2df721fa9179134",

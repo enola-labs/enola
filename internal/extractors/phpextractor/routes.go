@@ -25,6 +25,9 @@ type phpRouteScope struct {
 	// controller namespace, which string handlers are relative to.
 	controller string
 	namespace  string
+	// partial marks a prefix computed at runtime (`->prefix(config('x.path'))`):
+	// prefix holds nothing of it, and every route below has a partial path.
+	partial bool
 }
 
 // extractLaravelRoutes parses a Laravel routes file (routes/web.php, routes/api.php,
@@ -211,7 +214,7 @@ func linearizeRouteChain(node *sitter.Node, src []byte) ([]chainCall, bool) {
 func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, stack []phpRouteScope) {
 	// Collect fluent modifiers shared across the chain.
 	routeName := ""
-	fluentPrefix := ""
+	fluentPrefix, partial := "", false
 	controller, namespace := "", ""
 	groupIdx := -1
 	for i, c := range calls {
@@ -219,7 +222,9 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 		case "name":
 			routeName = positionalString(c.args, 0, w.src)
 		case "prefix":
-			fluentPrefix = positionalString(c.args, 0, w.src)
+			var literal bool
+			fluentPrefix, literal = literalArg(positionalArg(c.args, 0), w.src)
+			partial = partial || !literal
 		case "controller":
 			controller = w.classArg(positionalArg(c.args, 0))
 		case "namespace":
@@ -237,6 +242,10 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 			kv := arrayKeyValues(opts, w.src)
 			if p := kv["prefix"]; p != "" {
 				prefix = p
+			} else if v := arrayValue(opts, "prefix", w.src); v != nil {
+				if _, literal := literalArg(v, w.src); !literal {
+					partial = true
+				}
 			}
 			name = kv["as"]
 			if ns := kv["namespace"]; ns != "" {
@@ -247,7 +256,7 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 			}
 		}
 		newStack := append(append([]phpRouteScope{}, stack...),
-			phpRouteScope{prefix: prefix, name: name, controller: controller, namespace: namespace})
+			phpRouteScope{prefix: prefix, name: name, controller: controller, namespace: namespace, partial: partial})
 		if body := groupClosureBody(calls[groupIdx].args); body != nil {
 			w.walk(body, newStack)
 			return
@@ -266,15 +275,17 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 	for _, c := range calls {
 		switch {
 		case laravelVerbs[c.method] != "":
-			w.emitRoute(c.node, stack, laravelVerbs[c.method], pathArg(c.args, w.src), w.handler(positionalArg(c.args, 1), stack), w.actionName(routeName, positionalArg(c.args, 1)), "")
+			path, literal := literalArg(positionalArg(c.args, 0), w.src)
+			w.emitRoute(c.node, stack, laravelVerbs[c.method], path, !literal, w.handler(positionalArg(c.args, 1), stack), w.actionName(routeName, positionalArg(c.args, 1)), "")
 		case c.method == "any":
-			w.emitRoute(c.node, stack, "ANY", pathArg(c.args, w.src), w.handler(positionalArg(c.args, 1), stack), w.actionName(routeName, positionalArg(c.args, 1)), "")
+			path, literal := literalArg(positionalArg(c.args, 0), w.src)
+			w.emitRoute(c.node, stack, "ANY", path, !literal, w.handler(positionalArg(c.args, 1), stack), w.actionName(routeName, positionalArg(c.args, 1)), "")
 		case c.method == "match":
 			verbs := arrayStringElements(positionalArg(c.args, 0), w.src)
-			path := positionalString(c.args, 1, w.src)
+			path, literal := literalArg(positionalArg(c.args, 1), w.src)
 			handler := w.handler(positionalArg(c.args, 2), stack)
 			for _, v := range verbs {
-				w.emitRoute(c.node, stack, strings.ToUpper(v), path, handler, routeName, "")
+				w.emitRoute(c.node, stack, strings.ToUpper(v), path, !literal, handler, routeName, "")
 			}
 		case c.method == "resource" || c.method == "apiResource":
 			w.emitResource(c.node, stack, calls, positionalString(c.args, 0, w.src),
@@ -286,8 +297,8 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 }
 
 // emitRoute appends one server-route fact, joining the active group prefixes with the
-// route path.
-func (w *laravelRouteWalker) emitRoute(node *sitter.Node, stack []phpRouteScope, method, rawPath, handler, name, action string) {
+// route path. partial says rawPath is computed at runtime and holds nothing of it.
+func (w *laravelRouteWalker) emitRoute(node *sitter.Node, stack []phpRouteScope, method, rawPath string, partial bool, handler, name, action string) {
 	if method == "" || w.mountsOnly {
 		return
 	}
@@ -310,6 +321,14 @@ func (w *laravelRouteWalker) emitRoute(node *sitter.Node, stack []phpRouteScope,
 	}
 	if action != "" {
 		props["action"] = action
+	}
+	// A path computed at runtime, here or in a group prefix above, is known only by
+	// its literal segments, and they are not the path served.
+	for _, s := range stack {
+		partial = partial || s.partial
+	}
+	if partial {
+		props[facts.PropPathPartial] = true
 	}
 	w.out = append(w.out, facts.Fact{
 		Kind:      facts.KindRoute,
@@ -346,9 +365,23 @@ func splitSegs(p string) []string {
 	return out
 }
 
-// pathArg returns the first positional argument of a verb call as a path string.
-func pathArg(args *sitter.Node, src []byte) string {
-	return positionalString(args, 0, src)
+// literalArg returns a path argument's text and whether the source states it: a
+// string literal with no interpolation, or no argument at all. A call, a constant or
+// an interpolated string (`config('horizon.path')`) is computed at runtime.
+func literalArg(node *sitter.Node, src []byte) (string, bool) {
+	if node == nil {
+		return "", true
+	}
+	switch kindOf(node) {
+	case "string", "encapsed_string":
+		for i := uint(0); i < node.NamedChildCount(); i++ {
+			if kindOf(node.NamedChild(i)) != "string_content" {
+				return "", false
+			}
+		}
+		return stringLiteral(node, src), true
+	}
+	return "", false
 }
 
 // handler renders a Laravel route action argument as "Controller::method": a string
