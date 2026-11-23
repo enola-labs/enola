@@ -1,5 +1,4 @@
 {"kind":"dependency","name":"inc/widgets -\u003e inc","file":"inc/widgets/_coupling.php","repo":"php_sample","props":{"framework":"wordpress","language":"php","source":"internal","synthetic_coupling":true},"relations":[{"kind":"imports","target":"inc","target_id":"8c779f16c03d8bbb1c9bff99f408d072"}],"id":"d49ae4967a85868c5f60435ad69f65a7"}
-{"kind":"file_ref","name":"inc/hooks.php","file":"inc/hooks.php","repo":"php_sample","props":{"language":"php"},"relations":[{"kind":"calls","target":"add_action"},{"kind":"calls","target":"add_filter"}],"id":"2d571fe5e4cdc17f7e855d08e516df42"}
 {"kind":"module","name":".","file":".","repo":"php_sample","props":{"framework":"wordpress","language":"php"},"id":"e8ee62b3fc187b4249dcc58f5ee7e150"}
 {"kind":"module","name":"inc","file":"inc","repo":"php_sample","props":{"framework":"wordpress","language":"php"},"id":"8c779f16c03d8bbb1c9bff99f408d072"}
 {"kind":"module","name":"inc/widgets","file":"inc/widgets","repo":"php_sample","props":{"abstractness":0,"afferent":0,"distance":0,"efferent":1,"framework":"wordpress","instability":1,"language":"php"},"id":"8a16e9acbb3165d29876517e0117e83e"}

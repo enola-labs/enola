@@ -531,6 +531,14 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		return
 	case "function_call_expression":
 		fn := node.ChildByFieldName("function")
+		if fn != nil && (kindOf(fn) == "name" || kindOf(fn) == "qualified_name") && w.fileScope {
+			// Bound once every file's functions are known (bindFileScopeCalls): a
+			// helper the framework declares has no symbol here, and its name would
+			// land on whatever else carries it.
+			w.noteFileScopeCall(ownerIdx, w.resolveRef(phpText(fn, w.src)))
+			w.walkChildrenExcept(node, ownerIdx, seen, fn)
+			return
+		}
 		if fn != nil && (kindOf(fn) == "name" || kindOf(fn) == "qualified_name") {
 			target := w.resolveRef(phpText(fn, w.src))
 			w.addCall(ownerIdx, seen, target)

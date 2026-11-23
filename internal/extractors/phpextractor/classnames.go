@@ -102,7 +102,64 @@ func (w *phpWalker) emitFileScopeNames(root *sitter.Node) {
 	w.fileScope = true
 	w.walkForCalls(root, idx, seen)
 	w.fileScope = false
-	if len(w.out[idx].Relations) == 0 {
+	if len(w.out[idx].Relations) == 0 && w.out[idx].Props[propFileScopeCalls] == nil {
 		w.out = w.out[:idx]
 	}
+}
+
+// propFileScopeCalls carries the functions a file's top-level code calls from the
+// per-file walk to bindFileScopeCalls; it never reaches the graph.
+const propFileScopeCalls = "_file_scope_calls"
+
+func (w *phpWalker) noteFileScopeCall(ownerIdx int, target string) {
+	if target == "" || ownerIdx < 0 {
+		return
+	}
+	calls, _ := w.out[ownerIdx].Props[propFileScopeCalls].([]string)
+	for _, c := range calls {
+		if c == target {
+			return
+		}
+	}
+	w.out[ownerIdx].Props[propFileScopeCalls] = append(calls, target)
+}
+
+// bindFileScopeCalls turns the function calls file-scope code makes into calls
+// edges, for the functions the repository declares only. A framework helper
+// (`config()`, `app()`) has no declaration here, and its bare name would bind to
+// a directory module of that name. A file reference left with no relation is
+// dropped.
+func bindFileScopeCalls(allFacts []facts.Fact) []facts.Fact {
+	declared := map[string]bool{}
+	pending := false
+	for i := range allFacts {
+		f := &allFacts[i]
+		switch {
+		case f.Kind == facts.KindSymbol && f.PropString("symbol_kind") == facts.SymbolFunc:
+			declared[f.Name] = true
+		case f.Kind == facts.KindFileRef && f.Props[propFileScopeCalls] != nil:
+			pending = true
+		}
+	}
+	if !pending {
+		return allFacts
+	}
+	out := allFacts[:0]
+	for i := range allFacts {
+		f := &allFacts[i]
+		if f.Kind == facts.KindFileRef && f.Props != nil && f.Props[propFileScopeCalls] != nil {
+			calls, _ := f.Props[propFileScopeCalls].([]string)
+			delete(f.Props, propFileScopeCalls)
+			for _, c := range calls {
+				if declared[c] && !f.HasRelation(facts.RelCalls, c) {
+					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: c})
+				}
+			}
+			if len(f.Relations) == 0 {
+				continue
+			}
+		}
+		out = append(out, *f)
+	}
+	return out
 }
