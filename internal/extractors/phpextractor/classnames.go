@@ -74,18 +74,22 @@ func (w *phpWalker) nameClassesInBody(classIdx int, nodes ...*sitter.Node) {
 	}
 }
 
-// emitFileScopeNames records the classes a file names outside any declaration: a
-// config file returning an array of providers, a bootstrap script binding services.
-// No symbol owns that code, so the references ride on a file-reference fact, which
-// only the dead-code detector reads.
+// emitFileScopeNames records what a file's code outside any declaration names,
+// constructs and calls: a config file returning an array of providers, an extension
+// file returning `new Extender()` objects, a bootstrap script calling
+// `Site::fromPaths(...)`. No symbol owns that code, so the references ride on a
+// file-reference fact, which only the dead-code detector and the graph read.
+//
+// Only what the source states by name: a method called on an object of unknown
+// type (`$app->make(...)`) is not recorded, since its bare name would bind to every
+// method of that name.
 func (w *phpWalker) emitFileScopeNames(root *sitter.Node) {
+	seen := map[string]bool{}
 	classes := w.namedClasses(root, true, map[string]bool{}, nil)
-	if len(classes) == 0 {
-		return
-	}
 	rels := make([]facts.Relation, 0, len(classes))
 	for _, class := range classes {
 		rels = append(rels, facts.Relation{Kind: facts.RelNames, Target: class})
+		seen[facts.RelNames+" "+class] = true
 	}
 	w.out = append(w.out, facts.Fact{
 		Kind:      facts.KindFileRef,
@@ -94,4 +98,11 @@ func (w *phpWalker) emitFileScopeNames(root *sitter.Node) {
 		Props:     map[string]any{"language": "php"},
 		Relations: rels,
 	})
+	idx := len(w.out) - 1
+	w.fileScope = true
+	w.walkForCalls(root, idx, seen)
+	w.fileScope = false
+	if len(w.out[idx].Relations) == 0 {
+		w.out = w.out[:idx]
+	}
 }

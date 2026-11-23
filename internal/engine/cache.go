@@ -3953,7 +3953,10 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v715: PHP: the code of a file outside any declaration records on the file's
+// reference fact what it constructs (`new X`), calls statically or as a function,
+// and names; a method called on an object of unknown type there is not recorded.
+const cacheVersion = "v715"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

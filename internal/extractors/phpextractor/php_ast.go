@@ -85,6 +85,9 @@ type phpWalker struct {
 	localTypes map[string]string
 	selfName   string // enclosing callable's qualified name (for recursion detection)
 	selfShort  string // enclosing callable's short name
+	// fileScope is set while walking the code outside any declaration onto the
+	// file's reference fact (emitFileScopeNames).
+	fileScope bool
 }
 
 // phpBodyMetrics accumulates per-function complexity signals during the single
@@ -457,6 +460,12 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 	case "function_definition", "method_declaration", "class_declaration",
 		"interface_declaration", "trait_declaration", "enum_declaration":
 		return
+	case "anonymous_class", "namespace_use_declaration":
+		// At file scope an anonymous class is a declaration of its own (its body is
+		// walked onto its symbol), and a use statement names what it imports.
+		if w.fileScope {
+			return
+		}
 	case "assignment_expression":
 		// A local assigned from the current element is still the current element:
 		// `$models = $driver->models ?? [];` puts `$models` one step from `$driver`.
@@ -564,6 +573,12 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		// $this->method() self-references and dead-code analysis (mirrors the Ruby
 		// extractor's bare-call handling).
 		method := node.ChildByFieldName("name")
+		if w.fileScope {
+			// File scope has no $this and no declared types: the bare name would
+			// stand for every method of that name.
+			w.walkChildrenExcept(node, ownerIdx, seen, method)
+			return
+		}
 		if method != nil && kindOf(method) == "name" {
 			target := phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)

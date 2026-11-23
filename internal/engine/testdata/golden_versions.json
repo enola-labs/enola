@@ -1,5 +1,5 @@
 {
-  "cache_version": "v709",
+  "cache_version": "v715",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -115,15 +115,15 @@
     },
     "php_laravel_sample": {
       "input": "1d7fa195698aa95fae7f8fdc93f67615681d6851127de93bca30401515c9f0f1",
-      "facts": "1548848faf9b21b9c758b4cfdd9d69825c6eba782f85a5b62df79b606cb3e3b1"
+      "facts": "879c5ecde21bfb19df00b5c26220b32b02bef0711ca7a3cc62bc49fce2e2071f"
     },
     "php_multirepo": {
       "input": "a71529a706e018f82062c06d67315fcefd7b70dbace5e5ee1b502c006c47308d",
-      "facts": "156861d0aecd328be5fa733a57b20b7b0431e05c6162b09bdc04a7d49531edf9"
+      "facts": "a8a0490e1caaa3185a61f672f80365168943a5ecb458a8064477f60c90369fc9"
     },
     "php_sample": {
       "input": "7095c63ec7ba72d5601fac2890de18d76070eea14b25aa470dc69b8b81002408",
-      "facts": "3a03c287cc1ef2f81feb1608f5614d22562fd43b061991304784382ddca420b9"
+      "facts": "2082477f5f6882e7e07ea46ec8986e61d8f07fbacb9226ddd5e852a349d56aef"
     },
     "php_symfony_sample": {
       "input": "869f1f052ec1dac2a85d2b3ad595cd8afac671e7b51c8f1d240d089c09d5c2f5",
