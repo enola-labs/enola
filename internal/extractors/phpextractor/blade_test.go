@@ -47,13 +47,15 @@ func TestBladeTemplateRecordsReferences(t *testing.T) {
   $count = \App\Models\Place::count();
 @endphp
 <?php echo format_bytes($size); ?>
+<x-mail::button :url="$verify->emailConfirmUrl()" ::class="literal" class="{{ $theme->buttonClass() }}">Go</x-mail::button>
 @endsection
 `
 	ff := extractFileAST([]byte(src), "resources/views/site/index.blade.php")
 	file := "resources/views/site/index.blade.php"
 	wantTargets(t, "calls", fileRefTargets(ff, file, facts.RelCalls),
 		`App\Services\LandingService::get`, "actionToText", `App\Services\PronounService::pronouns`,
-		`App\Facades\Captcha::active`, `App\Models\Place::count`, "format_bytes")
+		`App\Facades\Captcha::active`, `App\Models\Place::count`, "format_bytes",
+		"emailConfirmUrl", "buttonClass")
 	wantTargets(t, "names", fileRefTargets(ff, file, facts.RelNames), `App\Services\MetricsService`)
 	for _, f := range ff {
 		if f.Kind == facts.KindSymbol {

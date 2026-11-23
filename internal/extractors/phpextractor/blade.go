@@ -1,6 +1,7 @@
 package phpextractor
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -85,6 +86,13 @@ func bladeToPHP(src []byte) []byte {
 			i = region(i, "<?php", "?>")
 		case strings.HasPrefix(rest, "<?="):
 			i = region(i, "<?=", "?>")
+		case strings.HasPrefix(rest, "<x-"), strings.HasPrefix(rest, "<x:"):
+			// A component tag's `:attr="..."` attributes are PHP; the rest of the tag,
+			// its echoes included, is read on by the loop.
+			for _, m := range bladeBoundAttr.FindAllStringSubmatch(rest[:componentTagEnd(rest)], -1) {
+				b.WriteString(m[1] + "; ")
+			}
+			i += 3
 		case s[i] == '@' && (i == 0 || !isWordByte(s[i-1])):
 			i = bladeDirective(s, i, &b, skip)
 		default:
@@ -174,6 +182,26 @@ func bladeDirective(s string, at int, b *strings.Builder, skip func(from, to int
 		b.WriteString("[" + args + "]; ")
 	}
 	return close + 1
+}
+
+// bladeBoundAttr is a component attribute bound to a PHP expression. `::attr` is
+// escaped and passes through as text.
+var bladeBoundAttr = regexp.MustCompile(`\s:[A-Za-z_][\w.-]*="([^"]*)"`)
+
+// componentTagEnd returns the length of the component tag at the start of s, up to
+// its closing '>' outside quotes, or len(s).
+func componentTagEnd(s string) int {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '"', '\'':
+			if end := stringEnd(s, i); end > 0 {
+				i = end
+			}
+		case '>':
+			return i
+		}
+	}
+	return len(s)
 }
 
 // bladeArgOpen returns the index of the '(' opening a directive's argument at or
