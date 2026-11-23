@@ -34,12 +34,8 @@ func isNeonFile(rel string) bool {
 }
 
 func isScriptFile(rel string) bool {
-	switch base := path.Base(rel); {
-	case base == "composer.json", base == "Makefile":
-		return true
-	default:
-		return strings.HasSuffix(strings.ToLower(base), ".sh")
-	}
+	base := path.Base(rel)
+	return base == "composer.json" || base == "Makefile" || strings.HasSuffix(strings.ToLower(base), ".sh")
 }
 
 // extractConfigClassRefs reads the .neon and script files among files and returns a
