@@ -3907,6 +3907,9 @@ import (
 // v705: TS/JS: a require() or dynamic import() of a .vue or .svelte file is a use of
 // the component it declares, as a static default import is (`Vue.component('x',
 // require('./X.vue').default)`, `component: () => import('./X.vue')`).
+// v705: TS/JS: Laravel Mix aliases are read from webpack.mix.js (mix.alias({...}) and
+// a resolve.alias handed to mix.webpackConfig), so an import through one resolves to
+// the repository file (resolved_via laravel-mix-alias).
 const cacheVersion = "v705"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

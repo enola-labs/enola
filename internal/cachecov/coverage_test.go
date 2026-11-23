@@ -301,6 +301,7 @@ var versionCoverage = map[int][]string{
 	704: {"TestEloquentRelationPropertyReadIsAUse", "TestEloquentRelationNamedInEagerLoadIsAUse"},
 	704: {"TestNullsafeMemberCallIsACall"},
 	705: {"TestLoadedComponent_RequireOfVueFile", "TestLoadedComponent_DynamicImportOfVueFile", "TestLoadedComponent_RequireOfScriptIsNotAComponentUse"},
+	705: {"TestLaravelMixAliases"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

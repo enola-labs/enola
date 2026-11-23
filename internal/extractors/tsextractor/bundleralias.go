@@ -20,6 +20,7 @@ const (
 	aliasViaTSConfig = "tsconfig-paths"
 	aliasViaVite     = "vite-alias"
 	aliasViaNuxt     = "nuxt-alias"
+	aliasViaMix      = "laravel-mix-alias"
 )
 
 // Why an import that matches an alias is not resolved, recorded as unresolved_reason.
@@ -61,6 +62,7 @@ func namesNoModule(importPath, resolved string, a tsAlias, isExternal bool, file
 var (
 	viteConfigNames = []string{"vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs", "vite.config.cts", "vite.config.cjs"}
 	nuxtConfigNames = []string{"nuxt.config.ts", "nuxt.config.js", "nuxt.config.mjs"}
+	mixConfigNames  = []string{"webpack.mix.js", "webpack.mix.cjs"}
 
 	nuxtSrcDirRe      = regexp.MustCompile(`(?m)^\s*srcDir:\s*['"]([^'"]+)['"]`)
 	nuxtCompat4Re     = regexp.MustCompile(`compatibilityVersion:\s*4`)
@@ -68,7 +70,8 @@ var (
 )
 
 // bundlerAliasesAtDir returns the aliases the bundler configured in dir applies:
-// Vite's resolve.alias, and Nuxt's built-in and configured aliases. The bundler is
+// Vite's resolve.alias, Nuxt's built-in and configured aliases, and Laravel Mix's
+// (mix.alias, or a resolve.alias it hands webpack). The bundler is
 // what resolves the import when the code runs, so these win over tsconfig paths.
 // Replacements are repository-relative, unlike tsconfig ones, which walkTSAliasRoots
 // qualifies with the root's directory.
@@ -82,6 +85,12 @@ func bundlerAliasesAtDir(repoPath, dir string) map[string]tsAlias {
 		rel = ""
 	}
 	out := map[string]tsAlias{}
+	for _, name := range mixConfigNames {
+		if src, err := os.ReadFile(filepath.Join(dir, name)); err == nil { //factpath:host
+			readConfigAliases(out, src, dir, rel, aliasViaMix, false)
+			break
+		}
+	}
 	for _, name := range nuxtConfigNames {
 		if src, err := os.ReadFile(filepath.Join(dir, name)); err == nil { //factpath:host
 			addNuxtBuiltinAliases(out, dir, rel, src)
@@ -193,6 +202,15 @@ func readConfigAliases(out map[string]tsAlias, src []byte, dir, rel, via string,
 			}
 			walk(val, key, depth+1)
 			return
+		}
+		// Laravel Mix: `mix.alias({ '@': path.join(__dirname, 'resources/js') })`,
+		// which Mix hands webpack as resolve.alias.
+		if via == aliasViaMix && kindOf(r.kinds, n) == "call_expression" {
+			if fn := n.ChildByFieldName("function"); kindOf(r.kinds, fn) == "member_expression" && nodeText(fn.ChildByFieldName("property"), r.src) == "alias" {
+				if args := namedArgs(r.kinds, n.ChildByFieldName("arguments")); len(args) == 1 {
+					r.readAliasValue(out, args[0], &order)
+				}
+			}
 		}
 		// `resolve: { alias }`, the shorthand for a binding of that name.
 		if kindOf(r.kinds, n) == "shorthand_property_identifier" && nodeText(n, r.src) == "alias" &&
