@@ -227,3 +227,68 @@ struct Plain {
 		}
 	}
 }
+
+// A constructor names the type the scope sees: a nested type before a top-level one,
+// a nested type of a framework type's name (`State()`) too, and a member of an
+// extension of a qualified type sees that type's nested types. A @Reducer type
+// conforms to Reducer, as the macro makes it.
+func TestSwiftConstructorBindsThroughScope(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/Lib/Ctor.swift": `
+struct Failure: Error {}
+
+struct Parser {
+    struct Failure: Error {}
+    func parse() throws { throw Failure() }
+}
+
+final class Handoff {
+    struct State {}
+    private let state = Box(State())
+}
+
+enum Formats {
+    struct Strategy {
+        enum ParseError: Error { case bad }
+    }
+}
+
+extension Formats.Strategy {
+    func parse() throws { throw ParseError.bad }
+}
+
+@Reducer
+struct Feature {
+    enum Action {}
+}
+`,
+	})
+	if !ctorRelation(ff, "Sources/Lib.Parser.parse", facts.RelInstantiates, "Sources/Lib.Parser.Failure") {
+		t.Errorf("Parser.parse: want the nested Failure constructed")
+	}
+	names := namesOf(ff)
+	if !hasName(names, "Sources/Lib.Handoff", "Sources/Lib.Handoff.State") {
+		t.Errorf("Handoff: State() names no nested State: %v", names["Sources/Lib.Handoff"])
+	}
+	if !hasName(names, "Sources/Lib.Strategy.parse", "Sources/Lib.Formats.Strategy.ParseError") {
+		t.Errorf("a qualified extension's member does not see the nested type: %v", names)
+	}
+	found := false
+	for _, f := range ff {
+		if f.Name == "Sources/Lib.Feature" && f.HasRelation(facts.RelImplements, "Reducer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("@Reducer type does not conform to Reducer")
+	}
+}
+
+func ctorRelation(ff []facts.Fact, from, kind, to string) bool {
+	for _, f := range ff {
+		if f.Name == from && f.HasRelation(kind, to) {
+			return true
+		}
+	}
+	return false
+}

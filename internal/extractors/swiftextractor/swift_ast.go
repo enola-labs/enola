@@ -2,6 +2,7 @@ package swiftextractor
 
 import (
 	"path"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -752,6 +753,10 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
 	}
+	// The Composable Architecture's @Reducer macro conforms the type to Reducer.
+	if containsAnnotation(attrs, "Reducer") && !slices.Contains(supertypes, "Reducer") {
+		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: "Reducer"})
+	}
 
 	body := typeBody(node)
 	if sig, published := computeSignature(body, w.src); sig != "" || len(published) > 0 {
@@ -1328,6 +1333,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				if isCapitalized(name) {
 					if !isSystemType(name) {
 						w.addOwnerEdge(facts.RelInstantiates, name)
+					} else {
+						// `State()`, `Error(code:)`: a project type of a framework
+						// type's name is bound only where the file sees it (typeuses.go).
+						w.addOwnerEdge(facts.RelNames, name)
 					}
 				} else if target := w.resolveCall(name); target != "" {
 					w.addOwnerEdge(facts.RelCalls, target)

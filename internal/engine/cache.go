@@ -3959,7 +3959,8 @@ import (
 // closure type, and the type path of a static read or of a nested type built through
 // its owner. The name binds as Swift looks it up: nested in an enclosing type first,
 // else top-level in the module the file sees; a generic parameter binds to nothing.
-// A CodingKeys enum of a Codable type is framework_registered.
+// A CodingKeys enum of a Codable type is framework_registered. A constructor's type
+// binds the same way (a nested type first); a @Reducer type implements Reducer.
 const cacheVersion = "v713"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

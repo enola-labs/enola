@@ -180,12 +180,16 @@ type swiftNamedTypes struct {
 type swiftNamedTypeSet struct {
 	sites map[string][]swiftTypeDeclSite // simple name -> declaring modules
 	full  map[string]bool                // declared type names
+	// tails maps ".Outer.Inner" (two or more trailing components) to the declared
+	// names ending so: an extension of a qualified type (`extension A.B`) names its
+	// members after B alone, so its scope is found by that tail.
+	tails map[string][]string
 }
 
 func newSwiftNamedTypes(allFacts []facts.Fact, moduleOf func(string) string) *swiftNamedTypes {
 	t := &swiftNamedTypes{
-		all:  swiftNamedTypeSet{sites: map[string][]swiftTypeDeclSite{}, full: map[string]bool{}},
-		prod: swiftNamedTypeSet{sites: map[string][]swiftTypeDeclSite{}, full: map[string]bool{}},
+		all:  swiftNamedTypeSet{sites: map[string][]swiftTypeDeclSite{}, full: map[string]bool{}, tails: map[string][]string{}},
+		prod: swiftNamedTypeSet{sites: map[string][]swiftTypeDeclSite{}, full: map[string]bool{}, tails: map[string][]string{}},
 		decl: map[string]*facts.Fact{},
 	}
 	for i := range allFacts {
@@ -216,6 +220,13 @@ func newSwiftNamedTypes(allFacts []facts.Fact, moduleOf func(string) string) *sw
 }
 
 func (s *swiftNamedTypeSet) add(name, short string, site swiftTypeDeclSite) {
+	if !s.full[name] {
+		parts := strings.Split(strings.TrimPrefix(name, site.dir+"."), ".")
+		for i := 0; i+2 <= len(parts); i++ {
+			key := "." + strings.Join(parts[i:], ".")
+			s.tails[key] = append(s.tails[key], name)
+		}
+	}
 	s.full[name] = true
 	for _, d := range s.sites[short] {
 		if d == site {
@@ -279,6 +290,20 @@ func (t *swiftNamedTypes) resolveDepth(from *facts.Fact, path string, vis *swift
 				break
 			}
 			found = t.inherited(set, d+"."+strings.Join(scope[:k], "."), head, vis, depth)
+		}
+	}
+	// The enclosing type named after the last component of a qualified extension.
+	for k := len(scope); k > 0 && found == ""; k-- {
+		var hits []string
+		for _, c := range set.tails["."+strings.Join(scope[:k], ".")+"."+head] {
+			for _, d := range dirs {
+				if strings.HasPrefix(c, d+".") {
+					hits = append(hits, c)
+				}
+			}
+		}
+		if len(hits) == 1 {
+			found = hits[0]
 		}
 	}
 	if found == "" && seen != "" && set.full[seen+"."+head] {

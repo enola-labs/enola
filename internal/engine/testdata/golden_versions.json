@@ -103,7 +103,7 @@
     },
     "kotlin_swift_multirepo": {
       "input": "781b7ffd11cfbea70d7adae2093143e7fc5d41d5aa327b992be572ba4820bd67",
-      "facts": "2186ef2fcdc9cd75ff0d543e068e4a81b8ffbf2a9fccd7b87f36f1b9321404ae"
+      "facts": "f91960dc4b05dd364a1471f7778cd3708696523aa460841804afc515b525772d"
     },
     "multirepo": {
       "input": "3ccb1225fa144283b74bfcda8bf201ca8babc5ce97b48c0fa9b68328bed756ea",
@@ -163,7 +163,7 @@
     },
     "swift_sample": {
       "input": "3cab2fee87730ccce24b63c162c41e2e27d88923b08864ba1ef5bda0c894e096",
-      "facts": "668d151304bebe3c13ac831425baec69c64c7b8140dc2240f450d03076416cc7"
+      "facts": "51e5c9b7675edf0f346473fe01d5ef9f9193d4bed2f7b43e79b0eedb91807151"
     },
     "ts_custom_client_configured": {
       "input": "98ff702a08188d562df2c36a0c7be073e4435c043cabe9f8f2df721fa9179134",

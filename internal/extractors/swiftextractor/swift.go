@@ -388,8 +388,11 @@ func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes, vis *swiftT
 				if strings.Contains(r.Target, ".") {
 					break
 				}
-				// The type of that name the file sees (typevisibility.go).
-				if dir := vis.resolve(&allFacts[i], typeDirs[r.Target]); dir != "" {
+				// The type of that name the file sees, nested in an enclosing type
+				// first (typeuses.go), else top-level (typevisibility.go).
+				if t := named.resolve(&allFacts[i], r.Target, vis); t != "" {
+					r.Target = t
+				} else if dir := vis.resolve(&allFacts[i], typeDirs[r.Target]); dir != "" {
 					r.Target = dir + "." + r.Target
 				}
 			}
