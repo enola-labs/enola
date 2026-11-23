@@ -3953,7 +3953,11 @@ import (
 // v709: Swift: a type carrying @main is framework_registered on every platform (an
 // executable target, a command line tool, a compiler plugin), not only a SwiftUI
 // App in an iOS target.
-const cacheVersion = "v709"
+// v712: a C++ member defined out of line in another directory than its class
+// takes `override`, `final` and `virtual` from the in-class declaration its
+// directory's includes reach (a class declared under include/ and defined under
+// src/).
+const cacheVersion = "v712"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

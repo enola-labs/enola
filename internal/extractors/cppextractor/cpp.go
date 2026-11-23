@@ -271,7 +271,9 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// the repository has the same short name, bind it to that declaration. This
 	// recovers free functions declared through headers without guessing among
 	// overloads or common helper names.
-	resolution := canonicalizeTargets(allFacts, types, indexFunctionNames(allFacts), buildIncludeVisibility(allFacts, headerIndex, headerDirs))
+	visibility := buildIncludeVisibility(allFacts, headerIndex, headerDirs)
+	carryOverride(allFacts, visibility)
+	resolution := canonicalizeTargets(allFacts, types, indexFunctionNames(allFacts), visibility)
 	log.Printf("[cpp-extractor] call resolution: total=%d exact=%d type_scoped=%d unique_short=%d qualified_suffix=%d receiver_resolved=%d receiver_rejected=%d rejected_no_include_path=%d unresolved=%d",
 		resolution.total, resolution.exact, resolution.typeScoped, resolution.uniqueShort, resolution.qualifiedSuffix, resolution.receiverResolved, resolution.receiverRejected, resolution.noIncludePath, resolution.unresolved)
 
