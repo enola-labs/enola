@@ -296,6 +296,7 @@ var versionCoverage = map[int][]string{
 	700: {"TestJavaReturnAndLocalTypesNameTheType"},
 	701: {"TestLocalPropertyThenGetCallKeepsFunction", "TestExplicitBackingFieldKeepsClass"},
 	702: {"TestFunctionValuesRecordUse", "TestFunctionValuesSkipNonFunctions", "TestFunctionValuesDoNotCarryIO", "TestFunctionValuesIgnoreInheritedNames", "TestFunctionValuesBindPrivateDuplicates", "TestFunctionValuesSkipDelegateCallbacks", "TestFunctionValuesFileScopeFact"},
+	703: {"TestAnonymousMigrationClassIsNamedByItsFile", "TestSecondAnonymousClassInAFileTakesASuffix", "TestClassAttributeNamesAClass", "TestFractalIncludeListsAreRecorded"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

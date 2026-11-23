@@ -3882,7 +3882,12 @@ import (
 // receiver's `v.m`) is a calls edge, listed in value_refs and not followed by the
 // performs_io closure. A name bound in the enclosing declaration, a reachable
 // property's name, a supertype's method and a Cocoa delegate callback stay unbound.
-const cacheVersion = "v702"
+// v703: a PHP anonymous class declared outside a function (a Laravel migration's
+// `return new class extends Migration`) is a class named after its file, and its
+// members are named after it rather than an empty owner; a class's own attributes
+// name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
+// entries of its Fractal include lists (fractal_includes).
+const cacheVersion = "v703"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

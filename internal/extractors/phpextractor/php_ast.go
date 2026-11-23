@@ -53,6 +53,10 @@ type phpWalker struct {
 
 	out []facts.Fact
 
+	// anonymous counts the anonymous classes declared so far in this file
+	// (anonclass.go).
+	anonymous int
+
 	// Per-function complexity state, set up by handleCallable around walkForCalls.
 	// metrics is nil outside a function/method body walk.
 	metrics   *phpBodyMetrics
@@ -121,6 +125,8 @@ func (w *phpWalker) walkNode(node *sitter.Node) {
 		w.handleClassLike(node, facts.SymbolClass) // PHP has no trait symbol kind; flagged via Props["trait"]
 	case "enum_declaration":
 		w.handleClassLike(node, facts.SymbolEnum)
+	case "anonymous_class":
+		w.declareClassLike(node, facts.SymbolClass, w.anonymousClassName())
 	case "function_definition":
 		w.handleCallable(node, false)
 	case "method_declaration":
@@ -209,8 +215,12 @@ func (w *phpWalker) handleClassLike(node *sitter.Node, kind string) {
 	if name == "" {
 		return
 	}
-	fqn := w.qualify(name)
+	w.declareClassLike(node, kind, w.qualify(name))
+}
 
+// declareClassLike emits the symbol for a class-like declaration named fqn and walks
+// its body with fqn as the enclosing type.
+func (w *phpWalker) declareClassLike(node *sitter.Node, kind, fqn string) {
 	props := map[string]any{
 		"symbol_kind": kind,
 		"exported":    true,
@@ -264,7 +274,7 @@ func (w *phpWalker) handleClassLike(node *sitter.Node, kind string) {
 		w.out[classIdx].SetProp(facts.PropFieldTypes, maps.Clone(w.propTypes))
 	}
 	w.walkProgram(node.ChildByFieldName("body"))
-	w.nameClassesInBody(classIdx, node.ChildByFieldName("body"))
+	w.nameClassesInBody(classIdx, node.ChildByFieldName("attributes"), node.ChildByFieldName("body"))
 	w.propTypes = outer
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 }
@@ -930,6 +940,9 @@ func (w *phpWalker) handleProperty(node *sitter.Node) {
 		}
 		if name == "table" {
 			w.recordEloquentTable(el)
+		}
+		if fractalIncludeProps[name] {
+			w.recordFractalIncludes(el)
 		}
 		w.out = append(w.out, facts.Fact{
 			Kind:    facts.KindSymbol,

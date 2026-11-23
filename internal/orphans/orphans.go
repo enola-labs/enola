@@ -1309,6 +1309,17 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 	}
 
+	// What Laravel and its libraries call by convention (laravel.go). A class whose
+	// hook it calls stays judged by its own references: a mailable nothing sends is
+	// still dead, though the mailer would call its envelope.
+	fileRefs := store.ByKind(facts.KindFileRef)
+	laravelRooted, laravelScopes := laravelRoots(symbols, fileRefs)
+	for name := range laravelRooted {
+		if si := byName[name]; si != nil {
+			si.FrameworkRoot = true
+		}
+	}
+
 	published := publishedModules(store)
 	if len(published) > 0 {
 		// Symbols share their directory with many others, so each (repository,
@@ -1488,6 +1499,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// The USER of the member becomes the user of the type, not the member: crediting
 	// the member would make every type its own referent and no type could ever be
 	// dead.
+	creditScopes(laravelScopes, refSources)
 	foldMemberUseIntoOwner(order, byName, refSources)
 
 	// Python __init__.py re-exports (`from .x import Y`) surface Y as part of the
