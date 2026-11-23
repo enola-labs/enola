@@ -390,6 +390,9 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	ownerIdx := len(w.out) - 1
+	if isMethod {
+		w.noteNextcloudRouteAttributes(ownerIdx, node.ChildByFieldName("attributes"))
+	}
 
 	// Walk the body once: accumulate RelCalls / RelInstantiates (deduplicated) and
 	// compute complexity in the same pass. props is shared by reference with the

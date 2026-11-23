@@ -165,6 +165,9 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 		allFacts = append(allFacts, extractSymfonyConfigRoutes(repoPath)...)
 	}
 
+	// A Nextcloud app's manifest, routes file and route attributes (nextcloud.go).
+	allFacts = append(allFacts, nextcloudFacts(repoPath, files, allFacts)...)
+
 	// Emit one module fact per directory containing PHP files.
 	for dir := range modules {
 		props := map[string]any{"language": "php"}
