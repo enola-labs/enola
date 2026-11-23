@@ -212,3 +212,39 @@ void TestMake() { Circle made = Circle(); }
 		}
 	}
 }
+
+// TestCppTestRefsCreditAProductionHeaderOfTestHelpers pins helpers a production
+// header declares and the test tree defines (KUnit helper libraries): a test's
+// call reaches the header's declaration, so it is credited, while a static helper
+// of the same shape stays the test's own.
+func TestCppTestRefsCreditAProductionHeaderOfTestHelpers(t *testing.T) {
+	repo := writeCppRepo(t, map[string]string{
+		"include/kunit_helpers.h": `int make_fixture(int n);
+int local_twin(int n);`,
+		"src/core.c":              `int local_twin(int n) { return n; }`,
+		"drivers/tests/helpers.c": `int make_fixture(int n) { return n; }`,
+		"drivers/tests/case_test.c": "#include \"../../include/kunit_helpers.h\"\n" +
+			`static int local_twin(int n) { return n; }
+static void run(void) { make_fixture(1); local_twin(2); }`,
+	})
+	got, err := New().ExtractTestRefs(context.Background(), repo,
+		[]string{"drivers/tests/case_test.c", "drivers/tests/helpers.c"},
+		[]string{"include/kunit_helpers.h", "src/core.c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ref facts.Fact
+	for _, f := range got {
+		if f.File == "drivers/tests/case_test.c" {
+			ref = f
+		}
+	}
+	if !hasRelation(ref, facts.RelCalls, "make_fixture") {
+		t.Errorf("the call to a helper the production header declares should be credited, got %+v", ref.Relations)
+	}
+	for _, r := range ref.Relations {
+		if r.Target == "local_twin" || r.Target == "drivers/tests.local_twin" || r.Target == "src.local_twin" {
+			t.Errorf("a static helper is the test's own, got %+v", ref.Relations)
+		}
+	}
+}

@@ -57,16 +57,26 @@ func (e *CppExtractor) ExtractTestRefs(ctx context.Context, repoPath string, tes
 	files = append(files, cppTests...)
 	sort.Strings(files)
 
+	store, err := e.extractStore(ctx, repoPath, files)
+	if err != nil {
+		return nil, err
+	}
+	if err := inheritedcalls.New().Bind(ctx, store); err != nil {
+		return nil, err
+	}
+	return testRefsFrom(store.FactsRef(), cppTests, isTest), nil
+}
+
+// extractStore runs Extract into a store. The extracted slice dies with this frame:
+// the store holds its own copy, and on a kernel-sized tree each is gigabytes.
+func (e *CppExtractor) extractStore(ctx context.Context, repoPath string, files []string) (*facts.Store, error) {
 	extracted, err := e.Extract(ctx, repoPath, files)
 	if err != nil {
 		return nil, err
 	}
 	store := facts.NewStore()
 	store.Add(extracted...)
-	if err := inheritedcalls.New().Bind(ctx, store); err != nil {
-		return nil, err
-	}
-	return testRefsFrom(store.FactsRef(), cppTests, isTest), nil
+	return store, nil
 }
 
 // testRefsFrom folds the usage edges of the facts declared in test files into one
@@ -100,6 +110,25 @@ func testRefsFrom(all []facts.Fact, cppTests []string, isTest map[string]bool) [
 			testDeclared[name] = true
 		}
 	}
+	// A test helper library is often declared in a production header (KUnit
+	// helpers under include/) and defined in the test tree. A call to such an
+	// external definition is a use of the header's declaration, which is all the
+	// graph keeps of it, so its target is written without the test directory. A
+	// static helper is the file's own and stays dropped.
+	prodPrototype := make(map[string]bool)
+	for _, f := range all {
+		if f.Kind == facts.KindSymbol && !isTest[factpath.Slash(f.File)] && isBodilessFunc(f) {
+			prodPrototype[afterDir(f.Name)] = true
+		}
+	}
+	testExternal := make(map[string]string)
+	for _, f := range all {
+		if f.Kind == facts.KindSymbol && testDeclared[f.Name] && f.PropBool("exported") && !f.PropBool("static") {
+			if bare := afterDir(f.Name); prodPrototype[bare] {
+				testExternal[f.Name] = bare
+			}
+		}
+	}
 	bases := cppBases(all)
 	// A module fact is a directory; its file-scope references belong to the
 	// directory's first test file, and only when every file there is a test.
@@ -120,10 +149,15 @@ func testRefsFrom(all []facts.Fact, cppTests []string, isTest map[string]bool) [
 	targets := make(map[string]map[string]bool) // test file -> targets
 	add := func(file string, cpp bool, rels []facts.Relation) {
 		for _, r := range rels {
-			if !isUsageRel(r.Kind) || r.Target == "" || testDeclared[r.Target] {
+			if !isUsageRel(r.Kind) || r.Target == "" {
 				continue
 			}
 			target := r.Target
+			if bare, ok := testExternal[target]; ok {
+				target = bare
+			} else if testDeclared[target] {
+				continue
+			}
 			if bare, ok := testPrototype[target]; ok {
 				target = bare
 			}
