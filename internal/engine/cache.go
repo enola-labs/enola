@@ -3861,7 +3861,13 @@ import (
 // named Foo is a call to it; otherwise a function named Foo is a call (resolved like
 // any bare call, and only to a function or method that is not a constructor), and a
 // method owner notes Foo as a member call. Neither: no edge, as before.
-const cacheVersion = "v699"
+// v700: Java: a simple type name imported on demand (`import com.acme.mapper.*;`) is
+// looked up as javac does, the file's own package first and then each on-demand
+// package, wherever the walker types a receiver, a `new`, a supertype, an injected
+// type, a field or a return type (javaextractor/typechoice.go). Before, it was read
+// as the own package's, so calls through a field typed by a wildcard import made no
+// edge and `new` of such a type pointed at a type that does not exist.
+const cacheVersion = "v700"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
