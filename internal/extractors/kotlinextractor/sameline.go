@@ -16,22 +16,34 @@ import (
 // replacement keeps every byte offset, so the walk reads names, spans and hashes from
 // the original source; the second tree is kept only when it has fewer errors.
 
-// reparseSameLineCloses returns the better of tree and a parse of src with the
-// separators written in. The tree not returned is closed.
-func reparseSameLineCloses(parser *sitter.Parser, src []byte, tree *sitter.Tree) *sitter.Tree {
-	fixed, changed := separateSameLineCloses(src)
-	if !changed {
-		return tree
+// recoveryRewrites are the byte-preserving rewrites tried, in order, on a file that
+// does not parse.
+var recoveryRewrites = []func([]byte) ([]byte, bool){separateSameLineCloses, separatePropertyTails}
+
+// reparseRecovered returns the best of tree and parses of src with each recovery
+// rewrite written in, each applied on top of the last one kept. A parse is kept
+// only when it has fewer errors. The trees not returned are closed.
+func reparseRecovered(parser *sitter.Parser, src []byte, tree *sitter.Tree) *sitter.Tree {
+	cur := src
+	for _, rewrite := range recoveryRewrites {
+		fixed, changed := rewrite(cur)
+		if !changed {
+			continue
+		}
+		again := parser.Parse(fixed, nil)
+		if again == nil {
+			continue
+		}
+		if errorNodes(again.RootNode()) < errorNodes(tree.RootNode()) {
+			tree.Close()
+			tree, cur = again, fixed
+			if !tree.RootNode().HasError() {
+				break
+			}
+			continue
+		}
+		again.Close()
 	}
-	again := parser.Parse(fixed, nil)
-	if again == nil {
-		return tree
-	}
-	if errorNodes(again.RootNode()) < errorNodes(tree.RootNode()) {
-		tree.Close()
-		return again
-	}
-	again.Close()
 	return tree
 }
 

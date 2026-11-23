@@ -3856,7 +3856,11 @@ import (
 // v698: a Python file named *_test.py is test code only inside a test tree, as the
 // default ignore globs already had it. Outside one it is production: its HTTP calls
 // are client routes, and the analyzers rate its symbols like any other module's.
-const cacheVersion = "v698"
+// v701: Kotlin: a file that does not parse is parsed again with a `;` before a get(
+// or set( call that cannot be an accessor (a route after a local property) and with
+// the `field` keyword of a Kotlin 2 explicit backing field blanked, so the enclosing
+// function or class is no longer lost to an ERROR node.
+const cacheVersion = "v701"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

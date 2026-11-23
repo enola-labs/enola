@@ -150,7 +150,7 @@ func testRefsFromFile(src []byte, relFile string) []facts.Fact {
 		return nil
 	}
 	if tree.RootNode().HasError() {
-		tree = reparseSameLineCloses(parser, src, tree)
+		tree = reparseRecovered(parser, src, tree)
 	}
 	defer tree.Close()
 
