@@ -24,15 +24,17 @@ type enclosingLookup struct {
 	declared map[string][]string
 	// callable is declared restricted to functions and methods.
 	callable map[string][]string
-	types    typeIndex
-	bases    baseIndex
-	known    map[string]bool
-	vis      *includeVisibility
+	// byShort maps a function's short name to its callable keys.
+	byShort map[string][]string
+	types   typeIndex
+	bases   baseIndex
+	known   map[string]bool
+	vis     *includeVisibility
 }
 
 func newEnclosingLookup(allFacts []facts.Fact, types typeIndex, bases baseIndex, known map[string]bool, vis *includeVisibility) *enclosingLookup {
 	l := &enclosingLookup{declared: map[string][]string{}, callable: map[string][]string{},
-		types: types, bases: bases, known: known, vis: vis}
+		byShort: map[string][]string{}, types: types, bases: bases, known: known, vis: vis}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol {
@@ -45,6 +47,10 @@ func newEnclosingLookup(allFacts []facts.Fact, types typeIndex, bases baseIndex,
 		}
 		l.declared[qualified] = appendDir(l.declared[qualified], dir)
 		if sk := f.PropString("symbol_kind"); sk == facts.SymbolFunc || sk == facts.SymbolMethod {
+			if len(l.callable[qualified]) == 0 {
+				short := qualified[strings.LastIndex(qualified, "::")+2:]
+				l.byShort[short] = append(l.byShort[short], qualified)
+			}
 			l.callable[qualified] = appendDir(l.callable[qualified], dir)
 		}
 	}
@@ -105,12 +111,37 @@ func (l *enclosingLookup) resolve(caller *facts.Fact, source, name string) strin
 		if len(candidates) == 0 {
 			continue // nothing in sight here: C++ goes on to the enclosing namespace
 		}
+		if l.nestedInSight(scopes[:n], key, name, source) {
+			return "" // a using-directive may bring that one in instead
+		}
 		if dir := pickInSight(candidates, len(all), source, l.vis); dir != "" {
 			return dir + "." + key
 		}
 		return "" // several in sight, none preferred: the name is found but ambiguous
 	}
 	return ""
+}
+
+// nestedInSight reports whether a namespace nested in scope declares a function
+// named name in a directory source may see. A using-directive for it (which the
+// walker does not record) would put that overload in the same lookup.
+func (l *enclosingLookup) nestedInSight(scope []string, key, name, source string) bool {
+	prefix := strings.Join(scope, "::") + "::"
+	for _, other := range l.byShort[name] {
+		rest, ok := strings.CutPrefix(other, prefix)
+		if !ok || other == key {
+			continue
+		}
+		if first, _, _ := strings.Cut(rest, "::"); len(l.types.dirs[templateBase(first)]) > 0 {
+			continue // a class member, which no using-directive brings in
+		}
+		for _, dir := range l.callable[other] {
+			if l.vis.mayReach(source, dir) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // pickInSight chooses among the directories in sight of source that declare a

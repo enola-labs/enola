@@ -116,3 +116,24 @@ int Derived::Work(int x) { return Flush(x); }
 		}
 	}
 }
+
+// A using-directive can bring a nested namespace's overload into the caller's
+// lookup (`using namespace Bevel;` inside a function). The extractor does not
+// record those, so a name a nested namespace in sight also declares is left to the
+// other passes rather than bound to the outer one.
+func TestCppUnqualifiedCallSkipsANameANestedNamespaceAlsoDeclares(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"mesh/split.hpp": `namespace geo {
+void edge_split(int mesh);
+namespace bevel { int edge_split(int mesh, double radius); }
+void bevel_all(int mesh) {
+	using namespace bevel;
+	edge_split(mesh, 0.5);
+}
+}`,
+	})
+	fn := mustFact(t, ff, "mesh.geo::bevel_all")
+	if hasRelation(fn, facts.RelCalls, "mesh.geo::edge_split") {
+		t.Errorf("edge_split may be bevel::edge_split through the using-directive, got %+v", fn.Relations)
+	}
+}
