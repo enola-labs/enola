@@ -4022,7 +4022,10 @@ import (
 // make_shared, and a project factory template (one whose return statement news its
 // type parameter or passes it to another factory) record that they instantiate the
 // class, bound only through the type written and the caller's include visibility.
-const cacheVersion = "v716"
+// v717: C++: a definition with no return type whose name is a macro the repository
+// defines (`EXT_ENTRY(name, loader) { … }`) is an entry point (root=macro): the
+// function it makes is named by token pasting and found by symbol lookup.
+const cacheVersion = "v717"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

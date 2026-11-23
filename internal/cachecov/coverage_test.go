@@ -309,6 +309,7 @@ var versionCoverage = map[int][]string{
 	714: {"TestLaravelRoutes_RuntimePathIsPartial", "TestGolden"},
 	715: {"TestFileScopeCodeRecordsConstructionsAndCalls", "TestFileScopeFunctionCallBindsOnlyToADeclaredFunction", "TestGolden"},
 	716: {"TestCppDeclarationInstantiates", "TestCppNewExpressionInstantiates", "TestCppFactoryTemplatesInstantiate", "TestCppValueMemberInstantiates", "TestCppConstructionBindsOnlyAWrittenVisibleType", "TestCppConstructionYieldsToTypedefsAndFileLocalTypes"},
+	717: {"TestCppMacroWrittenDefinitionIsAnEntryPoint", "TestCppUnknownMacroDefinitionIsNotAnEntryPoint"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
