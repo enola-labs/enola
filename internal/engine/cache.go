@@ -3887,7 +3887,10 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v705: TS/JS: a require() or dynamic import() of a .vue or .svelte file is a use of
+// the component it declares, as a static default import is (`Vue.component('x',
+// require('./X.vue').default)`, `component: () => import('./X.vue')`).
+const cacheVersion = "v705"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
