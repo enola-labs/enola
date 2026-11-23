@@ -141,7 +141,8 @@ func TestCppExtractTestRefsEmitsOnlyTestRefFacts(t *testing.T) {
 // TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed pins that ignoring a test tree
 // changes where its references live, not what they resolve to: the test_ref
 // targets are exactly the usage edges the same file's symbols carried when it was
-// extracted as code, less the calls into the file's own declarations.
+// extracted as code, less the calls into the file's own declarations, plus the
+// constructor and destructor of each class it instantiates.
 func TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed(t *testing.T) {
 	repo := writeCppRepo(t, cppTestRefRepo)
 	all := []string{"lib/tests/util_test.c", "src/conn.cpp", "src/conn.hpp", "src/other.cpp", "src/other.hpp", "src/util.c", "test/api/test_conn.cpp"}
@@ -163,6 +164,11 @@ func TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed(t *testing.T) {
 		for _, r := range f.Relations {
 			if isUsageRel(r.Kind) && !declared[r.Target] {
 				want = append(want, r.Target)
+				// A test ref also names what constructing the object runs, as the
+				// orphan detector credits from an instantiates edge.
+				if r.Kind == facts.RelInstantiates {
+					want = append(want, lifecycleMembers(r.Target, nil)...)
+				}
 			}
 		}
 	}

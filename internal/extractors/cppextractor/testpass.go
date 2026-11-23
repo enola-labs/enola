@@ -154,6 +154,7 @@ func (tp *testPass) resolve(ctx context.Context, repoPath string, prod []facts.F
 	joint = dedupeSymbols(joint)
 	visibility := buildIncludeVisibility(joint, buildHeaderPathIndex(tp.joint), buildHeaderDirIndex(tp.joint))
 	canonicalizeTargets(joint, types, indexFunctionNames(joint), visibility)
+	resolveConstructions(joint, types, visibility)
 
 	store := facts.NewStore()
 	store.Add(joint...)
@@ -168,7 +169,7 @@ func (tp *testPass) resolve(ctx context.Context, repoPath string, prod []facts.F
 var resolutionProps = []string{
 	"symbol_kind", "has_body", "receiver", "language", propReturnType, "superclass",
 	"abstract", "final", "override", "exported", "static", facts.PropFieldTypes,
-	"include", "include_style",
+	"include", "include_style", propFactoryNew, propFactoryForwards,
 }
 
 // resolutionView copies the production facts test resolution reads: each
