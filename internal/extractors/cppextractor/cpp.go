@@ -632,7 +632,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 							stats.enclosingScope++
 							resolved = true
 						} else {
-							if canonical := functions.short[candidate]; canonical != "" && (!bareValue || namesFreeOrOwnMember(canonical, &allFacts[i], source, callable, methods)) {
+							if canonical := functions.short[candidate]; canonical != "" && bareNameMayBind(canonical, &allFacts[i], bareValue, source, callable, methods) {
 								if visibility.allows(source, canonical) {
 									r.Target = canonical
 									stats.uniqueShort++
@@ -673,6 +673,23 @@ func containsRelation(rels []facts.Relation, r facts.Relation) bool {
 		}
 	}
 	return false
+}
+
+// bareNameMayBind reports whether a bare name the caller writes may be the
+// function canonical, found by its unique short name. A free function may be.
+// A member may not from C, where a bare name never names a struct member (a
+// function-pointer member is called through its object, and a bare `cmd(…)` is a
+// parameter or local), nor from outside any member function in C++. A member
+// function's bare call may reach a member of its class or a base; passed as a
+// value, only of its own class (namesFreeOrOwnMember).
+func bareNameMayBind(canonical string, caller *facts.Fact, bareValue bool, source string, callable, methods map[string]bool) bool {
+	if bareValue {
+		return namesFreeOrOwnMember(canonical, caller, source, callable, methods)
+	}
+	if !methods[canonical] {
+		return true
+	}
+	return caller.PropString("language") != langC && caller.PropString("symbol_kind") == facts.SymbolMethod
 }
 
 // namesFreeOrOwnMember reports whether a bare name passed as a value may name
