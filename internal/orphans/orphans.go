@@ -1451,10 +1451,13 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// Always production use, even under a test-looking path: a fixtures tree holds
 	// seed data the application loads as often as test data, and calling a symbol
 	// test-only on that evidence would invent a finding.
+	//
+	// A construction there (`new X()` in a view or a bootstrap file's returned array)
+	// uses the class as a call uses a function.
 	for f := range store.OfKind(facts.KindFileRef) {
 		add := refSources.add
 		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
+			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames && r.Kind != facts.RelInstantiates {
 				continue
 			}
 			add(r.Target, f.Name)

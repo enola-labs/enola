@@ -69,6 +69,23 @@ func TestCollectNamedReferencesProtectSymbols(t *testing.T) {
 	}
 }
 
+// A class constructed only outside any symbol, in a view or a file returning an
+// array of objects, is used: the file reference carries the construction.
+func TestFileScopeConstructionIsAUse(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"Acme\\Integration\\CoreSettings","file":"src/Integration/CoreSettings.php","props":{"symbol_kind":"class","language":"php"}}
+{"kind":"symbol","name":"Acme\\Integration\\Unused","file":"src/Integration/Unused.php","props":{"symbol_kind":"class","language":"php"}}
+{"kind":"file_ref","name":"extend.php","file":"extend.php","props":{"language":"php"},"relations":[{"kind":"instantiates","target":"Acme\\Integration\\CoreSettings"}]}
+`)
+	all := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := all[`Acme\Integration\CoreSettings`]; ok {
+		t.Errorf("a class constructed at file scope must not be reported: %+v", o)
+	}
+	if _, ok := all[`Acme\Integration\Unused`]; !ok {
+		t.Errorf("a class nothing constructs must stay reported: %+v", all)
+	}
+}
+
 // A class whose only reference is one of its own methods calling a sibling is
 // dead as a unit. The call target names the class in full, and every symbol is
 // matched by its full name, so the receiver fold must not credit the class with
