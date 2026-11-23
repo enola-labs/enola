@@ -894,7 +894,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	if nameNode == nil {
 		return
 	}
-	name := nodeText(nameNode, w.src)
+	name := swiftIdentifier(nameNode, w.src)
 	if name == "" {
 		return
 	}
@@ -1009,7 +1009,7 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 	if nameNode == nil {
 		return
 	}
-	name := nodeText(nameNode, w.src)
+	name := swiftIdentifier(nameNode, w.src)
 	if name == "" || name == "_" {
 		return
 	}
@@ -1697,6 +1697,12 @@ func memberSignature(node *sitter.Node, src []byte) string {
 	return strings.TrimSpace(s)
 }
 
+// swiftIdentifier returns an identifier's name: a keyword escaped in backticks to
+// serve as one (`default`) is the name without them, as a call after a dot writes it.
+func swiftIdentifier(node *sitter.Node, src []byte) string {
+	return strings.Trim(nodeText(node, src), "`")
+}
+
 // headerText returns the source text of node up to the start of its body (or the
 // whole node when there is no body), used to inspect a function's signature.
 func headerText(node, body *sitter.Node, src []byte) string {
@@ -1717,7 +1723,7 @@ func headerText(node, body *sitter.Node, src []byte) string {
 func calleeInfo(callee *sitter.Node, src []byte) (name string, isNav bool, root string, directSelf bool) {
 	switch kindOf(callee) {
 	case "simple_identifier", "identifier":
-		return nodeText(callee, src), false, "", false
+		return swiftIdentifier(callee, src), false, "", false
 	case "navigation_expression":
 		suffix := callee.ChildByFieldName("suffix")
 		if suffix == nil {
@@ -1725,7 +1731,7 @@ func calleeInfo(callee *sitter.Node, src []byte) (name string, isNav bool, root 
 		}
 		if suffix != nil {
 			if id := findFirstIdentifier(suffix, src); id != nil {
-				name = nodeText(id, src)
+				name = swiftIdentifier(id, src)
 			}
 		}
 		root = navigationRoot(callee, src)

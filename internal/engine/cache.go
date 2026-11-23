@@ -3887,7 +3887,10 @@ import (
 // members are named after it rather than an empty owner; a class's own attributes
 // name the classes they pass (`#[ObservedBy(X::class)]`); a class records the
 // entries of its Fractal include lists (fractal_includes).
-const cacheVersion = "v703"
+// v706: Swift: a function or property named with a keyword escaped in backticks
+// (`default`, `for`) is named without them, as a call after a dot writes it, so
+// `ErrorMiddleware.default(...)` binds and a test's call to it is a reference.
+const cacheVersion = "v706"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
