@@ -172,6 +172,7 @@ func (w *astWalker) emitRecoveredClass(at *sitter.Node, keyword, name, modifiers
 	case "annotation":
 		f.SetProp("annotation_class", true)
 	}
+	w.addDIContainerProps(&f, annotations)
 	if w.isAndroid {
 		addAndroidProps(&f, name, annotations, "")
 	}

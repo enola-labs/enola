@@ -75,6 +75,8 @@ type astWalker struct {
 	// fact name; external imports map to "" (imported, but no local fact exists).
 	// Used to resolve bare function calls to imported top-level functions.
 	importMap map[string]string
+	// diImports are the DI framework annotations the file imports (metro.go).
+	diImports map[string]bool
 
 	// typeStack holds the simple names of the enclosing class/object declarations,
 	// so methods declared inside them are named "<dir>.<Type>.<method>" (matching
@@ -664,6 +666,7 @@ func (w *astWalker) handleImport(node *sitter.Node) {
 		return
 	}
 	importPath := nodeText(qid, w.src)
+	w.noteDIImport(importPath, strings.HasSuffix(strings.TrimSpace(nodeText(node, w.src)), ".*")) // metro.go
 	resolved, isExternal := resolveKotlinImport(importPath, w.packageIndex, w.declaredNames, w.sourceRoot, w.basePackage)
 	importSource := "internal"
 	if isExternal {
@@ -807,6 +810,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 		f.SetProp(propSuperCandidates, cands)
 	}
 
+	w.addDIContainerProps(&f, annotations)
 	if w.isAndroid {
 		// addAndroidProps uses the raw supertype clause text; reconstruct as a comma-joined
 		// string so its supertypeMatches helper continues to work.
@@ -912,6 +916,7 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 	if cands := w.superCandidates(supertypes); len(cands) > 0 {
 		f.SetProp(propSuperCandidates, cands)
 	}
+	w.addDIContainerProps(&f, annotations)
 	if w.isAndroid {
 		addAndroidProps(&f, name, annotations, strings.Join(supertypes, ", "))
 	}

@@ -3978,6 +3978,9 @@ import (
 // `a..b`) on an operand of declared type calls the `operator fun` its convention
 // names, declared by the type, a supertype, or an extension on it the file sees; a
 // library type is matched by its qualified import.
+// v711: Kotlin: a Metro @BindingContainer is a di_module, and a Metro or Anvil
+// @ContributesTo container is framework_registered, on every platform; the
+// annotations count only when imported from the framework.
 const cacheVersion = "v711"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
