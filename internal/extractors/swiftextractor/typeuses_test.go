@@ -117,8 +117,9 @@ enum Defaults { static let current = 1 }
 }
 
 // The name binds as Swift looks it up: a type nested in an enclosing type shadows a
-// top-level one, a generic parameter or associated type names no project type, and a
-// type nested in another type is not visible by its bare name.
+// top-level one, a subclass sees its superclass's nested types, a generic parameter
+// or associated type names no project type, and a type nested in an unrelated type
+// is not visible by its bare name.
 func TestSwiftTypeUseBindsThroughScope(t *testing.T) {
 	ff := extractRepo(t, map[string]string{
 		"Sources/Lib/Model.swift": `
@@ -144,6 +145,14 @@ protocol Source {
 struct Reader {
     func look(_ h: Hidden) {}
 }
+
+class Request {
+    enum Disposition { case allow }
+}
+
+final class StreamRequest: Request {
+    func respond(_ handler: (Disposition) -> Void) {}
+}
 `,
 	})
 	names := namesOf(ff)
@@ -156,6 +165,9 @@ struct Reader {
 	}
 	if hasName(names, "Sources/Lib.Source", "Sources/Lib.Value") {
 		t.Errorf("an associated type bound to the project type: %v", names["Sources/Lib.Source"])
+	}
+	if !hasName(names, "Sources/Lib.StreamRequest.respond", "Sources/Lib.Request.Disposition") {
+		t.Errorf("a superclass's nested type is not seen from the subclass: %v", names["Sources/Lib.StreamRequest.respond"])
 	}
 	if len(names["Sources/Lib.Reader.look"]) != 0 {
 		t.Errorf("a nested type of another type bound by its bare name: %v", names["Sources/Lib.Reader.look"])

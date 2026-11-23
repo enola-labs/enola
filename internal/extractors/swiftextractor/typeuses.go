@@ -174,6 +174,7 @@ func (w *astWalker) noteStaticPath(nav *sitter.Node) {
 // to, separately for what production and test files see (scope.go).
 type swiftNamedTypes struct {
 	all, prod swiftNamedTypeSet
+	decl      map[string]*facts.Fact // declared type name -> its fact
 }
 
 type swiftNamedTypeSet struct {
@@ -185,6 +186,7 @@ func newSwiftNamedTypes(allFacts []facts.Fact, moduleOf func(string) string) *sw
 	t := &swiftNamedTypes{
 		all:  swiftNamedTypeSet{sites: map[string][]swiftTypeDeclSite{}, full: map[string]bool{}},
 		prod: swiftNamedTypeSet{sites: map[string][]swiftTypeDeclSite{}, full: map[string]bool{}},
+		decl: map[string]*facts.Fact{},
 	}
 	for i := range allFacts {
 		f := &allFacts[i]
@@ -199,6 +201,9 @@ func newSwiftNamedTypes(allFacts []facts.Fact, moduleOf func(string) string) *sw
 		dir := moduleOf(f.File)
 		if !strings.HasPrefix(f.Name, dir+".") {
 			continue
+		}
+		if t.decl[f.Name] == nil {
+			t.decl[f.Name] = f
 		}
 		short := lastDotComponent(f.Name)
 		site := swiftTypeDeclSite{dir: dir, topLevel: f.Name == dir+"."+short, outer: lastDotComponent(ownerOf(f.Name))}
@@ -228,11 +233,19 @@ func (t *swiftNamedTypes) forFile(file string) *swiftNamedTypeSet {
 }
 
 // resolve returns the declared type a names edge from `from` to the dotted path
-// means, or "" when the file sees none. The head binds as Swift looks it up: a type
-// nested in from's enclosing types, innermost first, in from's own module or the
-// module the head resolves to; else the top-level type of the module it resolves
-// to. Each further component extends the name while a nested type of it exists.
+// means, or "" when the file sees none. The head binds as Swift looks it up: in each
+// of from's enclosing types, innermost first, a type nested in it or inherited from
+// one of its supertypes, in from's own module or the module the head resolves to;
+// else the top-level type of the module it resolves to. Each further component
+// extends the name while a nested type of it exists.
 func (t *swiftNamedTypes) resolve(from *facts.Fact, path string, vis *swiftTypeVisibility) string {
+	return t.resolveDepth(from, path, vis, 0)
+}
+
+// maxInheritDepth bounds the supertype walk of one lookup.
+const maxInheritDepth = 4
+
+func (t *swiftNamedTypes) resolveDepth(from *facts.Fact, path string, vis *swiftTypeVisibility, depth int) string {
 	if strings.Contains("."+path+".", ".CodingKeys.") {
 		return "" // markSynthesizedCodingKeys
 	}
@@ -255,10 +268,17 @@ func (t *swiftNamedTypes) resolve(from *facts.Fact, path string, vis *swiftTypeV
 	found := ""
 	for k := len(scope); k > 0 && found == ""; k-- {
 		for _, d := range dirs {
-			if cand := d + "." + strings.Join(scope[:k], ".") + "." + head; set.full[cand] {
-				found = cand
+			enclosing := d + "." + strings.Join(scope[:k], ".")
+			if set.full[enclosing+"."+head] {
+				found = enclosing + "." + head
 				break
 			}
+		}
+		for _, d := range dirs {
+			if found != "" {
+				break
+			}
+			found = t.inherited(set, d+"."+strings.Join(scope[:k], "."), head, vis, depth)
 		}
 	}
 	if found == "" && seen != "" && set.full[seen+"."+head] {
@@ -279,6 +299,31 @@ func (t *swiftNamedTypes) resolve(from *facts.Fact, path string, vis *swiftTypeV
 		return ""
 	}
 	return found
+}
+
+// inherited returns the type named head nested in a supertype of the declared type
+// typeName (a subclass sees its superclass's nested types by their bare names), or "".
+func (t *swiftNamedTypes) inherited(set *swiftNamedTypeSet, typeName, head string, vis *swiftTypeVisibility, depth int) string {
+	f := t.decl[typeName]
+	if f == nil || depth >= maxInheritDepth {
+		return ""
+	}
+	for _, r := range f.Relations {
+		if r.Kind != facts.RelImplements {
+			continue
+		}
+		sup := t.resolveDepth(f, r.Target, vis, depth+1)
+		if sup == "" || sup == typeName {
+			continue
+		}
+		if set.full[sup+"."+head] {
+			return sup + "." + head
+		}
+		if got := t.inherited(set, sup, head, vis, depth+1); got != "" {
+			return got
+		}
+	}
+	return ""
 }
 
 // codableProtocols are the standard library protocols whose conformance the
