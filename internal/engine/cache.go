@@ -3895,6 +3895,13 @@ import (
 // v704: PHP: a plain function call inside a method (`url(...)` in `Profile::url`) no
 // longer sets recursive_self; a function call never runs a method. It still counts
 // as a call in a loop.
+// v704: PHP: an Eloquent relation method (one returning `$this->hasMany(...)`,
+// morphTo included) read as a property of a receiver of declared type
+// (`$status->mentions` with `Status $status`) or named in an eager load or relation
+// query on a model class or typed receiver (`Media::with('status.mentions')`,
+// `whereHas`, `withCount('c as n')`) is a calls edge to that relation, a path's later
+// segments looked up on the model the previous relation names. A read on a receiver
+// of unknown type records nothing: the extractor does not know the columns.
 const cacheVersion = "v704"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

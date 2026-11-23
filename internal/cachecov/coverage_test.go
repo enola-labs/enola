@@ -298,6 +298,7 @@ var versionCoverage = map[int][]string{
 	703: {"TestAnonymousMigrationClassIsNamedByItsFile", "TestSecondAnonymousClassInAFileTakesASuffix", "TestClassAttributeNamesAClass", "TestFractalIncludeListsAreRecorded"},
 	704: {"TestBladeTemplateRecordsReferences", "TestBladeTemplateOnlyForBladeFiles", "TestBladeDirectiveStringRecordsCalls"},
 	704: {"TestPHPRecursion_GlobalFunctionCallInMethodIsNotSelfCall", "TestPHPRecursion_FunctionCallingItselfStillFlagged"},
+	704: {"TestEloquentRelationPropertyReadIsAUse", "TestEloquentRelationNamedInEagerLoadIsAUse"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
