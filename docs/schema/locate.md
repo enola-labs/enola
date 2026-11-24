@@ -8,6 +8,7 @@ except that a [stamp check](#stamp-check) from the tool leaves the stamp out, ho
 | `locations` | `file:line` or `file:start-end` | One [location](#location) per request |
 | `diff` | `--diff`, or the tool's `diff` | The symbols a [unified diff](#diff) touched |
 | `stamps` | `--stamps`, or the tool's `stamps` | One [check](#stamp-check) per stamp, in order |
+| `names` | `--names`, or the tool's `names` | One [name](#name) per name, in order |
 
 Consumers must accept unknown fields and unknown `status` or `match` values, because new ones
 are additive. A field marked optional is left out when it has no value.
@@ -41,7 +42,7 @@ are additive. A field marked optional is left out when it has no value.
 | `candidates` | array of strings | optional | Graph files the path matched, when more than one |
 | `nested` | array | optional | For an `enclosing` match, each [nested function](#nested-functions) without a symbol the location is in: `name`, `line`, `end_line` |
 | `cited_hash` | string | optional | Version of the cited lines. Needs the source |
-| `cited_lines` | int | optional | Non-blank lines `cited_hash` covers. A single line is taken with one line either side |
+| `cited_lines` | int | optional | Non-blank lines `cited_hash` covers. A single line is taken with one line either side, from inside the symbol holding it |
 | `error` | string | optional | The location could not be read |
 
 | `match` | Meaning |
@@ -74,6 +75,22 @@ TypeScript and JavaScript inside Vue, Svelte and other component files are not m
 `touched --grain` does not change any of this. It decides how commits are counted for a ranking:
 `member` credits the symbol `locate` returns, `declaration` credits the `member_of` declaration
 instead. The ids and spans `locate` returns are the same under either.
+
+## Name
+
+A name is an identifier as code and notes write it: `nodeFor`, `Graph.nodeFor`, or either
+with its package path in front. A symbol answers to it when its qualified name is the name or
+ends in it at a `.` or `/` boundary, case included, so `nodeFor` finds `Graph.nodeFor` and not
+`Graph.nodeForID` or `NodeFor`. A trailing `()` is ignored.
+
+| Field | Type | Presence | Meaning |
+|---|---|---|---|
+| `name` | string | always | The name as requested |
+| `match` | string | always | `one`, `several` or `none` |
+| `symbols` | array | optional | Each [symbol](#symbol) that answers to the name, by file and line, with `cited_hash` and `cited_lines` for its declaration line when the source can be read. Together these are what a [stamp](#stamp) keeps |
+
+`several` lists every symbol and picks none: which one a caller meant is in its own text, not
+in the graph.
 
 ## Diff
 

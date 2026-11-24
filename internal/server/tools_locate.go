@@ -16,6 +16,7 @@ type locateArgs struct {
 	Diff      string         `json:"diff,omitempty" jsonschema:"unified diff"`
 	Side      string         `json:"side,omitempty" jsonschema:"snapshot side: new (default) or old"`
 	Stamps    []locate.Stamp `json:"stamps,omitempty"`
+	Names     []string       `json:"names,omitempty"`
 }
 
 // stampResult is a check without the stamp, which the caller sent and a session would pay for
@@ -38,13 +39,13 @@ const maxLocateInputs = 500
 func (s *Server) registerLocateTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "locate",
-		Description: "file:line or diff to symbols: fact id, body_hash, cited_hash. Stamps: current|rewritten|moved|gone|ambiguous; cited intact/changed.",
+		Description: "file:line, diff or names to symbols: fact id, body_hash, cited_hash. Stamps: current|rewritten|moved|gone|ambiguous; cited intact/changed.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args locateArgs) (*mcp.CallToolResult, any, error) {
-		if len(args.Locations) == 0 && args.Diff == "" && len(args.Stamps) == 0 {
-			return errorResult("locate needs locations, a diff or stamps"), nil, nil
+		if len(args.Locations) == 0 && args.Diff == "" && len(args.Stamps) == 0 && len(args.Names) == 0 {
+			return errorResult("locate needs locations, a diff, stamps or names"), nil, nil
 		}
-		if len(args.Locations) > maxLocateInputs || len(args.Stamps) > maxLocateInputs {
-			return errorResult(fmt.Sprintf("at most %d locations and %d stamps per call", maxLocateInputs, maxLocateInputs)), nil, nil
+		if len(args.Locations) > maxLocateInputs || len(args.Stamps) > maxLocateInputs || len(args.Names) > maxLocateInputs {
+			return errorResult(fmt.Sprintf("at most %d locations, %d stamps and %d names per call", maxLocateInputs, maxLocateInputs, maxLocateInputs)), nil, nil
 		}
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -62,6 +63,7 @@ func (s *Server) registerLocateTool() {
 			Locations []locate.LocationResult `json:"locations,omitempty"`
 			Diff      *locate.DiffResult      `json:"diff,omitempty"`
 			Stamps    []stampResult           `json:"stamps,omitempty"`
+			Names     []locate.NameResult     `json:"names,omitempty"`
 		}
 		if len(args.Locations) > 0 {
 			out.Locations = ix.Locations(args.Locations)
@@ -77,6 +79,9 @@ func (s *Server) registerLocateTool() {
 			for i, c := range ix.Check(args.Stamps) {
 				out.Stamps = append(out.Stamps, stampResult{I: i, Status: c.Status, Symbol: c.Symbol, Cited: c.Cited, Change: c.Change, Candidates: c.Candidates})
 			}
+		}
+		if len(args.Names) > 0 {
+			out.Names = ix.Names(args.Names)
 		}
 		return jsonResult(out)
 	})

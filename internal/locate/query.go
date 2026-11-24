@@ -59,12 +59,6 @@ func (ix *Index) location(loc string) LocationResult {
 		return r
 	}
 	r.File = resolved
-	if content, ok := ix.read(resolved); ok {
-		from, to := citedRange(start, end)
-		if lines, inside := facts.NormalizedLines(content, from, to); inside && len(lines) > 0 {
-			r.CitedHash, r.CitedLines = facts.HashLines(lines), len(lines)
-		}
-	}
 	r.Match = MatchNone
 	seen := map[string]bool{}
 	for line := start; line <= end; line++ {
@@ -87,6 +81,16 @@ func (ix *Index) location(loc string) LocationResult {
 			}
 		}
 	}
+	if content, ok := ix.read(resolved); ok {
+		var holder *Symbol
+		if len(r.Symbols) > 0 {
+			holder = &r.Symbols[0]
+		}
+		from, to := citedRange(start, end, holder)
+		if lines, inside := facts.NormalizedLines(content, from, to); inside && len(lines) > 0 {
+			r.CitedHash, r.CitedLines = facts.HashLines(lines), len(lines)
+		}
+	}
 	return r
 }
 
@@ -97,11 +101,20 @@ func (ix *Index) location(loc string) LocationResult {
 // against later code (memory-keying workshop, excalidraw): the line alone agreed with
 // the agent on 14, the line with one either side on 16, three either side on 16 but
 // losing a note the agent kept.
-func citedRange(start, end int) (int, int) {
+//
+// The neighbours are taken only from inside the symbol holding the line. A check looks
+// for the cited lines in the symbol's body, so a declaration line cited with the comment
+// above it, or a closing brace with the code below it, could never be found again and
+// every rewrite would read as the cited lines changed.
+func citedRange(start, end int, holder *Symbol) (int, int) {
 	if start != end {
 		return start, end
 	}
-	return max(1, start-1), end + 1
+	from, to := max(1, start-1), end+1
+	if holder != nil && holder.contains(start) {
+		from, to = max(from, holder.first()), min(to, holder.EndLine)
+	}
+	return from, to
 }
 
 // ParseLocation splits `file:line` or `file:start-end`.

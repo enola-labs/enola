@@ -461,7 +461,7 @@
   },
   {
     "name": "locate",
-    "description": "file:line or diff to symbols: fact id, body_hash, cited_hash. Stamps: current|rewritten|moved|gone|ambiguous; cited intact/changed.",
+    "description": "file:line, diff or names to symbols: fact id, body_hash, cited_hash. Stamps: current|rewritten|moved|gone|ambiguous; cited intact/changed.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -471,6 +471,15 @@
         },
         "locations": {
           "description": "file:line or file:a-b",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "names": {
           "items": {
             "type": "string"
           },

@@ -322,6 +322,26 @@ func TestCitedLines(t *testing.T) {
 	if r := g.Check([]Stamp{single})[0]; r.Cited != CitedChanged {
 		t.Errorf("a guard added beside a single cited line: cited %q, want changed", r.Cited)
 	}
+
+	// The declaration and closing lines take their neighbours from inside the symbol only,
+	// so a rewrite elsewhere in the body leaves them intact.
+	commented := "// f fails past the end.\nfunction f() {\n  setup();\n  if (x >= index) {\n    fail();\n  }\n}\nconst after = 1;\n"
+	cix := NewIndex([]facts.Fact{sym("src.f", "src/a.ts", 2, 7, facts.BodyHash([]byte(commented), 2, 7))})
+	cix.SetSource(func(string, string) ([]byte, bool) { return []byte(commented), true })
+	rewritten := "// f fails past the end.\nfunction f() {\n  setup();\n  log();\n  if (x >= index) {\n    fail();\n  }\n}\nconst after = 1;\n"
+	rix := NewIndex([]facts.Fact{sym("src.f", "src/a.ts", 2, 8, facts.BodyHash([]byte(rewritten), 2, 8))})
+	rix.SetSource(func(string, string) ([]byte, bool) { return []byte(rewritten), true })
+	for _, at := range []string{"src/a.ts:2", "src/a.ts:7"} {
+		loc := cix.Locations([]string{at})[0]
+		if loc.CitedLines != 2 {
+			t.Errorf("%s: the cited window stays inside the symbol, got %d lines", at, loc.CitedLines)
+		}
+		st := Stamp{ID: loc.Symbols[0].ID, BodyHash: loc.Symbols[0].BodyHash, Name: "src.f",
+			CitedHash: loc.CitedHash, CitedLines: loc.CitedLines}
+		if r := rix.Check([]Stamp{st})[0]; r.Status != StatusRewritten || r.Cited != CitedIntact {
+			t.Errorf("%s: %s, cited %q; want rewritten, cited intact", at, r.Status, r.Cited)
+		}
+	}
 }
 
 // Declarations sharing an id: a stamp stays on the one it named through a rewrite, and when

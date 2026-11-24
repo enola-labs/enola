@@ -138,6 +138,29 @@ itself; it supplies the key and the check.
   rather than by words, and, when you ask which notes still hold, each one marked
   current, changed, moved or gone, with the changed ones checked.
 
+**When it runs.** Like every skill, it runs only when the agent loads it. Nothing stamps
+or checks a note on its own:
+
+- **Saving.** The skill's description asks the agent to load it when saving a note about
+  specific code, so a note saved that way usually gets its stamp. A note saved in passing,
+  in the middle of another task, can be written without one. Notes saved before the skill
+  was installed have none: run the skill with no task (`/enola-memory`) and it stamps
+  the notes that name your code, and lists every name it can no longer find, which is
+  usually code that was renamed or deleted after the note was written.
+- **Recalling.** An agent that loads its notes at session start (Claude Code's
+  `MEMORY.md`, for example) still reads them as text. The graph decides which notes are
+  relevant only when the skill is loaded for a task, typically before changing code the
+  notes are about.
+- **Checking.** A stamp is checked only when the skill runs. A note whose code changed
+  stays as it is, and is not flagged, until a task loads the skill or you ask which notes
+  still hold.
+
+To stamp every note about code, say so where the agent keeps its standing instructions,
+for example a line in its memory or instructions file: "stamp notes about code with
+enola-memory". To check every stamp at session start, run `enola locate --stamps <file>`
+over them from a session-start hook: one batch call, and only the notes that are no
+longer `current` need a look.
+
 ## enola
 
 Points an agent at the right tool for a structural question instead of a text search:

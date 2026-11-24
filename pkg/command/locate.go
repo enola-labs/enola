@@ -47,6 +47,7 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 		stampsPath = fs.String("stamps", "", "a JSONL file of stamps ({id, body_hash, name}), or - for stdin: report each as current, rewritten, moved, gone or ambiguous")
 		at         = fs.String("at", "", "answer against this recorded revision instead of the working tree (a snapshot id, git commit, HEAD~N, @<seq> or ref)")
 		factsPath  = fs.String("facts", "", "answer from a stored snapshot instead of the working tree: an output directory holding facts.jsonl, or the file itself")
+		namesList  = fs.String("names", "", "identifiers as code names them, comma-separated (nodeFor,Graph.nodeFor): report the declarations each names, with what a stamp keeps")
 		asJSON     = fs.Bool("json", false, "emit the result as JSON")
 	)
 	fs.Usage = func() {
@@ -58,7 +59,8 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 				"it or any path ending in it. Each resolves to the innermost symbol holding it:\n"+
 				"its fact id (the id in facts.jsonl) and its body_hash, the version of its code.\n"+
 				"A language whose extractor measures no spans gets the nearest declaration\n"+
-				"above, and says so.\n\n"+
+				"above, and says so. --names resolves identifiers instead of lines: each to\n"+
+				"the declarations whose qualified name ends in it, ready to keep as stamps.\n\n"+
 				"By default it answers against the working tree, taking a snapshot when the one\n"+
 				"on disk is stale. --at answers against a recorded revision, and --facts against\n"+
 				"a stored snapshot, with no working tree needed.\n\n"+
@@ -72,7 +74,13 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 		return usageError
 	}
 	locs, repoArg := splitLocationsAndRepo(fs.Args())
-	if len(locs) == 0 && *diffPath == "" && *stampsPath == "" {
+	var names []string
+	for _, n := range strings.Split(*namesList, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			names = append(names, n)
+		}
+	}
+	if len(locs) == 0 && *diffPath == "" && *stampsPath == "" && len(names) == 0 {
 		fs.Usage()
 		return usageError
 	}
@@ -125,6 +133,7 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 		Locations []locate.LocationResult `json:"locations,omitempty"`
 		Diff      *locate.DiffResult      `json:"diff,omitempty"`
 		Stamps    []locate.CheckResult    `json:"stamps,omitempty"`
+		Names     []locate.NameResult     `json:"names,omitempty"`
 	}
 	if len(locs) > 0 {
 		out.Locations = ix.Locations(locs)
@@ -139,6 +148,9 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 	}
 	if len(stamps) > 0 {
 		out.Stamps = ix.Check(stamps)
+	}
+	if len(names) > 0 {
+		out.Names = ix.Names(names)
 	}
 
 	if *asJSON {
@@ -159,6 +171,9 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 	}
 	for _, c := range out.Stamps {
 		writeStampCheck(&w, c)
+	}
+	for _, n := range out.Names {
+		writeNameResult(&w, n)
 	}
 	_, _ = io.WriteString(stdout, w.String())
 	return 0
@@ -335,5 +350,23 @@ func writeStampCheck(w *strings.Builder, c locate.CheckResult) {
 	}
 	for _, s := range c.Candidates {
 		fmt.Fprintf(w, "           %s: %s\n", label, symbolLine(s))
+	}
+}
+
+func writeNameResult(w *strings.Builder, n locate.NameResult) {
+	switch n.Match {
+	case locate.NameNone:
+		fmt.Fprintf(w, "%s  no symbol in the graph\n", n.Name)
+		return
+	case locate.NameSeveral:
+		fmt.Fprintf(w, "%s  %d symbols\n", n.Name, len(n.Symbols))
+	default:
+		fmt.Fprintf(w, "%s\n", n.Name)
+	}
+	for _, s := range n.Symbols {
+		fmt.Fprintf(w, "    %s\n", symbolLine(s.Symbol))
+		if s.CitedHash != "" {
+			fmt.Fprintf(w, "    cited %s (%d line%s)\n", s.CitedHash, s.CitedLines, pluralS(s.CitedLines))
+		}
 	}
 }

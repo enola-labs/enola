@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Anchor memories about code to the symbols they describe with enola, so they can be found by what a task touches and checked for staleness before use. Works with any memory store, such as memory files, a notes directory or a memory service. Use when saving a memory about specific code, recalling what is known about code you are about to change, or cleaning up memories that may describe code that has since changed, moved or been deleted.
+description: Anchor memories about code to the symbols they describe with enola, so they can be found by what a task touches and checked for staleness before use. Works with any memory store, such as memory files, a notes directory or a memory service. Use when saving a memory about specific code, stamping existing memories that have no stamps yet, recalling what is known about code you are about to change, or cleaning up memories that may describe code that has since changed, moved or been deleted.
 ---
 
 # Memory anchored to code
@@ -26,6 +26,9 @@ Keep these fields from the symbol, plus the cited fields when one line was named
 `id`, `repo`, `name`, `symbol_kind`, `body_hash`, `inner_hash`, `decl_hash` when
 present, and `cited_hash` with `cited_lines`.
 
+A single cited line is hashed with the line before and after it, taken only from inside
+the symbol, so `cited_lines` is 2 on a declaration or closing line and 3 elsewhere.
+
 Cite the narrowest place the memory is about: one line for a bug or a gotcha, the
 declaration line for a memory about the whole function. A line outside every symbol
 (an import, a package-level block) gets no stamp; record the file path instead.
@@ -49,6 +52,46 @@ overrule a status because the symbol is not a declaration by some other definiti
 If the memory system already calls enola (cognee, for example, stores `locate` stamps),
 reuse its stamps rather than adding a second set.
 
+## Starting out: stamping what is already there
+
+Run this when the skill is invoked with no task, or when the store holds memories about
+code and none of them carries a stamp. Memories written before the skill was installed
+name code by symbol, not by line, so nothing else ever stamps them.
+
+1. Make sure a snapshot of the repository is loaded (`generate_snapshot` if `locate`
+   says there are no facts).
+2. List the memories about this repository's code: the ones naming its functions,
+   types, methods, files or directories. Skip memories about preferences, people, tools,
+   CLI flags, property names and other repositories.
+3. Resolve the names with `locate(names=[...])`, every name of every memory in one call
+   (`enola locate --names a,b,c --json` on the command line). A name matches a symbol
+   whose qualified name ends in it, case included: `nodeFor` finds `Graph.nodeFor` and
+   not `nodeForID`, and `Graph.nodeFor` narrows to that method. Each name comes back
+   `one`, `several` or `none`, and every symbol in it already carries the stamp fields,
+   with its declaration line cited. Do not send test functions, constants or
+   package-level variables: the graph holds no symbol for them.
+4. Decide per memory, not per name: two memories can mean different symbols by the same
+   name. For `several`, keep the symbol the memory's text points to (its package,
+   language or file); if the text does not settle it, stamp none of them and list the
+   name as ambiguous. Store the stamps as in [Saving a memory](#saving-a-memory). In
+   frontmatter, an `anchors:` list with one entry per stamp, `at: <file:line>` first,
+   keeps it readable. A file or directory the memory is about is recorded by path, as an
+   entry with `at` and `file`. Adding stamps changes no memory's content, so it needs no
+   confirmation.
+5. Report counts: memories stamped, names resolved, and names not found, listed under
+   their memory. Keep two lists: names that were never symbols (tests, constants,
+   package variables, fields, recorded by path if at all) and names the graph should
+   hold but does not. Only the second is a finding: the code was renamed, moved or
+   deleted after the memory was written. `git log -S<name> --oneline -1` shows the
+   commit that last added or removed it. Searching for what does its job now and
+   stamping that is worth doing only when the user asks.
+   Names the graph never holds can go stale too: a tool, a command, a flag, a config
+   key, a constant. For each one a code memory names, `git grep -w -c <name>` says
+   whether it is still written anywhere in the repository. None left is a finding like
+   a missing symbol: a memory about a tool that was removed describes nothing.
+6. A memory whose names are mostly not found describes code that is gone. Say so and
+   ask the user before marking it stale or changing it.
+
 ## Recalling what is relevant
 
 Relevance comes from the graph, not from words in the memory.
@@ -56,11 +99,14 @@ Relevance comes from the graph, not from words in the memory.
 1. Name the task's symbols: `locate` on the lines you are about to change, or the
    symbols the user named.
 2. Widen by one or two hops: `impact_analysis(target=<symbol>, max_depth=2,
-   include_forward=true, output_mode='compact')` lists what depends on it and what it
-   depends on.
-3. The relevant memories are the ones whose stamp `name` is among those symbols. Rank
-   them: the symbol itself first, then one hop away, then two, then memories recorded
-   only by file path in the same files.
+   include_forward=true, output_mode='full', max_nodes=100)` lists what depends on it and
+   what it depends on, each node with its `name`, `file` and `depth`. Use `full`: the
+   compact and summary modes shorten Go names relative to the module, so they no longer
+   equal a stamp's `name`, and they cut long lists short. If `stats.truncated` is true,
+   say that the recall may be incomplete.
+3. The relevant memories are the ones whose stamp `name` equals a node's `name`, compared
+   exactly. Rank them: the symbol itself first, then one hop away, then two, then memories
+   recorded only by file path whose path is a node's `file`.
 4. Check only those stamps, as below. Checking every memory in the store on every task
    is cost without benefit.
 
