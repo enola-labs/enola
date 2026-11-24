@@ -18,16 +18,16 @@ import (
 // name — 459 such names in one measured repository — so the citation resolved to
 // a set rather than to a fact, and was dropped.
 func TestLayerViolation_CitesTheImportEdgeWithItsFile(t *testing.T) {
-	const importFile = "svc/app/domain/thing.go"
+	const importFile = "app/domain/thing.go"
 	store := facts.NewStore()
 	store.Add(
 		layerIntent("svc", "handlers", 0, "app/handlers/**"),
 		layerIntent("svc", "domain", 1, "app/domain/**"),
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/handlers"},
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/domain"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/handlers"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/domain"},
 		facts.Fact{Kind: facts.KindDependency, Repo: "svc", Name: "domain-imports-handlers",
 			File:      importFile,
-			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "svc/app/handlers"}}},
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "app/handlers"}}},
 	)
 
 	insights, err := New().Explain(context.Background(), store)
@@ -63,7 +63,7 @@ func TestLayerViolation_CitesTheImportEdgeWithItsFile(t *testing.T) {
 	// The other three are declared elsewhere. Claiming they live in the importing
 	// file would point a reader at the wrong place, and would make the citation
 	// resolve to the wrong fact or to none.
-	for _, name := range []string{"svc/app/handlers", "svc/app/domain"} {
+	for _, name := range []string{"app/handlers", "app/domain"} {
 		if e, ok := byName[name]; ok && e.File == importFile {
 			t.Errorf("%q is cited with the importing file %q; it is declared elsewhere", name, importFile)
 		}

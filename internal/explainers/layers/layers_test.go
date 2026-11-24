@@ -1408,9 +1408,9 @@ func TestPatternMetrics_LayerOrderAndExamples(t *testing.T) {
 // look up by pattern name.
 func TestPatternMetrics_DeclaredOrder(t *testing.T) {
 	s := facts.NewStore()
-	s.Add(facts.Fact{Kind: facts.KindModule, Name: "repo/cmd", Repo: "repo",
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "example.com/repo/cmd", File: "cmd", Repo: "repo",
 		Props: map[string]any{"language": "go"}})
-	s.Add(facts.Fact{Kind: facts.KindModule, Name: "repo/internal/core", Repo: "repo",
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "example.com/repo/internal/core", File: "internal/core", Repo: "repo",
 		Props: map[string]any{"language": "go"}})
 	for i, layer := range []struct {
 		name  string
@@ -1431,7 +1431,7 @@ func TestPatternMetrics_DeclaredOrder(t *testing.T) {
 	if len(ordered) != 2 || ordered[0] != "entrypoint" || ordered[1] != "core" {
 		t.Fatalf("layers_ordered = %v, want [entrypoint core] — outermost first", ordered)
 	}
-	if ex := in.MetricStringMap(MetricLayerExamples); ex["entrypoint"] != "repo/cmd" {
+	if ex := in.MetricStringMap(MetricLayerExamples); ex["entrypoint"] != "example.com/repo/cmd" {
 		t.Errorf("layer_examples = %v, want the declared module", ex)
 	}
 	if got := in.MetricInt(MetricModulesClassified); got != 2 {

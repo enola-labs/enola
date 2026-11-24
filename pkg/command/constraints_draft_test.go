@@ -167,7 +167,7 @@ func TestConstraintsLintFailEmpty(t *testing.T) {
 		t.Errorf("without --fail-empty an empty component is a note: exit %d\n%s", res.code, res.stdout)
 	}
 	res := runEnola(t, bin, repo, home, "constraints", "lint", "--fail-empty", "--declaration", ghost, repo)
-	if res.code != 1 || !strings.Contains(res.stdout, "--fail-empty: 1 component or layer that selects nothing") {
+	if res.code != 1 || !strings.Contains(res.stdout, "--fail-empty: 1 component or layer selects nothing") {
 		t.Errorf("an empty component under --fail-empty: exit %d, want 1\n%s", res.code, res.stdout)
 	}
 	layer := write("layer.yaml", "layers:\n  - {name: web, paths: [\"web/**\"]}\n  - {name: gone, paths: [\"gone/**\"]}\n")

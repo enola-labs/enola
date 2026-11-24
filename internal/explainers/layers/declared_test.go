@@ -18,11 +18,11 @@ func TestDeclaredLayers_WrongDirectionImportIsProofClass(t *testing.T) {
 	store.Add(
 		layerIntent("svc", "handlers", 0, "app/handlers/**"),
 		layerIntent("svc", "domain", 1, "app/domain/**"),
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/handlers"},
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/domain"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/handlers"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/domain"},
 		facts.Fact{Kind: facts.KindDependency, Repo: "svc", Name: "domain-imports-handlers",
-			File:      "svc/app/domain/thing.go",
-			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "svc/app/handlers"}}},
+			File:      "app/domain/thing.go",
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "app/handlers"}}},
 	)
 	insights, err := New().Explain(context.Background(), store)
 	if err != nil {
@@ -132,5 +132,42 @@ func TestDeclaredLayers_GoPackagesAreClassifiedByDirectory(t *testing.T) {
 	}
 	if !violation {
 		t.Errorf("the domain package importing handlers was not reported: %+v", insights)
+	}
+}
+
+// A repository labelled like its own top-level package (repo "cognee" holding the
+// cognee/ package) declares its layers with that directory in the path. The label
+// was stripped from every module path before matching, so cognee/api became api and
+// every correctly written layer classified nothing.
+func TestDeclaredLayers_RepoLabelledLikeItsPackage(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		layerIntent("cognee", "entry", 0, "cognee/api/**"),
+		layerIntent("cognee", "infra", 1, "cognee/infrastructure/**"),
+		facts.Fact{Kind: facts.KindModule, Repo: "cognee", Name: "cognee/api/v1", File: "cognee/api/v1", Props: map[string]any{"language": "python"}},
+		facts.Fact{Kind: facts.KindModule, Repo: "cognee", Name: "cognee/infrastructure/db", File: "cognee/infrastructure/db", Props: map[string]any{"language": "python"}},
+	)
+	counts := MemberCounts(store)
+	if len(counts) != 2 || counts[0].Members != 1 || counts[1].Members != 1 {
+		t.Fatalf("counts = %+v, want one module in each layer", counts)
+	}
+}
+
+// In a multi-repo snapshot a Go package's File carries the label, marked by
+// RepoPrefixed, and its layer is still declared repo-relative.
+func TestDeclaredLayers_PrefixedGoPackageInACluster(t *testing.T) {
+	pkg := func(name, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: name, File: file, RepoPrefixed: true, Props: map[string]any{"language": "go"}}
+	}
+	store := facts.NewStore()
+	store.Add(
+		layerIntent("svc", "handlers", 0, "app/handlers/**"),
+		layerIntent("svc", "domain", 1, "app/domain/**"),
+		pkg("example.com/svc/app/handlers", "svc/app/handlers"),
+		pkg("example.com/svc/app/domain", "svc/app/domain"),
+	)
+	counts := MemberCounts(store)
+	if len(counts) != 2 || counts[0].Members != 1 || counts[1].Members != 1 {
+		t.Fatalf("counts = %+v, want one package in each layer", counts)
 	}
 }

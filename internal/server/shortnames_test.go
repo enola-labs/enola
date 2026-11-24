@@ -12,6 +12,14 @@ func goModule(name, file, repo string) facts.Fact {
 	return facts.Fact{Kind: facts.KindModule, Name: name, File: file, Repo: repo, Props: map[string]any{"language": "go"}}
 }
 
+// clusterGoModule is a Go package of a multi-repo snapshot: its File carries the
+// repository label, and the fact says so, as the store marks it when it prefixes.
+func clusterGoModule(name, file, repo string) facts.Fact {
+	f := goModule(name, file, repo)
+	f.RepoPrefixed = true
+	return f
+}
+
 func shortStore(ff ...facts.Fact) *facts.Store {
 	s := facts.NewStore()
 	s.Add(ff...)
@@ -48,13 +56,13 @@ func TestShortener_KeepsWhatWouldBeAmbiguous(t *testing.T) {
 	dep := facts.Fact{Kind: facts.KindDependency, Name: "github.com/acme/a/svc -> log", File: "a/svc/s.go", Repo: "a",
 		Props: map[string]any{"source": "stdlib"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: "log"}}}
 	store := shortStore(
-		goModule("github.com/acme/a/internal/config", "a/internal/config", "a"),
-		goModule("github.com/acme/b/internal/config", "b/internal/config", "b"),
-		goModule("github.com/acme/a/log", "a/log", "a"),
-		goModule("github.com/acme/a/web", "a/web", "a"),
+		clusterGoModule("github.com/acme/a/internal/config", "a/internal/config", "a"),
+		clusterGoModule("github.com/acme/b/internal/config", "b/internal/config", "b"),
+		clusterGoModule("github.com/acme/a/log", "a/log", "a"),
+		clusterGoModule("github.com/acme/a/web", "a/web", "a"),
 		facts.Fact{Kind: facts.KindSymbol, Name: "web.Render", File: "web/render.ts", Repo: "a"},
-		goModule("github.com/acme/a/svc", "a/svc", "a"),
-		goModule("github.com/acme/a/cgo", "a/cgo", "a"),
+		clusterGoModule("github.com/acme/a/svc", "a/svc", "a"),
+		clusterGoModule("github.com/acme/a/cgo", "a/cgo", "a"),
 		facts.Fact{Kind: facts.KindModule, Name: "cgo", File: "cgo", Repo: "a", Props: map[string]any{"language": "c"}},
 		dep,
 	)

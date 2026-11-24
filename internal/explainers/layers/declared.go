@@ -94,10 +94,14 @@ func declaredPatterns(store *facts.Store, repo string) []*archPattern {
 				continue
 			}
 			// The module's path, not its name: a Go package is named by its import
-			// path and declared by its directory, like everything else.
-			stripped := strings.TrimPrefix(facts.ModulePath(m), repo+"/")
+			// path and declared by its directory, like everything else. ModulePath
+			// already removes a label a multi-repo snapshot put in front; nothing
+			// more is stripped here, because a repository labelled like its own
+			// top-level package (repo "cognee" holding cognee/api) would lose the
+			// first segment of every path and match no declared layer at all.
+			path := facts.ModulePath(m)
 			for _, en := range entries {
-				if matchDeclaredLayerPath(stripped, en.paths) {
+				if matchDeclaredLayerPath(path, en.paths) {
 					modules[m.Name] = en.name
 					break
 				}

@@ -494,7 +494,11 @@ func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, repoPaths []string
 	reportLayerVerdict(store)
 	reportRuleVerdicts(store)
 	if failEmpty && empty > 0 {
-		fmt.Printf("\n--fail-empty: %s nothing; each counts as a problem.\n", plural(empty, "component or layer that selects"))
+		what := fmt.Sprintf("%d components or layers select", empty)
+		if empty == 1 {
+			what = "1 component or layer selects"
+		}
+		fmt.Printf("\n--fail-empty: %s nothing; each counts as a problem.\n", what)
 		return len(unevaluableList) + empty
 	}
 	return len(unevaluableList)

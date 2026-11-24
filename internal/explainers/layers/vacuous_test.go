@@ -44,8 +44,8 @@ func TestDeclaredLayers_OrderMatchingNothingIsReported(t *testing.T) {
 		layerIntent("svc", "handlers", 0, "app/handlers/**"),
 		layerIntent("svc", "domain", 1, "app/domain/**"),
 		// The modules live under src/, not app/: nothing the declaration names exists.
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/src/handlers"},
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/src/domain"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "src/handlers"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "src/domain"},
 	)
 
 	got := findInsight(insights, "classifies no modules")
@@ -68,7 +68,7 @@ func TestDeclaredLayers_OrderMatchingNothingIsReported(t *testing.T) {
 	// going and querying the fact store by hand.
 	var namesModule bool
 	for _, e := range got.Evidence {
-		if e.Fact == "svc/src/handlers" {
+		if e.Fact == "src/handlers" {
 			namesModule = true
 		}
 	}
@@ -84,8 +84,8 @@ func TestDeclaredLayers_EmptyLayerAmongPopulatedOnesIsReported(t *testing.T) {
 		layerIntent("svc", "handlers", 0, "app/handlers/**"),
 		layerIntent("svc", "domain", 1, "app/domain/**"),
 		layerIntent("svc", "legacy", 2, "app/legacy/**"),
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/handlers"},
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/domain"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/handlers"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/domain"},
 	)
 
 	got := findInsight(insights, `"legacy" classifies no modules`)
@@ -107,8 +107,8 @@ func TestDeclaredLayers_FullyPopulatedOrderRaisesNoAdvisory(t *testing.T) {
 	insights := explain(t,
 		layerIntent("svc", "handlers", 0, "app/handlers/**"),
 		layerIntent("svc", "domain", 1, "app/domain/**"),
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/handlers"},
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/domain"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/handlers"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/domain"},
 	)
 	if got := findInsight(insights, "classifies no modules"); got != nil {
 		t.Fatalf("every layer is populated; nothing to advise: %+v", got)
@@ -123,11 +123,11 @@ func TestDeclaredLayers_BackslashDeclarationClassifies(t *testing.T) {
 	insights := explain(t,
 		layerIntent("svc", "handlers", 0, `app\handlers\**`),
 		layerIntent("svc", "domain", 1, `app\domain`),
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/handlers"},
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/domain"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/handlers"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/domain"},
 		facts.Fact{Kind: facts.KindDependency, Repo: "svc", Name: "domain-imports-handlers",
-			File:      "svc/app/domain/thing.go",
-			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "svc/app/handlers"}}},
+			File:      "app/domain/thing.go",
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "app/handlers"}}},
 	)
 
 	pattern := findInsight(insights, "Architecture pattern: declared (svc)")
@@ -155,8 +155,8 @@ func TestDeclaredLayers_MemberCountsMatchTheExplainer(t *testing.T) {
 		layerIntent("svc", "handlers", 0, "app/handlers/**"),
 		layerIntent("svc", "domain", 1, "app/domain/**"),
 		layerIntent("svc", "legacy", 2, "app/legacy/**"),
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/handlers"},
-		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "svc/app/domain"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/handlers"},
+		facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: "app/domain"},
 	)
 
 	counts := MemberCounts(store)
@@ -173,7 +173,7 @@ func TestDeclaredLayers_MemberCountsMatchTheExplainer(t *testing.T) {
 			t.Errorf("row %d = %s/%d, want %s/%d", i, counts[i].Layer, counts[i].Members, w.layer, w.members)
 		}
 	}
-	if got := ModuleNames(store, "svc"); len(got) != 2 || got[0] != "svc/app/domain" {
+	if got := ModuleNames(store, "svc"); len(got) != 2 || got[0] != "app/domain" {
 		t.Errorf("ModuleNames = %v, want the measured module paths sorted", got)
 	}
 }
