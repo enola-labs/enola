@@ -1858,6 +1858,11 @@ not lint problems. No snapshot degrades to a named validation-only
 mode; nothing is generated or written. Exit `1` on validation
 problems, `0` otherwise.
 
+A component or layer that selects nothing is valid and lints clean,
+though no rule over it can ever fail. `--fail-empty` counts each one as
+a problem, so a script or an agent can gate on it rather than read the
+report; it needs a snapshot, and exits `2` without one.
+
 `--declaration FILE` lays a draft over the repository's
 `enola-intent.yaml` and `enola/constraints/` files and lints the result,
 resolved against the same snapshot, so a proposal can be checked against

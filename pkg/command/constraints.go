@@ -104,9 +104,10 @@ func (r *Runner) Constraints(args []string) {
 func (r *Runner) ConstraintsLint(args []string) {
 	fs := flag.NewFlagSet("constraints lint", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	failEmpty := fs.Bool("fail-empty", false, "count a component or layer that selects nothing in the snapshot as a problem (exit 1); needs a snapshot")
 	draft := fs.String("declaration", "", "lay this draft over the repository's "+intent.RepoFileName+" and lint the result, without writing it")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" constraints lint [--declaration FILE] [repo_path|config_path]\n\n"+
+		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" constraints lint [--declaration FILE] [--fail-empty] [repo_path|config_path]\n\n"+
 			"Validate the declared constraint vocabulary (inline in "+intent.RepoFileName+" and\n"+
 			"per-domain files under "+intent.ConstraintsDirName+"/) and resolve each component and\n"+
 			"layer against the current snapshot, if one exists (else validation only). With a\n"+
@@ -149,7 +150,7 @@ func (r *Runner) ConstraintsLint(args []string) {
 		problems += r.lintRepoDeclaration(tgt.engine.Config().Intent[filepath.Base(repoPath)], repoPath, *draft, declared)
 	}
 
-	problems += r.lintResolveComponents(tgt.engine, tgt.repoPaths, declared)
+	problems += r.lintResolveComponents(tgt.engine, tgt.repoPaths, declared, *failEmpty)
 
 	if problems > 0 {
 		fmt.Printf("\nFAIL — %s.\n", plural(problems, "validation problem"))
@@ -422,13 +423,16 @@ func lintStore(measured []facts.Fact, declared []facts.Fact, label string) *fact
 	return store
 }
 
-func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, repoPaths []string, declared *facts.Store) int {
+func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, repoPaths []string, declared *facts.Store, failEmpty bool) int {
 	if len(declared.ByKind(facts.KindIntent)) == 0 {
 		return 0
 	}
 	outDir := eng.GraphDir(repoPaths)
 	snap, err := bootstrap.LoadSnapshotDir(outDir)
 	if err != nil {
+		if failEmpty {
+			r.constraintsFatal("--fail-empty needs a snapshot to resolve selectors against; none at %s (run generate first)", outDir)
+		}
 		fmt.Printf("\nComponent resolution: no snapshot at %s - validation only.\n", outDir)
 		return 0
 	}
@@ -442,6 +446,7 @@ func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, repoPaths []string
 	unasked := constraints.UnaskedComponents(store)
 
 	fmt.Printf("\nComponent resolution against the snapshot at %s:\n", outDir)
+	empty := 0
 	for _, c := range constraints.MemberCounts(store) {
 		note := ""
 		switch {
@@ -451,6 +456,7 @@ func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, repoPaths []string
 			note = "  <- selector cannot be evaluated against this snapshot"
 		case c.Members == 0:
 			note = "  <- matches nothing; every rule naming it holds vacuously"
+			empty++
 		}
 		fmt.Printf("  %-24s %d member(s)%s\n", c.Component, c.Members, note)
 		if c.Selector != "" {
@@ -484,9 +490,13 @@ func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, repoPaths []string
 			fmt.Printf("  %s: %s\n", n.Rule, n.Exemplar)
 		}
 	}
-	reportLayerResolution(store)
+	empty += reportLayerResolution(store)
 	reportLayerVerdict(store)
 	reportRuleVerdicts(store)
+	if failEmpty && empty > 0 {
+		fmt.Printf("\n--fail-empty: %s nothing; each counts as a problem.\n", plural(empty, "component or layer that selects"))
+		return len(unevaluableList) + empty
+	}
 	return len(unevaluableList)
 }
 
@@ -598,11 +608,12 @@ func reportLayerVerdict(store *facts.Store) {
 // while it is being written, not three snapshots later when a gate that was never
 // going to fire keeps exiting 0. It is not counted as a lint PROBLEM — a layer
 // order matching nothing is a mistake but not an invalid declaration, and the
-// explainer already raises an advisory for it every snapshot.
-func reportLayerResolution(store *facts.Store) {
+// explainer already raises an advisory for it every snapshot. --fail-empty makes it
+// one, which is why it returns how many layers matched nothing.
+func reportLayerResolution(store *facts.Store) int {
 	counts := layers.MemberCounts(store)
 	if len(counts) == 0 {
-		return
+		return 0
 	}
 	fmt.Printf("\nDeclared layer resolution (outermost first):\n")
 	empty := 0
@@ -623,7 +634,7 @@ func reportLayerResolution(store *facts.Store) {
 		fmt.Printf("  %-24s   %s\n", "", strings.Join(c.Paths, " "))
 	}
 	if empty == 0 {
-		return
+		return 0
 	}
 	// The measured module paths, once, at the end: a declared path and the path it
 	// was meant to match are nearly always one visible edit apart, and without this
@@ -642,6 +653,7 @@ func reportLayerResolution(store *facts.Store) {
 		}
 		fmt.Printf("\n  %s:\n    %s\n", label, strings.Join(names, "\n    "))
 	}
+	return empty
 }
 
 // dedupeRepos lists the repos named by a layer-count set, in first-seen order.

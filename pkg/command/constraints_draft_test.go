@@ -144,3 +144,38 @@ func TestConstraintsLintReportsRuleVerdicts(t *testing.T) {
 		t.Errorf("the breach does not name its edge:\n%s", res.stdout)
 	}
 }
+
+// --fail-empty turns a selector that selects nothing into a problem, so a caller can
+// gate on it; without the flag it stays a note and lint exits 0.
+func TestConstraintsLintFailEmpty(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	bin := buildEnola(t)
+	repo, home := draftRepo(t, bin)
+	drafts := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(drafts, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	ghost := write("ghost.yaml", "components:\n  - {name: web, match: [\"web/**\"]}\n  - {name: ghost, match: [\"nowhere/**\"]}\n"+
+		"rules:\n  - {id: g, forbid: ghost, to: web, via: imports, because: \"test\"}\n")
+	if res := runEnola(t, bin, repo, home, "constraints", "lint", "--declaration", ghost, repo); res.code != 0 {
+		t.Errorf("without --fail-empty an empty component is a note: exit %d\n%s", res.code, res.stdout)
+	}
+	res := runEnola(t, bin, repo, home, "constraints", "lint", "--fail-empty", "--declaration", ghost, repo)
+	if res.code != 1 || !strings.Contains(res.stdout, "--fail-empty: 1 component or layer that selects nothing") {
+		t.Errorf("an empty component under --fail-empty: exit %d, want 1\n%s", res.code, res.stdout)
+	}
+	layer := write("layer.yaml", "layers:\n  - {name: web, paths: [\"web/**\"]}\n  - {name: gone, paths: [\"gone/**\"]}\n")
+	if res := runEnola(t, bin, repo, home, "constraints", "lint", "--fail-empty", "--declaration", layer, repo); res.code != 1 {
+		t.Errorf("an empty layer under --fail-empty: exit %d, want 1\n%s", res.code, res.stdout)
+	}
+	full := write("full.yaml", "components:\n  - {name: web, match: [\"web/**\"]}\n  - {name: storage, match: [\"storage/**\"]}\n")
+	if res := runEnola(t, bin, repo, home, "constraints", "lint", "--fail-empty", "--declaration", full, repo); res.code != 0 {
+		t.Errorf("every selector resolves: exit %d, want 0\n%s", res.code, res.stdout)
+	}
+}
