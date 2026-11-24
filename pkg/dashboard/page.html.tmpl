@@ -422,7 +422,7 @@
   </div>
   <h3 style="margin:1.25rem 0 .5rem">Repositories in graph</h3><div class="table-scroll"><table>
     <thead><tr><th>Repository</th><th>Git capture</th><th>In graph for</th><th class="num">Facts</th></tr></thead>
-    <tbody>{{range .Repos}}<tr><td>{{.Label}}</td><td>{{if .Git}}{{.Git.Ref}}{{if .Git.Commit}} @ {{.Git.Commit}}{{end}}{{if .Git.Dirty}} (local changes){{end}}{{else}}—{{end}}</td><td>{{.InGraphFor}}</td><td class="num">{{.FactCount}}</td></tr>{{end}}</tbody>
+    <tbody>{{range .Repos}}<tr><td{{if .Path}} title="{{.Path}}"{{end}}>{{.Dir}}{{if ne .Dir .Label}} <span class="note">· {{.Label}}</span>{{end}}</td><td>{{if .Git}}{{.Git.Ref}}{{if .Git.Commit}} @ {{.Git.Commit}}{{end}}{{if .Git.Dirty}} (local changes){{end}}{{else}}—{{end}}</td><td>{{.InGraphFor}}</td><td class="num">{{.FactCount}}</td></tr>{{end}}</tbody>
   </table></div>
   {{else}}<p class="note">Single-repository graph. The loaded graph is the current snapshot, so a second receipt would duplicate the same facts and findings.</p>{{end}}
   {{end}}{{else}}<p class="note">{{$.GraphNote}}</p>{{end}}
@@ -464,7 +464,7 @@
   <div class="snapshot-head"><div><h2>Active sessions</h2><p>{{len .Instances}} process(es) running. Highlighted row serves this page.</p></div></div>
   {{if .Instances}}<div class="table-scroll"><table>
     <thead><tr><th>Session</th><th>Repositories</th><th>Uptime</th><th class="num">Calls</th><th>Dashboard</th></tr></thead>
-    <tbody>{{range .Instances}}<tr{{if .Self}} class="self-row"{{end}}><td>{{.Binary}} · PID {{.PID}}{{if .Self}} <span class="chip">this page</span>{{end}}</td><td>{{.Repos}}</td><td>{{.Uptime}}</td><td class="num">{{.Calls}}</td><td>{{if .URL}}<a href="{{.URL}}">open{{if .FrontDoor}} · shared{{end}}</a>{{else}}—{{end}}</td></tr>{{end}}</tbody>
+    <tbody>{{range .Instances}}<tr{{if .Self}} class="self-row"{{end}}><td>{{.Binary}} · PID {{.PID}}{{if .Self}} <span class="chip">this page</span>{{end}}</td><td{{if .RepoPaths}} title="{{.RepoPaths}}"{{end}}>{{.Repos}}</td><td>{{.Uptime}}</td><td class="num">{{.Calls}}</td><td>{{if .URL}}<a href="{{.URL}}">open{{if .FrontDoor}} · shared{{end}}</a>{{else}}—{{end}}</td></tr>{{end}}</tbody>
   </table></div>{{else}}<p class="note">No registered Enola processes are available.</p>{{end}}
   <div class="grid data-section">
     <div class="card"><div class="k">This process</div><div class="v">{{if .Running}}PID {{.PID}}{{else}}stopped{{end}}</div></div>
@@ -741,7 +741,7 @@
         {{if .Multi}}
         <label class="metric-repo-picker">Repo
           <select id="metric-repo" onchange="selectMetricRepo(this.value)">
-            {{range .Repos}}<option value="{{.}}"{{if eq . $.PackageMetrics.Default}} selected{{end}}>{{.}}</option>{{end}}
+            {{range .Repos}}<option value="{{.}}"{{if eq . $.PackageMetrics.Default}} selected{{end}}>{{with index $.PackageMetrics.RepoNames .}}{{.}}{{else}}{{.}}{{end}}</option>{{end}}
           </select>
         </label>
         {{end}}

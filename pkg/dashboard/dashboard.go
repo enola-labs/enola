@@ -290,6 +290,7 @@ type instanceRow struct {
 	PID       int
 	Binary    string
 	Repos     string
+	RepoPaths string
 	Uptime    string
 	Calls     int
 	URL       string
@@ -307,6 +308,7 @@ func instanceRows(instances []status.Instance, selfPID int, now time.Time) []ins
 			PID:       inst.PID,
 			Binary:    inst.Binary,
 			Repos:     inst.RepoLabels(),
+			RepoPaths: inst.RepoPaths(),
 			Uptime:    formatDuration(now.Sub(inst.StartTime)),
 			Calls:     inst.SessionCalls(),
 			URL:       inst.URL(),
@@ -568,6 +570,12 @@ func (s *Server) buildPageForModule(module string) pageData {
 	// disagree with the tool. Nil when nothing has a type, which is what the card
 	// and the modal guard on.
 	data.PackageMetrics = packageMetricsView(metrics.Compute(store))
+	if data.PackageMetrics != nil && data.Graph != nil {
+		data.PackageMetrics.RepoNames = make(map[string]string, len(data.Graph.Repos))
+		for _, r := range data.Graph.Repos {
+			data.PackageMetrics.RepoNames[r.Label] = r.Dir()
+		}
+	}
 
 	return data
 }

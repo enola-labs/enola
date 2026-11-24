@@ -1016,6 +1016,15 @@ type GraphWriter struct {
 	ClientPID int `json:"client_pid,omitempty"` // the agent process it served; zero for a CLI run
 }
 
+// Dir is the checkout directory name, which is how a reader tells worktrees of one
+// repository apart: they all share Label, which comes from the remote.
+func (e GraphRepoEntry) Dir() string {
+	if e.Path == "" {
+		return e.Label
+	}
+	return repoDirName(e.Path)
+}
+
 // GraphRepoEntry describes one repository's membership in the current graph.
 type GraphRepoEntry struct {
 	Label           string   `json:"label"`                       // the store's repo label (see RepoLabel); NOT necessarily the directory name

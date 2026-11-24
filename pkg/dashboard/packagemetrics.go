@@ -107,6 +107,7 @@ type metricScatter struct {
 type metricsView struct {
 	Multi         bool
 	Repos         []string
+	RepoNames     map[string]string // label -> checkout directory, for the picker's text; the value stays the label
 	Default       string
 	TotalAnalyzed int // typed packages across all repos, for the trigger card
 	Agg           metricAgg

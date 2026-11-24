@@ -130,6 +130,22 @@ func (i Instance) RepoLabels() string {
 	return strings.Join(labels, ", ")
 }
 
+// RepoPaths lists the instance's loaded repo paths, one per line, in the order
+// RepoLabels names them: the tooltip that tells apart two checkouts whose
+// directories share a name.
+func (i Instance) RepoPaths() string {
+	if len(i.Repos) == 0 {
+		return i.PrimaryRepo
+	}
+	paths := make([]string, 0, len(i.Repos))
+	for _, r := range i.Repos {
+		if r.Path != "" {
+			paths = append(paths, r.Path)
+		}
+	}
+	return strings.Join(paths, "\n")
+}
+
 // instancesDir returns the directory holding per-instance records.
 func instancesDir() (string, error) {
 	home, err := os.UserHomeDir()

@@ -70,6 +70,12 @@ func TestRepoLabelsNameWorktreesByDirectory(t *testing.T) {
 	if got := multi.RepoLabels(); got != "enola-wt1, web" {
 		t.Errorf("multi: RepoLabels() = %q, want %q", got, "enola-wt1, web")
 	}
+	if got := multi.RepoPaths(); got != "/src/enola-wt1" {
+		t.Errorf("multi: RepoPaths() = %q, want %q", got, "/src/enola-wt1")
+	}
+	if got := before.RepoPaths(); got != "/src/enola-wt2" {
+		t.Errorf("before graph: RepoPaths() = %q, want %q", got, "/src/enola-wt2")
+	}
 }
 
 // TestLiveInstancesReapsDeadAndKeepsLive is the guarantee the dashboard's
