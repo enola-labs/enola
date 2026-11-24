@@ -95,13 +95,15 @@ func (r *Runner) Constraints(args []string) {
 // ConstraintsLint is `constraints lint`: validate the declaration and resolve each
 // component against the current snapshot.
 //
-// --declaration lints a file in place of the repository's enola-intent.yaml, so a draft
-// can be checked, and its selectors resolved, before anyone adopts it. The draft is read
-// and nothing is written; files under enola/constraints/ are still read beside it.
+// --declaration lays a draft over the repository's declaration, so a proposal can be
+// checked, and its selectors resolved, against the law it would join before anyone
+// adopts it. Draft components and rules are added, or replace the entry with the same
+// name or id; a section the draft declares (layers, seams, dependencies) replaces the
+// repository's. Nothing is written.
 func (r *Runner) ConstraintsLint(args []string) {
 	fs := flag.NewFlagSet("constraints lint", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	draft := fs.String("declaration", "", "lint this file in place of the repository's "+intent.RepoFileName+", without writing it")
+	draft := fs.String("declaration", "", "lay this draft over the repository's "+intent.RepoFileName+" and lint the result, without writing it")
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" constraints lint [--declaration FILE] [repo_path|config_path]\n\n"+
 			"Validate the declared constraint vocabulary (inline in "+intent.RepoFileName+" and\n"+
@@ -163,25 +165,15 @@ func (r *Runner) ConstraintsLint(args []string) {
 func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath, draft string, declared *facts.Store) int {
 	label := filepath.Base(repoPath)
 
-	filePath, source := filepath.Join(repoPath, intent.RepoFileName), intent.RepoFileName
+	filePath := filepath.Join(repoPath, intent.RepoFileName)
+	fileDecl, fileProblems := r.readDeclarationFile(filePath, intent.RepoFileName)
+	// A draft is laid over the repository's declaration, not read in its place: a
+	// proposal is checked against the law it would join, so a draft of three new
+	// rules does not silently drop the layer order the repository already declares.
+	var draftDecl *intent.Declaration
+	var draftProblems []string
 	if draft != "" {
-		filePath, source = draft, draft
-	}
-	var fileDecl *intent.Declaration
-	fileProblems := []string{}
-	switch data, err := os.ReadFile(filePath); {
-	case os.IsNotExist(err):
-	case err != nil:
-		r.constraintsFatal("reading %s: %v", filePath, err)
-	default:
-		var d intent.Declaration
-		if yamlErr := yaml.Unmarshal(data, &d); yamlErr != nil {
-			fileProblems = append(fileProblems, fmt.Sprintf("not parseable as YAML: %v", yamlErr))
-		} else {
-			d.Normalize()
-			d.Source = source
-			fileDecl = &d
-		}
+		draftDecl, draftProblems = r.readDeclarationFile(draft, draft)
 	}
 
 	dirFiles, dirProblems, err := intent.LoadConstraintsDir(repoPath)
@@ -201,9 +193,12 @@ func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath, 
 	recipeWarnings = append(recipeWarnings, intent.UnboundOptionalRules(recipes, dirFiles)...)
 
 	hasFile := fileDecl != nil || len(fileProblems) > 0
+	hasDraft := draftDecl != nil || len(draftProblems) > 0
 	hasDir := len(dirFiles) > 0 || len(dirProblems) > 0
 	hasRecipes := len(recipes) > 0 || len(recipeFileProblems) > 0
 	switch {
+	case hasDraft && !hasFile && !hasDir && clusterDecl == nil:
+		fmt.Printf("\n%s: no declaration yet; linting the draft alone.\n", label)
 	case !hasFile && !hasDir && !hasRecipes && clusterDecl == nil:
 		fmt.Printf("\n%s: no declaration (%s absent, no %s/ files, no cluster intent entry) — nothing to lint.\n", label, intent.RepoFileName, intent.ConstraintsDirName)
 		return 0
@@ -220,10 +215,16 @@ func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath, 
 	default:
 		fmt.Printf("\n%s: declared by %s.\n", label, intent.RepoFileName)
 	}
+	if hasDraft && (hasFile || hasDir || clusterDecl != nil) {
+		fmt.Printf("  draft %s laid over it; nothing is written.\n", draft)
+	}
 
 	count := 0
 	if fileDecl != nil {
 		fmt.Printf("  %s: %d component(s), %d rule(s), %d exemption(s)\n", filePath, len(fileDecl.Components), len(fileDecl.Rules), exemptionCount(fileDecl.Rules))
+	}
+	if draftDecl != nil {
+		fmt.Printf("  %s: %d component(s), %d rule(s), %d exemption(s)\n", draft, len(draftDecl.Components), len(draftDecl.Rules), exemptionCount(draftDecl.Rules))
 	}
 	recipeByName := map[string]intent.Recipe{}
 	for _, rec := range recipes {
@@ -264,6 +265,7 @@ func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath, 
 		}
 	}
 	report(filePath, fileProblems)
+	report(draft, draftProblems)
 	for _, p := range dirProblems {
 		fmt.Printf("  %s\n", p)
 		count++
@@ -281,6 +283,16 @@ func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath, 
 	}
 
 	merged := intent.MergeConstraintsFiles(fileDecl, dirFiles)
+	problemSource := filePath
+	if draftDecl != nil {
+		var overlay intent.OverlayReport
+		merged, overlay = intent.Overlay(merged, draftDecl)
+		printOverlay(overlay)
+		problemSource = draft
+		if hasFile {
+			problemSource = filePath + " with " + draft
+		}
+	}
 	merged, expandProblems := intent.ApplyRecipes(merged, dirFiles, recipes)
 	for _, p := range expandProblems {
 		fmt.Printf("  %s\n", p)
@@ -291,7 +303,7 @@ func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath, 
 			if strings.HasPrefix(p, intent.ConstraintsDirName+"/") {
 				fmt.Printf("  %s\n", p)
 			} else {
-				fmt.Printf("  %s: %s\n", filePath, p)
+				fmt.Printf("  %s: %s\n", problemSource, p)
 			}
 			count++
 		}
@@ -309,6 +321,41 @@ func (r *Runner) lintRepoDeclaration(clusterDecl *intent.Declaration, repoPath, 
 		declared.Add(intent.CompileFacts(resolved)...)
 	}
 	return count
+}
+
+// readDeclarationFile parses one declaration file. A missing file is no
+// declaration and no problem; a file that is not YAML is a problem, reported
+// under the file's path, and no declaration.
+func (r *Runner) readDeclarationFile(path, source string) (*intent.Declaration, []string) {
+	data, err := os.ReadFile(path)
+	switch {
+	case os.IsNotExist(err):
+		return nil, nil
+	case err != nil:
+		r.constraintsFatal("reading %s: %v", path, err)
+	}
+	var d intent.Declaration
+	if yamlErr := yaml.Unmarshal(data, &d); yamlErr != nil {
+		return nil, []string{fmt.Sprintf("not parseable as YAML: %v", yamlErr)}
+	}
+	d.Normalize()
+	d.Source = source
+	return &d, nil
+}
+
+// printOverlay says what a draft adds to the declaration and what it stands in
+// for, so replacing an existing rule is never mistaken for adding one.
+func printOverlay(o intent.OverlayReport) {
+	line := func(what string, names []string) {
+		if len(names) > 0 {
+			fmt.Printf("    %s: %s\n", what, strings.Join(names, ", "))
+		}
+	}
+	line("draft adds components", o.AddedComponents)
+	line("draft replaces components", o.ReplacedComponents)
+	line("draft adds rules", o.AddedRules)
+	line("draft replaces rules", o.ReplacedRules)
+	line("draft replaces sections", o.Replaced)
 }
 
 // lintResolveComponents joins the declared components against the snapshot on

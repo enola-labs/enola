@@ -110,8 +110,8 @@ order, components and rules, each with the reason it exists. [INTENT.md](INTENT.
 - **Will not** decide for you. Mined rules, recipe bindings and its own ideas are
   proposals; every rule needs a `because:` in your words; turning on enforcement
   (`--fail-on`, a `strict` rule, an exemption) is yours to do. Until you accept it, the
-  draft stays out of the repository and is checked with
-  `enola constraints lint --declaration draft.yaml .`.
+  draft stays out of the repository and is checked, laid over the declaration it
+  would join, with `enola constraints lint --declaration draft.yaml .`.
 - **You get** what the code does now, a draft that lints clean with what each rule
   covers, the questions only you can answer, and the CI command that would enforce it.
 

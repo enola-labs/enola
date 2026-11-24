@@ -60,7 +60,7 @@ func TestConstraintsLintDeclarationDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = runEnola(t, bin, repo, home, "constraints", "lint", "--declaration", bad, repo)
-	if res.code != 1 || !strings.Contains(res.stdout, "names no declared component") {
+	if res.code != 1 || !strings.Contains(res.stdout, "names no declared component") || strings.Contains(res.stdout, "enola-intent.yaml with") {
 		t.Errorf("an invalid draft: exit %d, want 1 naming the undeclared component\n%s%s", res.code, res.stdout, res.stderr)
 	}
 
@@ -72,5 +72,38 @@ func TestConstraintsLintDeclarationDraft(t *testing.T) {
 	res = runEnola(t, bin, repo, home, "constraints", "lint", bad)
 	if res.code == 0 || !strings.Contains(res.stdout+res.stderr, "--declaration") {
 		t.Errorf("a declaration passed as a config: exit %d, want a refusal pointing at --declaration\n%s%s", res.code, res.stdout, res.stderr)
+	}
+}
+
+// A draft is laid over the repository's declaration: a draft of rules alone keeps the
+// layer order the repository already declares, and says which entries it adds.
+func TestConstraintsLintDeclarationDraftOverlays(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	bin := buildEnola(t)
+	repo, home := draftRepo(t, bin)
+	declared := "layers:\n  - {name: web, paths: [\"web/**\"]}\n  - {name: storage, paths: [\"storage/**\"]}\n" +
+		"components:\n  - {name: web, match: [\"web/**\"]}\n"
+	if err := os.WriteFile(filepath.Join(repo, "enola-intent.yaml"), []byte(declared), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	draft := filepath.Join(t.TempDir(), "draft.yaml")
+	if err := os.WriteFile(draft, []byte("components:\n  - {name: storage, match: [\"storage/**\"]}\n"+
+		"rules:\n  - {id: storage-up, forbid: storage, to: web, via: imports, because: \"storage serves web\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := runEnola(t, bin, repo, home, "constraints", "lint", "--declaration", draft, repo)
+	if res.code != 0 {
+		t.Fatalf("a draft naming a component the repository declares: exit %d\n%s%s", res.code, res.stdout, res.stderr)
+	}
+	for _, want := range []string{"Declared layer resolution", "draft adds components: storage", "draft adds rules: storage-up", "laid over it"} {
+		if !strings.Contains(res.stdout, want) {
+			t.Errorf("output lacks %q:\n%s", want, res.stdout)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "enola-intent.yaml"))
+	if err != nil || string(data) != declared {
+		t.Error("linting a draft changed the repository's declaration")
 	}
 }

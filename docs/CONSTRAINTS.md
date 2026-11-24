@@ -1852,9 +1852,15 @@ verdicts anything. No snapshot degrades to a named validation-only
 mode; nothing is generated or written. Exit `1` on validation
 problems, `0` otherwise.
 
-`--declaration FILE` lints a draft in place of the repository's
-`enola-intent.yaml`, resolved against the same snapshot, so a proposal
-can be checked before anyone adopts it:
+`--declaration FILE` lays a draft over the repository's
+`enola-intent.yaml` and `enola/constraints/` files and lints the result,
+resolved against the same snapshot, so a proposal can be checked against
+the law it would join before anyone adopts it. The draft's components and
+rules are added, or replace the existing entry with the same name or id,
+and lint names which. A section the draft declares (`layers`, `consumes`,
+`serves`, `dependencies`, `service`) replaces the repository's; one it
+leaves out is kept, so a draft of three rules does not drop the declared
+layer order:
 
 ```
 $ enola constraints lint --declaration /tmp/draft.yaml .
