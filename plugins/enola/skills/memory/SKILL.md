@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Anchor memories about code to the symbols they describe with enola, so they can be found by what a task touches and checked for staleness before use. Works with any memory store, such as memory files, a notes directory or a memory service. Use when saving a memory about specific code, recalling what is known about code you are about to change, or cleaning up memories that may describe code that has since changed, moved or been deleted.
+description: Anchor memories about code to the symbols they describe with enola, so they can be found by what a task touches and checked for staleness before use. Works with any memory store, such as memory files, a notes directory or a memory service. Use when saving a memory about specific code, stamping existing memories that have no stamps yet, recalling what is known about code you are about to change, or cleaning up memories that may describe code that has since changed, moved or been deleted.
 ---
 
 # Memory anchored to code
@@ -26,6 +26,9 @@ Keep these fields from the symbol, plus the cited fields when one line was named
 `id`, `repo`, `name`, `symbol_kind`, `body_hash`, `inner_hash`, `decl_hash` when
 present, and `cited_hash` with `cited_lines`.
 
+A single cited line is hashed with the line before and after it, taken only from inside
+the symbol, so `cited_lines` is 2 on a declaration or closing line and 3 elsewhere.
+
 Cite the narrowest place the memory is about: one line for a bug or a gotcha, the
 declaration line for a memory about the whole function. A line outside every symbol
 (an import, a package-level block) gets no stamp; record the file path instead.
@@ -48,6 +51,43 @@ overrule a status because the symbol is not a declaration by some other definiti
 
 If the memory system already calls enola (cognee, for example, stores `locate` stamps),
 reuse its stamps rather than adding a second set.
+
+## Starting out: stamping what is already there
+
+Run this when the skill is invoked with no task, or when the store holds memories about
+code and none of them carries a stamp. Memories written before the skill was installed
+name code by symbol, not by line, so nothing else ever stamps them.
+
+1. Make sure a snapshot of the repository is loaded (`generate_snapshot` if `locate`
+   says there are no facts).
+2. List the memories about this repository's code: the ones naming its functions,
+   types, methods, files or directories. Skip memories about preferences, people, tools,
+   CLI flags, property names and other repositories.
+3. Resolve names per memory, not per name: two memories can mean different symbols by
+   the same name. For each name, `query_facts(kind='symbol', name=<name>,
+   output_mode='names')`, sent in parallel; a qualified form (`Graph.nodeFor`) or a
+   `file_prefix` cuts a short, common name down. The match is a substring and ignores
+   case, so keep only results whose name equals `<name>` or ends in `.<name>`, case
+   included. With several left, keep the one the memory's text points to (its package,
+   language or file); if the text does not settle it, stamp none of them and list the
+   name as ambiguous. Do not look up test functions, constants or package-level
+   variables: the graph holds no symbol for them. A file or directory the memory is
+   about is recorded by path.
+4. Stamp the resolved `file:line`s with `locate(locations=[...])`, about 25 per call so
+   each result stays readable, and store the stamps as in
+   [Saving a memory](#saving-a-memory). In frontmatter, an `anchors:` list with one
+   entry per stamp, `at: <file:line>` first, keeps it readable; a path-only entry has
+   `at` and `file`. Adding stamps changes no memory's content, so it needs no
+   confirmation.
+5. Report counts: memories stamped, names resolved, and names not found, listed under
+   their memory. Keep two lists: names that were never symbols (tests, constants,
+   package variables, fields, recorded by path if at all) and names the graph should
+   hold but does not. Only the second is a finding: the code was renamed, moved or
+   deleted after the memory was written. `git log -S<name> --oneline -1` shows the
+   commit that last added or removed it. Searching for what does its job now and
+   stamping that is worth doing only when the user asks.
+6. A memory whose names are mostly not found describes code that is gone. Say so and
+   ask the user before marking it stale or changing it.
 
 ## Recalling what is relevant
 

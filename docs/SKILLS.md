@@ -144,7 +144,9 @@ or checks a note on its own:
 - **Saving.** The skill's description asks the agent to load it when saving a note about
   specific code, so a note saved that way usually gets its stamp. A note saved in passing,
   in the middle of another task, can be written without one. Notes saved before the skill
-  was installed have none until you ask for them to be stamped.
+  was installed have none: run the skill with no task (`/enola-memory`) and it stamps
+  the notes that name your code, and lists every name it can no longer find, which is
+  usually code that was renamed or deleted after the note was written.
 - **Recalling.** An agent that loads its notes at session start (Claude Code's
   `MEMORY.md`, for example) still reads them as text. The graph decides which notes are
   relevant only when the skill is loaded for a task, typically before changing code the
