@@ -101,8 +101,21 @@ func (i Instance) SessionCalls() int {
 	return n
 }
 
+// DisplayName is the name a reader knows this repository by: its checkout
+// directory. Label is the fact identity, taken from the git remote, so every
+// worktree of one repository shares it and cannot be told apart by it. Label is
+// the fallback for a record without a path.
+func (r InstanceRepo) DisplayName() string {
+	if r.Path != "" {
+		return filepath.Base(r.Path)
+	}
+	return r.Label
+}
+
 // RepoLabels renders the instance's loaded repos as a compact "a, b, c" label,
 // falling back to the primary repo's base name when no graph is loaded yet.
+// Both cases name checkouts by directory, so the label does not change when a
+// graph loads.
 func (i Instance) RepoLabels() string {
 	if len(i.Repos) == 0 {
 		if i.PrimaryRepo == "" {
@@ -112,7 +125,7 @@ func (i Instance) RepoLabels() string {
 	}
 	labels := make([]string, 0, len(i.Repos))
 	for _, r := range i.Repos {
-		labels = append(labels, r.Label)
+		labels = append(labels, r.DisplayName())
 	}
 	return strings.Join(labels, ", ")
 }

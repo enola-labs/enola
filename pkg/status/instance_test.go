@@ -44,13 +44,31 @@ func TestInstanceRoundTrip(t *testing.T) {
 	if got.DashboardPort != 45678 || got.URL() != "http://127.0.0.1:45678" {
 		t.Errorf("dashboard = %d / %q", got.DashboardPort, got.URL())
 	}
-	if got.RepoLabels() != "api" {
-		t.Errorf("RepoLabels() = %q, want %q", got.RepoLabels(), "api")
+	if got.RepoLabels() != "example-repo" {
+		t.Errorf("RepoLabels() = %q, want %q", got.RepoLabels(), "example-repo")
 	}
 
 	tr.Close()
 	if live := LiveInstances(); len(live) != 0 {
 		t.Errorf("after Close: %d records remain, want 0", len(live))
+	}
+}
+
+// TestRepoLabelsNameWorktreesByDirectory pins issue #657: every worktree of one
+// repository carries the remote-derived fact label, so the display must come
+// from the checkout path, and must not change when a graph loads.
+func TestRepoLabelsNameWorktreesByDirectory(t *testing.T) {
+	before := Instance{PrimaryRepo: "/src/enola-wt2"}
+	after := Instance{PrimaryRepo: "/src/enola-wt2", Repos: []InstanceRepo{{Label: "enola", Path: "/src/enola-wt2"}}}
+	if got := before.RepoLabels(); got != "enola-wt2" {
+		t.Errorf("before graph: RepoLabels() = %q, want %q", got, "enola-wt2")
+	}
+	if got := after.RepoLabels(); got != "enola-wt2" {
+		t.Errorf("after graph: RepoLabels() = %q, want %q", got, "enola-wt2")
+	}
+	multi := Instance{Repos: []InstanceRepo{{Label: "enola", Path: "/src/enola-wt1"}, {Label: "web"}}}
+	if got := multi.RepoLabels(); got != "enola-wt1, web" {
+		t.Errorf("multi: RepoLabels() = %q, want %q", got, "enola-wt1, web")
 	}
 }
 

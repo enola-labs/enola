@@ -66,7 +66,7 @@ func TestPageListsLiveInstances(t *testing.T) {
 		Binary:        "enola",
 		DashboardPort: 54545,
 		FrontDoor:     true,
-		Repos:         []status.InstanceRepo{{Label: "other-repo", Path: "/tmp/other"}},
+		Repos:         []status.InstanceRepo{{Label: "other-repo", Path: "/tmp/other-repo"}},
 	})
 
 	tr := status.NewTracker("/tmp/my-repo")
@@ -131,7 +131,7 @@ func TestPageTracksInstancesJoiningAndLeaving(t *testing.T) {
 		Heartbeat:     time.Now(),
 		Binary:        "enola",
 		DashboardPort: 54545,
-		Repos:         []status.InstanceRepo{{Label: "joining-repo", Path: "/tmp/joining"}},
+		Repos:         []status.InstanceRepo{{Label: "joining-repo", Path: "/tmp/joining-repo"}},
 	}
 	registerForeign(t, sibling)
 	if body := render(); !strings.Contains(body, "joining-repo") ||
