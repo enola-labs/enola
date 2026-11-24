@@ -52,7 +52,7 @@ func (e *KotlinExtractor) ExtractTestRefs(ctx context.Context, repoPath string, 
 			log.Printf("[kotlin-extractor] error reading test file %s: %v", relFile, err)
 			return nil
 		}
-		return testRefsFromFileIn(src, relFile, prodTypes)
+		return testRefsFromFile(src, relFile, prodTypes)
 	})
 
 	var out []facts.Fact
@@ -137,15 +137,11 @@ var kotlinTestHarnessNames = map[string]bool{
 	"isDisplayed": true, "Espresso": true,
 }
 
-func testRefsFromFile(src []byte, relFile string) []facts.Fact {
-	return testRefsFromFileIn(src, relFile, nil)
-}
-
-// testRefsFromFileIn collects one test file's references into a single KindTestRef
+// testRefsFromFile collects one test file's references into a single KindTestRef
 // fact. The fact Name is the file path, which never equals a symbol name, so the
 // fact introduces no self-reference: the contract the orphan detector's fold
 // relies on.
-func testRefsFromFileIn(src []byte, relFile string, prodTypes map[string]bool) []facts.Fact {
+func testRefsFromFile(src []byte, relFile string, prodTypes map[string]bool) []facts.Fact {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(kotlin.Language())); err != nil {

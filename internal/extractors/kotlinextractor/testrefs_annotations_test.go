@@ -46,7 +46,7 @@ class ServiceTest {
 annotation class LocalMarker
 `
 	got := map[string]bool{}
-	for _, f := range testRefsFromFileIn([]byte(src), "lib/src/test/kotlin/com/ex/lib/ServiceTest.kt", prod) {
+	for _, f := range testRefsFromFile([]byte(src), "lib/src/test/kotlin/com/ex/lib/ServiceTest.kt", prod) {
 		for _, r := range f.Relations {
 			got[r.Target] = true
 		}
