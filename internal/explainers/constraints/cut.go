@@ -31,7 +31,9 @@ func cutForEdge(resolve *resolver, far string, from facts.Fact, target string) s
 		}
 		return fmt.Sprintf("Route the call through the public surface of %s (%s) instead of %s", far, strings.Join(c.public, ", "), target)
 	}
-	if home := mostReachedComponent(resolve, from, far); home != "" {
+	// A fact already in the component its edges reach most has nowhere to move:
+	// the breach is the edge, not where the fact sits.
+	if home := mostReachedComponent(resolve, from, far); home != "" && !resolve.members[home][from.Name] {
 		return fmt.Sprintf("Move %s into %s, where the rest of its edges already go", from.Name, home)
 	}
 	return noCut

@@ -26,7 +26,7 @@ func (s *scope) mineNaming() []Candidate {
 		kept := map[string][]string{}
 		for _, cluster := range sortedKeys(clusters) {
 			idx := clusters[cluster]
-			pattern, matched, passedOverTautology := bestNamePattern(cluster, ms, idx, s.cfg.MinConfidence, s.cfg.IncludeTautologies)
+			pattern, matched, passedOverTautology := bestNamePattern(cluster, ms, idx, s.cfg.MinConfidence, s.cfg.IncludeTautologies, s.roots)
 			if passedOverTautology {
 				s.suppressed[FamilyNaming].Tautological++
 			}
@@ -44,7 +44,7 @@ func (s *scope) mineNaming() []Candidate {
 			if !s.admit(FamilyNaming, len(idx), len(exceptions)) {
 				continue
 			}
-			if !s.cfg.IncludeTautologies && tautologicalNaming(cluster, pattern, len(idx)) {
+			if !s.cfg.IncludeTautologies && tautologicalNaming(cluster, pattern, len(idx), s.roots) {
 				s.suppressed[FamilyNaming].Tautological++
 				continue
 			}
@@ -93,12 +93,12 @@ func coveredByAncestor(kept map[string][]string, cluster, pattern string) bool {
 // declared there) are passed over rather than ranked, so the strongest real
 // regularity surfaces instead of losing to one that says nothing; the third
 // result reports that one was passed over, for the suppression count.
-func bestNamePattern(cluster string, ms []member, idx []int, minConfidence float64, includeTautologies bool) (string, int, bool) {
+func bestNamePattern(cluster string, ms []member, idx []int, minConfidence float64, includeTautologies bool, roots map[string]bool) (string, int, bool) {
 	tally := map[string]int{}
 	tautological := map[string]int{}
 	for _, i := range idx {
 		for _, pattern := range namePatterns(ms[i].name) {
-			if !includeTautologies && constructionSatisfiedPattern(cluster, pattern) {
+			if !includeTautologies && constructionSatisfiedPattern(cluster, pattern, roots) {
 				tautological[pattern]++
 				continue
 			}

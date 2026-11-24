@@ -441,6 +441,56 @@ func TestExplain_RustImportsOutsideTheRepositoryAreCountedApart(t *testing.T) {
 	}
 }
 
+// A Go import of the standard library, cgo's "C", or a package of a module a go.mod
+// requires is outside a law about the repository's parts, as in Rust. An external
+// path no go.mod requires stays a verdict not reached: it may be an extraction gap.
+func TestExplain_GoImportsOutsideTheRepositoryAreCountedApart(t *testing.T) {
+	use := func(target, source string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: "example.com/m/web -> " + target, File: "web/w.go",
+			Props:     map[string]any{"language": "go", "source": source},
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}}}
+	}
+	store := facts.NewStore()
+	store.Add(
+		componentIntent("web", "web/**"),
+		componentIntent("storage", "storage/**"),
+		ruleIntentProps("web-no-storage", map[string]any{"forbid": "web", "to": "storage", "via": "imports", "because": "test"}),
+		facts.Fact{Kind: facts.KindModule, Name: "example.com/m/web", File: "web", Props: map[string]any{"language": "go"}},
+		facts.Fact{Kind: facts.KindFileRef, Name: "web/w.go", File: "web/w.go"},
+		facts.Fact{Kind: facts.KindDependency, Name: "pkg:golang/gopkg.in/yaml.v3", File: "go.mod",
+			Props: map[string]any{"ecosystem": facts.EcosystemGo, "package_name": "gopkg.in/yaml.v3"}},
+		facts.Fact{Kind: facts.KindDependency, Name: "pkg:golang/github.com/a/b", File: "go.mod",
+			Props: map[string]any{"ecosystem": facts.EcosystemGo, "package_name": "github.com/a/b"}},
+		use("fmt", "stdlib"),
+		use("C", "stdlib"),
+		use("gopkg.in/yaml.v3", "external"),
+		use("github.com/a/b/sub", "external"),
+		use("github.com/a/bc", "external"),
+		use("github.com/nobody/declared", "external"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outside, skip *facts.Insight
+	for i := range insights {
+		switch {
+		case strings.Contains(insights[i].Title, "web-no-storage left 4 imports target(s) outside the repository"):
+			outside = &insights[i]
+		case strings.Contains(insights[i].Title, "web-no-storage reached no verdict on 2 imports target(s)"):
+			skip = &insights[i]
+		}
+	}
+	if outside == nil || skip == nil {
+		t.Fatalf("want fmt, C, yaml.v3 and a/b/sub outside, a/bc and nobody/declared not reached: %+v", insights)
+	}
+	for _, name := range []string{"github.com/a/bc", "github.com/nobody/declared"} {
+		if !strings.Contains(skip.Description, name) || strings.Contains(outside.Description, name+",") {
+			t.Errorf("%s stays a verdict not reached: %q", name, skip.Description)
+		}
+	}
+}
+
 func TestGrounding_PythonImportResolvesToModuleFile(t *testing.T) {
 	store := facts.NewStore()
 	store.Add(facts.Fact{

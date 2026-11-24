@@ -1848,13 +1848,30 @@ component and rule counts, plus its `use_recipe:` instantiations —
 validation problem with its file context rather than dying on the first, and —
 when a snapshot exists on disk — resolves each component against it so
 you see what a selector actually selects before a rule built on it
-verdicts anything. No snapshot degrades to a named validation-only
+verdicts anything. With a snapshot it also reports what each rule and
+the declared layer order raise today: a rule's breach count with the
+first few witnesses, `holds`, or `holds vacuously` when a component it
+reads selects nothing, and the layer order's imports inward and against.
+These are every breach as it stands, before the ratchet decides which
+are new, so they are what adopting the declaration accepts; they are
+not lint problems. No snapshot degrades to a named validation-only
 mode; nothing is generated or written. Exit `1` on validation
 problems, `0` otherwise.
 
-`--declaration FILE` lints a draft in place of the repository's
-`enola-intent.yaml`, resolved against the same snapshot, so a proposal
-can be checked before anyone adopts it:
+A component or layer that selects nothing is valid and lints clean,
+though no rule over it can ever fail. `--fail-empty` counts each one as
+a problem, so a script or an agent can gate on it rather than read the
+report; it needs a snapshot, and exits `2` without one.
+
+`--declaration FILE` lays a draft over the repository's
+`enola-intent.yaml` and `enola/constraints/` files and lints the result,
+resolved against the same snapshot, so a proposal can be checked against
+the law it would join before anyone adopts it. The draft's components and
+rules are added, or replace the existing entry with the same name or id,
+and lint names which. A section the draft declares (`layers`, `consumes`,
+`serves`, `dependencies`, `service`) replaces the repository's; one it
+leaves out is kept, so a draft of three rules does not drop the declared
+layer order:
 
 ```
 $ enola constraints lint --declaration /tmp/draft.yaml .
@@ -1951,7 +1968,10 @@ TypeScript extractor qualifies a symbol with its module path
 (`src/services.ApiError`) and names members through their class
 (`src/commands/repo.RepoClone.description`); the scaffold cuts both
 down to the declaration the rule can see, and a pattern that is only
-the module path is a tautology the miner no longer ranks. Every
+the module path is a tautology the miner no longer ranks. The same
+holds for Go, whose names are import paths: a pattern that is the
+module path, the package's own import path, or a leading part of
+either is satisfied by construction and counted as tautological. Every
 candidate the scaffolder leaves is listed with the reason it stays
 a constraint proposal. Nothing is written to the repository's plugin
 and no ESLint configuration is touched: the scaffold is a starting

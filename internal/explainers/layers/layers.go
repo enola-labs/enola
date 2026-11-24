@@ -1737,7 +1737,7 @@ func resolveLayerModuleFor(dep facts.Fact, pattern *archPattern) (string, bool) 
 // of a module called api in the api layer).
 func layerPath(mod facts.Fact) string {
 	if facts.IsGoPackage(mod) && mod.File != "" && mod.File != mod.Name {
-		if mod.Repo != "" {
+		if mod.RepoPrefixed && mod.Repo != "" {
 			return strings.TrimPrefix(mod.File, mod.Repo+"/")
 		}
 		return mod.File

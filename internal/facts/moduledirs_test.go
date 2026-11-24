@@ -28,9 +28,16 @@ func TestModulePath_GoPackageIsItsDirectory(t *testing.T) {
 			t.Errorf("%s judged test code = %v, want %v", c.m.Name, got, c.testCode)
 		}
 	}
-	paths := NewModulePaths([]Fact{goPkg("example.com/e2e/a", "r/a")})
+	prefixed := goPkg("example.com/e2e/a", "r/a")
+	prefixed.RepoPrefixed = true
+	paths := NewModulePaths([]Fact{prefixed})
 	if got := paths.Of("example.com/e2e/a"); got != "a" {
 		t.Errorf("ModulePaths.Of = %q, want the repo-stripped directory", got)
+	}
+	// A repository labelled like a directory it holds: r/a is that directory, not a
+	// label a multi-repo snapshot put there.
+	if got := ModulePath(goPkg("example.com/e2e/r/a", "r/a")); got != "r/a" {
+		t.Errorf("ModulePath of an unprefixed r/a in repo r = %q, want r/a", got)
 	}
 	if got := paths.Of("other"); got != "other" {
 		t.Errorf("ModulePaths.Of(other) = %q, want the name itself", got)

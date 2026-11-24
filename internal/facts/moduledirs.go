@@ -56,7 +56,10 @@ func IsGoPackage(m Fact) bool {
 // package in directory a, and the e2e in its module path says nothing about it.
 func ModulePath(m Fact) string {
 	if IsGoPackage(m) && m.File != "" && m.File != m.Name {
-		if m.Repo != "" {
+		// Only a multi-repo snapshot puts the label in front of File, and it says so.
+		// A repository may also hold a top-level directory named like its label
+		// (repo "api" with an api/ package), and that directory is part of the path.
+		if m.RepoPrefixed && m.Repo != "" {
 			return strings.TrimPrefix(m.File, m.Repo+"/")
 		}
 		return m.File

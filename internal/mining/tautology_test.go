@@ -195,3 +195,53 @@ func TestMineDoesNotMineTheBodyHash(t *testing.T) {
 		}
 	}
 }
+
+func TestConstructionSatisfiedPatternBehindAModulePath(t *testing.T) {
+	cases := []struct {
+		cluster, pattern string
+		want             bool
+	}{
+		{"internal/x", "internal/x.*", true},
+		{"internal/x", "example.com/m/internal/x.*", true},
+		{"internal/x", "example.com/m/internal/*", true},
+		{"internal", "example.com/m/internal/*", true},
+		{"internal/x", "example.com/m/internal/x/*", true},
+		// A different directory, or one that only ends in the same letters, is a real claim.
+		{"internal/x", "example.com/m/internal/y.*", false},
+		{"internal/x", "example.com/m/notinternal/x.*", false},
+		{"internal/x", "example.com/m/internal/x.New*", false},
+		{"internal", "example.com/m/internal/x.*", true},
+		{"internal", "example.com/m/internal/x/y.*", true},
+		{"internal", "example.com/m/internal/x.New*", false},
+		{"internal", "example.com/m/internalx.*", false},
+		{"internal/x", "*Handler", false},
+		// The module path alone: every name in the module carries it.
+		{"internal/x", "example.com/m/*", true},
+		{"internal/x", "example.com/*", true},
+		{"internal/x", "example.*", true},
+		{"internal/x", "other.com/*", false},
+	}
+	for _, c := range cases {
+		if got := constructionSatisfiedPattern(c.cluster, c.pattern, map[string]bool{"example.com/m/": true}); got != c.want {
+			t.Errorf("constructionSatisfiedPattern(%q, %q) = %v, want %v", c.cluster, c.pattern, got, c.want)
+		}
+	}
+}
+
+// Go symbols are named by import path, so a naming candidate restating that a
+// package's symbols carry its import path is suppressed like any other tautology.
+func TestMineSuppressesGoImportPathNaming(t *testing.T) {
+	ff := []facts.Fact{{Kind: facts.KindModule, Name: "example.com/m/internal/x", File: "internal/x"}}
+	for i := 0; i < 12; i++ {
+		ff = append(ff, symbolPropFact(fmt.Sprintf("example.com/m/internal/x.F%02d", i), "internal/x/x.go", nil))
+	}
+	report := Mine(storeOf(ff), DefaultConfig())
+	for _, c := range report.Candidates {
+		if c.Family == FamilyNaming && strings.Contains(c.Statement, "named example.") {
+			t.Errorf("an import-path naming candidate survived: %s", c.Statement)
+		}
+	}
+	if got := suppressedFor(report, FamilyNaming).Tautological; got == 0 {
+		t.Error("the import-path naming candidate was not counted as tautological")
+	}
+}
