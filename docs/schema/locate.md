@@ -41,7 +41,7 @@ are additive. A field marked optional is left out when it has no value.
 | `candidates` | array of strings | optional | Graph files the path matched, when more than one |
 | `nested` | array | optional | For an `enclosing` match, each [nested function](#nested-functions) without a symbol the location is in: `name`, `line`, `end_line` |
 | `cited_hash` | string | optional | Version of the cited lines. Needs the source |
-| `cited_lines` | int | optional | Non-blank lines `cited_hash` covers. A single line is taken with one line either side |
+| `cited_lines` | int | optional | Non-blank lines `cited_hash` covers. A single line is taken with one line either side, from inside the symbol holding it |
 | `error` | string | optional | The location could not be read |
 
 | `match` | Meaning |

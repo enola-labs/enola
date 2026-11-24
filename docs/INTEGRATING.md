@@ -255,7 +255,7 @@ git diff | enola locate --json --diff -         # the symbols a change touched
 
 Each location comes back as the innermost symbol holding it, with its `id`, `name`,
 `body_hash` and span, and a `cited_hash` / `cited_lines` pair: a version of the cited
-lines themselves (a single line is taken with the line before and after it). Store the
+lines themselves (a single line is taken with the line before and after it, from inside its symbol). Store the
 id, the body hash, the name and the repository label with the record, and the cited pair when the record is
 about specific lines. A symbol that shares its id with another declaration (a getter and
 its setter, overloads) also carries `decl_hash`: store it, it says which one you meant.
