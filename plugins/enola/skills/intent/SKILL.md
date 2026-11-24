@@ -1,6 +1,7 @@
 ---
 name: intent
-description: Declare and maintain a repository's intended architecture for enola, meaning its layer order, components and rules in enola-intent.yaml or enola/constraints/. Use when the user wants to write down, review, tighten or clean up architecture rules, asks which rules govern some code, or a constraint or layer finding needs a decision.
+description: Declare and maintain a repository's intended architecture for enola, meaning its layer order, components and rules in enola-intent.yaml or enola/constraints/. Use when the user wants to write down, propose, review, tighten or clean up architecture rules for a repository (optionally naming it, as in "/enola-intent @repo"), asks which rules govern some code, or a constraint or layer finding needs a decision.
+argument-hint: "[repository path]"
 ---
 
 # Architecture intent with enola
@@ -27,85 +28,157 @@ Intent lives in three places, and the first two use one schema:
 3. **Never turn on enforcement yourself.** Adding `--fail-on`, setting a rule's `mode`
    to `strict`, adding an `exempt:` entry or a suppression are the user's calls.
    Exemptions and suppressions name an owner: that is a person, never you.
-4. **A selector that matches nothing is the failure to watch for.** It is valid, lints
-   clean and can never be violated. Do not stop until every component and layer resolves
-   to members.
+4. **A selector that matches nothing is the failure to watch for.** It is valid and can
+   never be violated. `enola constraints lint --fail-empty` exits 1 while any component
+   or layer selects nothing; do not stop until it exits 0.
 5. **A proposal is a complete, valid declaration.** When you present rules for the user
    to accept, every component a rule names is declared, every rule uses a real rule form,
-   and it lints clean (see "Checking a draft" below). Accepting it should take one step.
+   it lints clean laid over what the repository already declares, and you can say what
+   each rule breaches today. Accepting it should take one step.
 6. **Leave generated pages alone.** If a wiki's `enola_intent` blocks are produced by the
    user's own tooling, change the tooling or ask, not the generated output.
 
-## Starting from nothing
+## The repository
 
-1. Make sure a snapshot exists (`generate_snapshot`), so lint can resolve selectors.
-2. See what enola already infers: `query_insights(explainer='layers')` reports the layer
-   pattern it recognised. `enola constraints init --dry-run` shows which shipped recipes
-   bind to directories this repository has. "Nothing to bind" is a normal answer: ask
-   whether the repository follows one of those patterns under other directory names.
-3. Propose rules the code already almost follows: `enola constraints mine`. Each
-   candidate carries its regularity (for example 47/48) and names its exceptions. Show
-   the user the strongest few, with the exceptions, and let them pick. Use
-   `--min-confidence 0.98 --top 0` when there are too many. On a small repository it
-   often proposes nothing and counts what fell under its support floor of 10; lowering
-   `--min-support` shows those, but a regularity over a handful of facts is weak
-   evidence, so say so when you present one.
-4. Write the layer order first. It is the single most useful declaration: a declared
-   order is graded at confidence 1.00, an inferred one caps at 0.80, so only a declared
-   one can gate. Outermost first; each layer may depend on itself and on layers below:
+The skill may be invoked with a repository: a path, or an @-mention of a directory, as
+in `/enola-intent @payments-api`. That repository is the target of everything below.
+Without one, the target is the repository the session is working in. Resolve it to an
+absolute path and check that it is a directory before going on.
 
-   ```yaml
-   layers:
-     - {name: handlers, paths: ["app/handlers/**"]}
-     - {name: domain,   paths: ["app/domain/**"]}
-     - {name: storage,  paths: ["app/storage/**"]}
+- Snapshot it with `generate_snapshot(repo_path=<absolute path>, fresh=true)`. The
+  snapshot is written to `<repo>/.enola/`, which the CLI commands below read. Without
+  the MCP server, run `enola --generate <repo>`.
+- Run every `enola constraints` command from inside the repository with `.` as its
+  path: `cd <repo> && enola constraints lint .`. enola reads `mcp-arch.yaml` from the
+  working directory, so a run started elsewhere indexes under another repository's
+  configuration.
+- Keep drafts outside the repository, in a scratch directory, until the user accepts
+  them.
+
+## Proposing intent
+
+Work through these steps, then bring the user one proposal, not a stream of questions.
+
+1. **Read what is declared.** `enola constraints lint --fail-empty .` lists the
+   declaration files, what each component and layer selects, what the layer order and
+   every rule report today, and exits 1 on anything invalid or empty.
+   - Nothing declared: the steps below apply in full.
+   - Something declared: propose only what is missing or wrong. That is a layer order
+     if there is none, modules no layer covers, selectors that select nothing, and rules
+     whose breaches suggest the decision behind them changed. Do not propose again what
+     is already there.
+2. **See what enola infers.** `query_insights(explainer='layers')` gives the layer
+   pattern it recognised, or the declared order's verdict; a recognised pattern is the
+   starting point for a layer order. `enola constraints init --dry-run .` shows which
+   shipped recipes bind to directories this repository has. "Nothing to bind" is a
+   normal answer: ask whether the repository follows one of those patterns under other
+   directory names. `package_metrics` and `query_insights(explainer='cycles')` show
+   which way packages depend, which is where the boundaries are.
+3. **Mine candidates** the code already almost follows:
+   `enola constraints mine --min-confidence 0.98 --top 30 .`. Each carries its
+   regularity (for example 712/714) and names its exceptions. Most are not intent, so
+   read them before showing any:
+   - keep a forbid-edge whose exceptions look like mistakes;
+   - drop one whose exceptions are deliberate use, and one that only says a package is
+     rarely called: "pkg/command almost never calls internal/updatecheck" describes how
+     often it is used, not a decision;
+   - drop anything the layer order already implies.
+
+   On a small repository mining often proposes nothing and counts what fell under its
+   support floor of 10. Lowering `--min-support` shows those, but a regularity over a
+   handful of facts is weak evidence, so say so when you present one.
+4. **Write the draft** to a scratch file: the layer order first, then components and
+   rules for what layers cannot say (see "Declaration shapes"). Until the user answers,
+   a rule's `because:` holds the evidence for it, marked as yours:
+   `because: "PROPOSED: 712/714 calls from extractors avoid linkers"`. That text never
+   reaches the repository.
+5. **Lint the draft** laid over what the repository declares:
+
+   ```sh
+   cd <repo> && enola constraints lint --fail-empty --declaration /scratch/draft.yaml .
    ```
 
-   A `paths` entry is an exact module path or a `prefix/**` subtree, nothing else. An
-   order between packages belongs here, not in one `forbid` rule per pair of packages.
-   Group by role, not by directory tree, and keep a comment beside each boundary saying
-   why it is there.
-5. Then components and rules for what layers cannot say:
+   The draft's components and rules are added, or replace the entry with the same name
+   or id, and lint says which. A `layers:` section in the draft replaces the declared
+   order; leave it out to keep it. Fix the draft until lint exits 0. Its "Rule verdicts"
+   section is what each rule breaches today, and "Declared layer order against the
+   snapshot" counts the imports that run against the order.
+6. **Present the proposal** in this shape:
 
-   ```yaml
-   components:
-     - name: storage
-       match: ["storage/**"]
-     - name: notify
-       match: ["notify/**"]
-   rules:
-     - id: storage-sends-nothing
-       forbid: storage
-       to: notify
-       via: imports
-       because: "persistence must not decide what the buyer is told"
+   ```
+   Target: <repo>, snapshot of <date>, <N> modules
+   Already declared: <summary, or "nothing">
+
+   Proposed layer order, outermost first
+     <layer>   <paths>   <modules>
+     Today: <N> imports inward, <M> against: <the ones against>
+
+   Proposed rules
+     <id>: <the rule in plain words>
+       evidence: <regularity, or where the idea came from>
+       today: <holds | N breaches: the first few>
+
+   Questions only you can answer
+     1. Why does <id> exist? (my reading: <evidence>)
+     2. ...
+
+   Left out: <candidates you dropped, one line each, and why>
    ```
 
-   `match` takes an exact path, a `prefix/**` subtree or a `**/name` basename glob.
-   `via` is one of `calls`, `depends_on`, `implements`, `imports`. For the other rule
-   forms (`allow`, `protect`, `private`, `cap`, `require`, `forbid_cycles` and the rest),
-   read `enola help constraints` and the reference linked at the end.
-6. Validate: `enola constraints lint`. Repeat until it reports no problems and no
-   component or layer with 0 members.
-7. Regenerate the snapshot and show what the declaration says about today's code:
-   `query_insights(explainer='constraints')`, `query_insights(explainer='layers')`.
-   Explain the default mode, `ratchet`: breaches that already exist stay silent, and only
-   new ones fail. Declaring a rule does not break the build that declares it.
-8. Offer enforcement and stop. Show the command the user would put in CI, for example
-   `enola check --fail-on=layers,constraints`, and leave the decision to them.
+   Then ask the user to accept all of it, accept some by id, change it, or reject it.
+   Breaches a rule has today are accepted with it: under the default mode, `ratchet`,
+   they stay silent and only new ones fail.
+7. **Write what was accepted, and only that.**
+   - Merge it into the repository's declaration: `enola-intent.yaml`, created if it is
+     absent, or the `enola/constraints/` file for that domain if the repository already
+     splits rules that way. Keep everything already there, comments included.
+   - Replace every `PROPOSED:` reason with the user's words. A rule whose reason the
+     user did not give is not accepted yet.
+   - `cd <repo> && enola constraints lint --fail-empty .` must exit 0.
+   - Regenerate the snapshot and show what the declaration says about today's code:
+     `query_insights(explainer='constraints')`, `query_insights(explainer='layers')`.
+   - Offer enforcement and stop. Show the command the user would put in CI, for example
+     `enola check --fail-on=layers,constraints`, and leave the decision to them. Do not
+     commit unless asked.
 
-## Checking a draft without adopting it
+## Declaration shapes
 
-Until the user accepts it, a draft stays out of the repository. Lint it in place of the
-repository's declaration, with its selectors resolved against the snapshot:
+The layer order is the single most useful declaration: a declared order is graded at
+confidence 1.00, an inferred one caps at 0.80, so only a declared one can gate.
+Outermost first; each layer may depend on itself and on layers below:
 
-```sh
-enola constraints lint --declaration /tmp/draft.yaml .
+```yaml
+layers:
+  - {name: handlers, paths: ["app/handlers/**"]}
+  - {name: domain,   paths: ["app/domain/**"]}
+  - {name: storage,  paths: ["app/storage/**"]}
 ```
 
-Fix it until it passes and every component and layer has members. Nothing is written;
-files under `enola/constraints/` are still read beside the draft. Make sure a snapshot
-exists first (`generate_snapshot`), or lint can only validate, not resolve.
+A `paths` entry is an exact module path or a `prefix/**` subtree, nothing else. An order
+between packages belongs here, not in one `forbid` rule per pair of packages. Group by
+role, not by directory tree, and keep a comment beside each boundary saying why it is
+there.
+
+Components and rules say what layers cannot:
+
+```yaml
+components:
+  - name: storage
+    match: ["storage/**"]
+  - name: notify
+    match: ["notify/**"]
+rules:
+  - id: storage-sends-nothing
+    forbid: storage
+    to: notify
+    via: imports
+    because: "persistence must not decide what the buyer is told"
+```
+
+`match` takes an exact path, a `prefix/**` subtree or a `**/name` basename glob. `via` is
+one of `calls`, `depends_on`, `implements`, `imports`. For the other rule forms (`allow`,
+`protect`, `private`, `cap`, `require`, `forbid_cycles` and the rest), read
+`enola help constraints` and the reference linked at the end.
 
 ## Before editing code that rules govern
 

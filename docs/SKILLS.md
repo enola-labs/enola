@@ -53,6 +53,7 @@ with:
 | "Review the change on this branch against main" | review |
 | "What should be tested for this change? Give me a plan I can hand over" | test-plan |
 | "Set up architecture rules for this repository so they are checked from now on" | intent |
+| "Propose architecture rules for `../payments-api`" | intent |
 | "Remember this about `X` in our notes" / "Which of our notes still hold?" | memory |
 | "If I change the signature of `X`, what would I have to update?" | enola |
 
@@ -105,15 +106,21 @@ Helps you declare the architecture you mean to have, in `enola-intent.yaml`: a l
 order, components and rules, each with the reason it exists. [INTENT.md](INTENT.md) and
 [CONSTRAINTS.md](CONSTRAINTS.md) describe the vocabulary.
 
+To work on a repository other than the session's, name it: `/enola-intent
+@payments-api` snapshots that repository, reads what it already declares, works out what
+enola infers and what the code already almost follows, and brings back one proposal.
+Nothing is written until you accept it, and then only what you accepted.
+
 - **Needs** a snapshot, so it can show what the code does today and check that every
-  rule matches real code.
+  rule matches real code. It takes the snapshot itself.
 - **Will not** decide for you. Mined rules, recipe bindings and its own ideas are
   proposals; every rule needs a `because:` in your words; turning on enforcement
   (`--fail-on`, a `strict` rule, an exemption) is yours to do. Until you accept it, the
   draft stays out of the repository and is checked, laid over the declaration it
   would join, with `enola constraints lint --declaration draft.yaml .`.
-- **You get** what the code does now, a draft that lints clean with what each rule
-  covers, the questions only you can answer, and the CI command that would enforce it.
+- **You get** what is declared already, a proposal that lints clean with what each rule
+  covers and what it breaches today, the questions only you can answer, and, once you
+  accept, the declaration written and the CI command that would enforce it.
 
 ## memory
 
