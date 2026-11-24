@@ -96,6 +96,10 @@ type grounding struct {
 	// as dependencies fetched from elsewhere (a path dependency is not one).
 	crates    map[string]map[string]bool
 	cargoDeps map[string]map[string]bool
+	// goDeps, by repository, are the module paths its go.mod files require: a Go
+	// import the extractor classed as external lands outside when it is one of
+	// them or a package inside one.
+	goDeps map[string]map[string]bool
 	// sorted is each repository's files in order, built on first use by an
 	// import that landed on a whole package (packageFile).
 	sortedOnce sync.Once
@@ -104,7 +108,7 @@ type grounding struct {
 
 func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grounding {
 	g := &grounding{files: map[string]map[string]bool{}, prefixed: map[string]bool{}, names: map[string]bool{}, memberFiles: map[string]map[string]bool{},
-		crates: map[string]map[string]bool{}, cargoDeps: map[string]map[string]bool{}}
+		crates: map[string]map[string]bool{}, cargoDeps: map[string]map[string]bool{}, goDeps: map[string]map[string]bool{}}
 	pathDeps := map[string]map[string]bool{}
 	for name, ff := range memberFacts {
 		set := map[string]bool{}
@@ -131,6 +135,8 @@ func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grou
 			} else {
 				add(g.cargoDeps, f.Repo, name)
 			}
+		case f.Kind == facts.KindDependency && f.PropString("ecosystem") == facts.EcosystemGo && f.PropString("package_name") != "":
+			add(g.goDeps, f.Repo, f.PropString("package_name"))
 		}
 		if f.File == "" {
 			continue
@@ -166,17 +172,26 @@ func add(sets map[string]map[string]bool, key, name string) {
 // dependency: the standard library, the core and the allocator.
 var rustOutsideRoots = map[string]bool{"std": true, "core": true, "alloc": true}
 
-// outside reports a Rust import that resolves outside the repository: a path
-// rooted at std, core or alloc, or at a crate a Cargo.toml of the repository
+// outside reports an import that resolves outside the repository. For Rust: a
+// path rooted at std, core or alloc, or at a crate a Cargo.toml of the repository
 // declares as a dependency fetched from elsewhere, which the extractor already
-// classed as no crate of this repository. A law about a repository's parts is
-// about the code in it, and Cargo already refuses an import of a crate the
-// importing crate does not declare, so such an import is outside the law's
-// reach rather than a verdict not reached. A path dependency, a crate of the
-// repository, and a root written crate, self or super stay in reach, as does
-// anything else that resolves to nothing: an extraction gap must stay counted.
+// classed as no crate of this repository. For Go: a standard-library package
+// (cgo's "C" among them), or a package of a module a go.mod of the repository
+// requires. A law about a repository's parts is about the code in it, and the
+// toolchain already refuses an import of a module or crate the importer does not
+// declare, so such an import is outside the law's reach rather than a verdict not
+// reached. A path dependency, a crate of the repository, and a root written
+// crate, self or super stay in reach, as does anything else that resolves to
+// nothing: an extraction gap must stay counted.
 func (g *grounding) outside(rel facts.Relation, from facts.Fact) bool {
-	if rel.Kind != facts.RelImports || from.PropString("language") != "rust" {
+	if rel.Kind != facts.RelImports {
+		return false
+	}
+	switch from.PropString("language") {
+	case "rust":
+	case "go":
+		return g.goOutside(rel.Target, from)
+	default:
 		return false
 	}
 	root, _, _ := strings.Cut(rel.Target, "::")
@@ -185,6 +200,22 @@ func (g *grounding) outside(rel facts.Relation, from facts.Fact) bool {
 		return rustOutsideRoots[root]
 	case "external":
 		return g.cargoDeps[from.Repo][root]
+	}
+	return false
+}
+
+// goOutside is outside for a Go import: the extractor classed the target as
+// stdlib, or as external and it falls inside a module a go.mod requires.
+func (g *grounding) goOutside(target string, from facts.Fact) bool {
+	switch from.PropString("source") {
+	case "stdlib":
+		return true
+	case "external":
+		for module := range g.goDeps[from.Repo] {
+			if target == module || strings.HasPrefix(target, module+"/") {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -432,7 +463,7 @@ func outsideInsight(r rule, targets map[string]bool) facts.Insight {
 	}
 	return facts.Insight{
 		Title:       fmt.Sprintf("Constraint %s left %d %s target(s) outside the repository out of its reach", r.id, len(named), r.via),
-		Description: fmt.Sprintf("The rule walks %s edges, and %d of their targets resolve outside the repository: the standard library, or a crate a Cargo.toml here declares as a dependency fetched from elsewhere. A law about this repository's parts does not reach them, and Cargo already refuses an import the importing crate does not declare, so they are counted here and not read as a verdict not reached. Sample: %s. Because: %s", r.via, len(named), strings.Join(sample, ", "), r.because),
+		Description: fmt.Sprintf("The rule walks %s edges, and %d of their targets resolve outside the repository: the standard library, or a module or crate a go.mod or Cargo.toml here declares as a dependency fetched from elsewhere. A law about this repository's parts does not reach them, and the toolchain already refuses an import its importer does not declare, so they are counted here and not read as a verdict not reached. Sample: %s. Because: %s", r.via, len(named), strings.Join(sample, ", "), r.because),
 		Confidence:  groundSkipConfidence,
 		Evidence:    []facts.Evidence{{Fact: "rule: " + r.id, Detail: "declared in " + r.source}},
 		Actions:     []string{"Name the package in the rule if the law should reach it"},
