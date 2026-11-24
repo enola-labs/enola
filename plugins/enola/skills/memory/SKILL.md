@@ -56,11 +56,14 @@ Relevance comes from the graph, not from words in the memory.
 1. Name the task's symbols: `locate` on the lines you are about to change, or the
    symbols the user named.
 2. Widen by one or two hops: `impact_analysis(target=<symbol>, max_depth=2,
-   include_forward=true, output_mode='compact')` lists what depends on it and what it
-   depends on.
-3. The relevant memories are the ones whose stamp `name` is among those symbols. Rank
-   them: the symbol itself first, then one hop away, then two, then memories recorded
-   only by file path in the same files.
+   include_forward=true, output_mode='full', max_nodes=100)` lists what depends on it and
+   what it depends on, each node with its `name`, `file` and `depth`. Use `full`: the
+   compact and summary modes shorten Go names relative to the module, so they no longer
+   equal a stamp's `name`, and they cut long lists short. If `stats.truncated` is true,
+   say that the recall may be incomplete.
+3. The relevant memories are the ones whose stamp `name` equals a node's `name`, compared
+   exactly. Rank them: the symbol itself first, then one hop away, then two, then memories
+   recorded only by file path whose path is a node's `file`.
 4. Check only those stamps, as below. Checking every memory in the store on every task
    is cost without benefit.
 
