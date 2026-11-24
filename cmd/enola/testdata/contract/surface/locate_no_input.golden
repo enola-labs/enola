@@ -11,7 +11,8 @@ A location is file:line or file:start-end, with the file as the graph names
 it or any path ending in it. Each resolves to the innermost symbol holding it:
 its fact id (the id in facts.jsonl) and its body_hash, the version of its code.
 A language whose extractor measures no spans gets the nearest declaration
-above, and says so.
+above, and says so. --names resolves identifiers instead of lines: each to
+the declarations whose qualified name ends in it, ready to keep as stamps.
 
 By default it answers against the working tree, taking a snapshot when the one
 on disk is stale. --at answers against a recorded revision, and --facts against
@@ -30,6 +31,8 @@ Flags:
     	answer from a stored snapshot instead of the working tree: an output directory holding facts.jsonl, or the file itself
   -json
     	emit the result as JSON
+  -names string
+    	identifiers as code names them, comma-separated (nodeFor,Graph.nodeFor): report the declarations each names, with what a stamp keeps
   -side string
     	which side of the diff the graph is of: new (the tree with the change) or old (its parent) (default "new")
   -stamps string

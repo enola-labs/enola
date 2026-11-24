@@ -63,21 +63,20 @@ name code by symbol, not by line, so nothing else ever stamps them.
 2. List the memories about this repository's code: the ones naming its functions,
    types, methods, files or directories. Skip memories about preferences, people, tools,
    CLI flags, property names and other repositories.
-3. Resolve names per memory, not per name: two memories can mean different symbols by
-   the same name. For each name, `query_facts(kind='symbol', name=<name>,
-   output_mode='names')`, sent in parallel; a qualified form (`Graph.nodeFor`) or a
-   `file_prefix` cuts a short, common name down. The match is a substring and ignores
-   case, so keep only results whose name equals `<name>` or ends in `.<name>`, case
-   included. With several left, keep the one the memory's text points to (its package,
+3. Resolve the names with `locate(names=[...])`, every name of every memory in one call
+   (`enola locate --names a,b,c --json` on the command line). A name matches a symbol
+   whose qualified name ends in it, case included: `nodeFor` finds `Graph.nodeFor` and
+   not `nodeForID`, and `Graph.nodeFor` narrows to that method. Each name comes back
+   `one`, `several` or `none`, and every symbol in it already carries the stamp fields,
+   with its declaration line cited. Do not send test functions, constants or
+   package-level variables: the graph holds no symbol for them.
+4. Decide per memory, not per name: two memories can mean different symbols by the same
+   name. For `several`, keep the symbol the memory's text points to (its package,
    language or file); if the text does not settle it, stamp none of them and list the
-   name as ambiguous. Do not look up test functions, constants or package-level
-   variables: the graph holds no symbol for them. A file or directory the memory is
-   about is recorded by path.
-4. Stamp the resolved `file:line`s with `locate(locations=[...])`, about 25 per call so
-   each result stays readable, and store the stamps as in
-   [Saving a memory](#saving-a-memory). In frontmatter, an `anchors:` list with one
-   entry per stamp, `at: <file:line>` first, keeps it readable; a path-only entry has
-   `at` and `file`. Adding stamps changes no memory's content, so it needs no
+   name as ambiguous. Store the stamps as in [Saving a memory](#saving-a-memory). In
+   frontmatter, an `anchors:` list with one entry per stamp, `at: <file:line>` first,
+   keeps it readable. A file or directory the memory is about is recorded by path, as an
+   entry with `at` and `file`. Adding stamps changes no memory's content, so it needs no
    confirmation.
 5. Report counts: memories stamped, names resolved, and names not found, listed under
    their memory. Keep two lists: names that were never symbols (tests, constants,

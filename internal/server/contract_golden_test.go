@@ -411,7 +411,9 @@ func TestContract_EveryToolIsPinned(t *testing.T) {
 // refuses to let it drift, so a new explainer costs its literal and nothing else can pay.
 // Raised from 30,600 for touched's repo, the label a served multi-repo consumer has where
 // it has no filesystem path to name; touched's own text was cut first.
-const toolCatalogueBudget = 30_650
+// Raised from 30,650 for locate's names, which resolves a memory store's identifiers in
+// one call instead of one query_facts each; the parameter carries no text of its own.
+const toolCatalogueBudget = 30_720
 
 func TestToolCatalogue_SizeBudget(t *testing.T) {
 	s := startInMemory(t)
