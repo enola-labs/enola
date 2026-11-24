@@ -107,3 +107,40 @@ func TestConstraintsLintDeclarationDraftOverlays(t *testing.T) {
 		t.Error("linting a draft changed the repository's declaration")
 	}
 }
+
+// Lint says what each rule would report today, so a proposal shows what adopting it
+// accepts: the breaches it would carry, and which rules hold.
+func TestConstraintsLintReportsRuleVerdicts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	bin := buildEnola(t)
+	repo, home := draftRepo(t, bin)
+	draft := filepath.Join(t.TempDir(), "draft.yaml")
+	if err := os.WriteFile(draft, []byte("layers:\n  - {name: web, paths: [\"web/**\"]}\n  - {name: storage, paths: [\"storage/**\"]}\n"+
+		"components:\n  - {name: storage, match: [\"storage/**\"]}\n  - {name: web, match: [\"web/**\"]}\n  - {name: ghost, match: [\"nowhere/**\"]}\n"+
+		"rules:\n"+
+		"  - {id: storage-up, forbid: storage, to: web, via: imports, because: \"storage serves web\"}\n"+
+		"  - {id: web-no-storage, forbid: web, to: storage, via: imports, because: \"test\"}\n"+
+		"  - {id: ghost-rule, forbid: ghost, to: web, via: imports, because: \"test\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := runEnola(t, bin, repo, home, "constraints", "lint", "--declaration", draft, repo)
+	if res.code != 0 {
+		t.Fatalf("exit %d\n%s%s", res.code, res.stdout, res.stderr)
+	}
+	for _, want := range []string{
+		"Rule verdicts against the snapshot",
+		"web-no-storage           1 breach [ratchet]",
+		"storage-up               holds [ratchet]",
+		"ghost-rule               holds vacuously: ghost matches nothing",
+		"Declared layer order against the snapshot: 1 import(s) inward, 0 against.",
+	} {
+		if !strings.Contains(res.stdout, want) {
+			t.Errorf("output lacks %q:\n%s", want, res.stdout)
+		}
+	}
+	if !strings.Contains(res.stdout, "example.com/d/web") || !strings.Contains(res.stdout, "example.com/d/storage") {
+		t.Errorf("the breach does not name its edge:\n%s", res.stdout)
+	}
+}

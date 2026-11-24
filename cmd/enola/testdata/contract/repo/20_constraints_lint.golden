@@ -22,6 +22,10 @@ Component resolution against the snapshot at <TMP>/go_sample/.enola:
   pkg-b                    2 member(s)
                              match pkg/b/**
 
+Rule verdicts against the snapshot (every breach today, before the ratchet):
+  a-avoids-b               1 breach [ratchet]
+                             example.com/gosample/pkg/a -> example.com/gosample/pkg/b -> example.com/gosample/pkg/b via imports
+
 OK — every declaration is valid.
 --- stderr
 enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

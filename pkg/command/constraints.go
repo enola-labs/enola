@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -108,7 +109,9 @@ func (r *Runner) ConstraintsLint(args []string) {
 		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" constraints lint [--declaration FILE] [repo_path|config_path]\n\n"+
 			"Validate the declared constraint vocabulary (inline in "+intent.RepoFileName+" and\n"+
 			"per-domain files under "+intent.ConstraintsDirName+"/) and resolve each component and\n"+
-			"layer against the current snapshot, if one exists (else validation only).\n\n"+
+			"layer against the current snapshot, if one exists (else validation only). With a\n"+
+			"snapshot it also reports what each rule and the layer order raise today: every\n"+
+			"breach, before the ratchet decides which are new. Breaches are not lint problems.\n\n"+
 			"Exit codes:\n"+
 			"  0  every declaration is valid\n"+
 			"  1  validation problems were reported\n"+
@@ -482,7 +485,109 @@ func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, repoPaths []string
 		}
 	}
 	reportLayerResolution(store)
+	reportLayerVerdict(store)
+	reportRuleVerdicts(store)
 	return len(unevaluableList)
+}
+
+// verdictSamples is how many breaches lint names per rule before counting the rest.
+const verdictSamples = 3
+
+// reportRuleVerdicts prints what each declared rule reports against the snapshot
+// today. Resolution says what a selector selects; this says what the rule built on
+// it would raise, which is the part of a proposal a person has to decide on. A
+// rule with breaches is not a lint problem: under the default ratchet mode they
+// are tolerated as they stand, and the count is what adopting the rule accepts.
+func reportRuleVerdicts(store *facts.Store) {
+	verdicts := constraints.RuleVerdicts(store)
+	if len(verdicts) == 0 {
+		return
+	}
+	empty := map[string]bool{}
+	for _, c := range constraints.MemberCounts(store) {
+		if c.Members == 0 {
+			empty[c.Component] = true
+		}
+	}
+	fmt.Printf("\nRule verdicts against the snapshot (every breach today, before the ratchet):\n")
+	for _, v := range verdicts {
+		mode := v.Mode
+		if mode == "" {
+			mode = "ratchet"
+		}
+		var state string
+		switch {
+		case v.NotComputed != "":
+			state = "not computed: " + v.NotComputed
+		case len(v.Breaches) > 0:
+			state = fmt.Sprintf("%d breaches", len(v.Breaches))
+			if len(v.Breaches) == 1 {
+				state = "1 breach"
+			}
+		default:
+			state = "holds"
+			var vacuous []string
+			for _, c := range v.Components {
+				if empty[c] {
+					vacuous = append(vacuous, c)
+				}
+			}
+			if len(vacuous) > 0 {
+				state = "holds vacuously: " + strings.Join(vacuous, ", ") + " matches nothing"
+			}
+		}
+		if v.Exempted > 0 {
+			state += fmt.Sprintf(" (%d exempted)", v.Exempted)
+		}
+		fmt.Printf("  %-24s %s [%s]\n", v.ID, state, mode)
+		for i, b := range v.Breaches {
+			if i == verdictSamples {
+				fmt.Printf("  %-24s   ... and %d more\n", "", len(v.Breaches)-verdictSamples)
+				break
+			}
+			fmt.Printf("  %-24s   %s\n", "", constraints.WitnessFromTitle(b.Title))
+		}
+	}
+}
+
+// reportLayerVerdict prints what the declared layer order reports today: how
+// many imports run with it and against it, and the first few that run against.
+func reportLayerVerdict(store *facts.Store) {
+	if len(layers.MemberCounts(store)) == 0 {
+		return
+	}
+	found, err := layers.New().Explain(context.Background(), store)
+	if err != nil {
+		return
+	}
+	var against []string
+	for _, in := range found {
+		switch {
+		case in.Informational && strings.HasPrefix(in.Description, "Declared layer order"):
+			fmt.Printf("\nDeclared layer order against the snapshot: %v import(s) inward, %v against.\n",
+				in.Metrics[layers.MetricImportsInward], in.Metrics[layers.MetricImportsAgainst])
+		case strings.HasPrefix(in.Title, "Layer violation: ") && in.Confidence == 1.0:
+			detail := in.Title
+			if len(in.Evidence) > 0 {
+				// A layer violation's first evidence is the importing file and what it
+				// imports; Fact is empty on it, File is not.
+				e := in.Evidence[0]
+				where := e.Fact
+				if e.File != "" {
+					where = e.File
+				}
+				detail = strings.TrimPrefix(in.Title, "Layer violation: ") + ": " + where + " (" + e.Detail + ")"
+			}
+			against = append(against, detail)
+		}
+	}
+	for i, a := range against {
+		if i == verdictSamples {
+			fmt.Printf("  ... and %d more\n", len(against)-verdictSamples)
+			break
+		}
+		fmt.Printf("  %s\n", a)
+	}
 }
 
 // reportLayerResolution prints what each declared layer selects, beside the

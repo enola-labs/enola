@@ -1848,7 +1848,13 @@ component and rule counts, plus its `use_recipe:` instantiations —
 validation problem with its file context rather than dying on the first, and —
 when a snapshot exists on disk — resolves each component against it so
 you see what a selector actually selects before a rule built on it
-verdicts anything. No snapshot degrades to a named validation-only
+verdicts anything. With a snapshot it also reports what each rule and
+the declared layer order raise today: a rule's breach count with the
+first few witnesses, `holds`, or `holds vacuously` when a component it
+reads selects nothing, and the layer order's imports inward and against.
+These are every breach as it stands, before the ratchet decides which
+are new, so they are what adopting the declaration accepts; they are
+not lint problems. No snapshot degrades to a named validation-only
 mode; nothing is generated or written. Exit `1` on validation
 problems, `0` otherwise.
 
