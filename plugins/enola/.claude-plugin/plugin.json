@@ -2,7 +2,7 @@
   "name": "enola",
   "displayName": "Enola",
   "description": "Architecture context and structural regression testing for coding agents. Requires the Enola CLI: install it first, then run /enola:setup.",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "author": {
     "name": "Enola Labs",
     "url": "https://github.com/enola-labs/enola"
