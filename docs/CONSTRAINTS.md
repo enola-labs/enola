@@ -1968,7 +1968,10 @@ TypeScript extractor qualifies a symbol with its module path
 (`src/services.ApiError`) and names members through their class
 (`src/commands/repo.RepoClone.description`); the scaffold cuts both
 down to the declaration the rule can see, and a pattern that is only
-the module path is a tautology the miner no longer ranks. Every
+the module path is a tautology the miner no longer ranks. The same
+holds for Go, whose names are import paths: a pattern that is the
+module path, the package's own import path, or a leading part of
+either is satisfied by construction and counted as tautological. Every
 candidate the scaffolder leaves is listed with the reason it stays
 a constraint proposal. Nothing is written to the repository's plugin
 and no ESLint configuration is touched: the scaffold is a starting

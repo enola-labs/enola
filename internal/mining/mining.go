@@ -159,6 +159,9 @@ type scope struct {
 	members    map[string][]member
 	allFacts   map[string][]member
 	suppressed map[string]*SuppressedCount
+	// roots are the name prefixes the scope's names carry by construction, see
+	// qualifierRoots.
+	roots map[string]bool
 }
 
 func newScope(ff []facts.Fact, service string, cfg Config, suppressed map[string]*SuppressedCount) *scope {
@@ -168,6 +171,7 @@ func newScope(ff []facts.Fact, service string, cfg Config, suppressed map[string
 		members:    map[string][]member{},
 		allFacts:   map[string][]member{},
 		suppressed: suppressed,
+		roots:      qualifierRoots(ff),
 	}
 	mined := map[string]bool{facts.KindDependency: true}
 	for _, kind := range minedKindOrder {
