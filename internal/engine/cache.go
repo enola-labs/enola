@@ -4018,7 +4018,39 @@ import (
 // reference fact what it constructs (`new X`), calls statically or as a function,
 // and names; a method called on an object of unknown type there is not recorded,
 // and a function call only when the repository declares the function.
-const cacheVersion = "v715"
+// v716: C++: a local or value member of a class type, `new T`, std::make_unique and
+// make_shared, and a project factory template (one whose return statement news its
+// type parameter or passes it to another factory) record that they instantiate the
+// class, bound only through the type written and the caller's include visibility.
+// v717: C++: a definition with no return type whose name is a macro the repository
+// defines (`EXT_ENTRY(name, loader) { … }`) is an entry point (root=macro): the
+// function it makes is named by token pasting and found by symbol lookup.
+// v718: Swift: a static path through a lower-case nested namespace
+// (`Config.lens.features`) names it where that type is declared; a conformance
+// written through its owner (`: Dashboard.Model`) names the nested protocol; a name
+// led by an underscore (`_CodingKey`) is a type name; a conformance to a protocol
+// the repository declares names the nested types witnessing its associated types,
+// which a protocol now lists in associated_types.
+// v719: PHP: a function or method names each class its parameters are declared
+// as, when the repository declares the class; a .neon file names the classes it
+// registers as services, and `artisan db:seed --class=` in a composer or shell
+// script names the seeder it runs.
+// v720: PHP: a Nextcloud app's appinfo/routes.php entries and #[ApiRoute] and
+// #[FrontpageRoute] action attributes are routes served by their controller action,
+// and appinfo/info.xml names the classes it registers.
+// v721: not used: assigned to a change that did not land; extraction is as at v720.
+// v722: Kotlin: an annotation a test applies is a test reference to its type when
+// the name resolves, through the test file's imports, package or star imports, to a
+// type production code declares; the harness's and libraries' annotations still
+// record nothing.
+// v723: C and C++ files under test/, tests/ and testing/ are ignored and recovered
+// as test refs in the production extraction (CppExtractor.ExtractWithTests): the
+// test files resolve against the production files' pass-one facts, as when they
+// were indexed with them, and the production facts resolve without the tests.
+// v724: C and C++: a bare name found by its unique short name binds to a member
+// (`Type::member`) only from inside a C++ member function. From C, where a bare
+// name is a parameter or local, and from a C++ free function, it binds nothing.
+const cacheVersion = "v724"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

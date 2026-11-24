@@ -147,13 +147,23 @@ func (e *CppExtractor) DetectFiles(_ string, files []string) (bool, error) {
 //   - resolveIncludeDependencies rewrites quoted #include targets to module dirs.
 //   - Module facts are emitted per directory.
 func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []string) ([]facts.Fact, error) {
+	return e.extract(ctx, repoPath, files, nil)
+}
+
+// ExtractWithTests implements plugin.TestAwareExtractor: Extract over files, plus
+// one KindTestRef fact per test file (see testpass.go).
+func (e *CppExtractor) ExtractWithTests(ctx context.Context, repoPath string, files, testFiles []string) ([]facts.Fact, error) {
+	return e.extract(ctx, repoPath, files, testFiles)
+}
+
+func (e *CppExtractor) extract(ctx context.Context, repoPath string, files, testFiles []string) ([]facts.Fact, error) {
 	var allFacts []facts.Fact
 
 	// Per-directory grammar attribution for bare .h headers: a header is C++ only
 	// when its own directory subtree contains C++ sources. This localises a handful
 	// of stray .cpp files (e.g. tools/ in a kernel tree) instead of flipping every
 	// .h in the repo to the C++ grammar.
-	hdrLang := buildHeaderLangIndex(files)
+	hdrLang := buildHeaderLangIndex(withTests(files, testFiles))
 
 	modules := make(map[string]bool)
 	dirLang := make(map[string]string)              // dir -> module language ("c"/"cpp")
@@ -192,6 +202,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 			macros[name] = def
 		}
 	}
+	tests := newTestPass(ctx, repoPath, testFiles, hdrLang, cppFiles, perFileMacros)
 
 	// extractFileAST is pure; parse in parallel. The type index below is then
 	// rebuilt by iterating the per-file results in file order, so it (and the order
@@ -269,6 +280,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// arguments, and file-scope macro-call arguments): keep only those that name a
 	// real function, rewriting them to call edges; drop the rest so ordinary data
 	// identifiers create no edge.
+	testRefs := tests.resolve(ctx, repoPath, allFacts)
 	resolveFuncPtrRefs(allFacts, funcNames)
 
 	// Merge header method declarations with source definitions.
@@ -282,6 +294,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	visibility := buildIncludeVisibility(allFacts, headerIndex, headerDirs)
 	carryOverride(allFacts, visibility)
 	resolution := canonicalizeTargets(allFacts, types, indexFunctionNames(allFacts), visibility)
+	resolveConstructions(allFacts, types, visibility)
 	log.Printf("[cpp-extractor] call resolution: total=%d exact=%d type_scoped=%d unique_short=%d qualified_suffix=%d enclosing_scope=%d receiver_resolved=%d receiver_rejected=%d rejected_no_include_path=%d unresolved=%d",
 		resolution.total, resolution.exact, resolution.typeScoped, resolution.uniqueShort, resolution.qualifiedSuffix, resolution.enclosingScope, resolution.receiverResolved, resolution.receiverRejected, resolution.noIncludePath, resolution.unresolved)
 
@@ -294,7 +307,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// Resolve quoted #include targets to module dirs.
 	allFacts = resolveIncludeDependencies(allFacts, headerIndex)
 
-	return allFacts, nil
+	return append(allFacts, testRefs...), nil
 }
 
 // dedupeSymbols merges duplicate symbol facts that share a canonical name — most
@@ -632,7 +645,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 							stats.enclosingScope++
 							resolved = true
 						} else {
-							if canonical := functions.short[candidate]; canonical != "" && (!bareValue || namesFreeOrOwnMember(canonical, &allFacts[i], source, callable, methods)) {
+							if canonical := functions.short[candidate]; canonical != "" && bareNameMayBind(canonical, &allFacts[i], bareValue, source, callable, methods, types) {
 								if visibility.allows(source, canonical) {
 									r.Target = canonical
 									stats.uniqueShort++
@@ -673,6 +686,35 @@ func containsRelation(rels []facts.Relation, r facts.Relation) bool {
 		}
 	}
 	return false
+}
+
+// bareNameMayBind reports whether a bare name the caller writes may be the
+// function canonical, found by its unique short name. A free function may be, and
+// so may a constructor (`T(x)` of a lower-case class constructs it). A member of
+// a class or struct may not from C, where a bare name never names a struct member
+// (a function-pointer member is called through its object, and a bare `cmd(…)` is
+// a parameter or local), nor from outside any member function in C++. A member
+// function's bare call may reach a member of its class or a base; passed as a
+// value, only of its own class (namesFreeOrOwnMember).
+func bareNameMayBind(canonical string, caller *facts.Fact, bareValue bool, source string, callable, methods map[string]bool, types typeIndex) bool {
+	if bareValue {
+		return namesFreeOrOwnMember(canonical, caller, source, callable, methods)
+	}
+	if !methods[canonical] || isConstructorName(canonical) || !memberOfKnownType(canonical, types) {
+		return true
+	}
+	return caller.PropString("language") != langC && caller.PropString("symbol_kind") == facts.SymbolMethod
+}
+
+// memberOfKnownType reports whether canonical's scope is a class, struct or enum
+// the repository declares; a "member" of anything else is a misread free function.
+func memberOfKnownType(canonical string, types typeIndex) bool {
+	scope, _, ok := cutLast(canonical[strings.Index(canonical, ".")+1:], "::")
+	if !ok {
+		return false
+	}
+	owner, _, _ := strings.Cut(lastScopeComponent(scope), "<")
+	return len(types.dirs[owner]) > 0
 }
 
 // namesFreeOrOwnMember reports whether a bare name passed as a value may name

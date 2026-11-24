@@ -139,6 +139,10 @@ var swiftAssociatedTypes = map[string]map[string]bool{
 	"FormatStyle":                methodSet("FormatInput", "FormatOutput"),
 	"ParseableFormatStyle":       methodSet("FormatInput", "FormatOutput", "Strategy"),
 	"Reducer":                    methodSet("State", "Action"),
+	// MultipartKit: the part body a type converts to and from.
+	"MultipartPartConvertible": methodSet("Body"),
+	"MultipartPartEncodable":   methodSet("Body"),
+	"MultipartPartDecodable":   methodSet("Body"),
 }
 
 // swiftDelegateInherits adds the stems of the delegate protocols a protocol

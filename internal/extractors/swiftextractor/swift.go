@@ -210,8 +210,10 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 
 	// Canonicalise bare edge targets to "<dir>.<Type>" so reverse traversal
 	// (impact_analysis) connects dependents to their targets.
-	canonicalizeTargets(allFacts, index, newSwiftTypeVisibility(allFacts, resolver.targetIdentity, moduleForFile),
-		newSwiftNamedTypes(allFacts, moduleForFile))
+	vis := newSwiftTypeVisibility(allFacts, resolver.targetIdentity, moduleForFile)
+	named := newSwiftNamedTypes(allFacts, moduleForFile)
+	canonicalizeTargets(allFacts, index, vis, named)
+	nameAssociatedTypeWitnesses(allFacts, vis, named)
 	markSynthesizedCodingKeys(allFacts)
 
 	// Bind the walker's tentative bare-short-name member-call edges to concrete
@@ -383,6 +385,9 @@ func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes, vis *swiftT
 				rels = append(rels, r)
 				continue
 			}
+			if r.Kind == facts.RelCalls {
+				r = underscoreTypeCall(&allFacts[i], r, vis, named)
+			}
 			switch r.Kind {
 			case facts.RelInstantiates, facts.RelInjects, facts.RelCalls, facts.RelDependsOn:
 				if strings.Contains(r.Target, ".") {
@@ -400,6 +405,20 @@ func canonicalizeTargets(allFacts []facts.Fact, index *swiftIndexes, vis *swiftT
 		}
 		allFacts[i].Relations = rels
 	}
+}
+
+// underscoreTypeCall returns the call r of a name led by an underscore
+// (`<dir>._Encoder`, as resolveCall writes `_Encoder()`) as the construction of the
+// type of that name the scope sees, when there is one; else r unchanged.
+func underscoreTypeCall(from *facts.Fact, r facts.Relation, vis *swiftTypeVisibility, named *swiftNamedTypes) facts.Relation {
+	short := lastDotComponent(r.Target)
+	if !strings.HasPrefix(short, "_") || !isTypeName(short) || r.Target != vis.moduleOf(from.File)+"."+short {
+		return r
+	}
+	if t := named.resolve(from, short, vis); t != "" {
+		return facts.Relation{Kind: facts.RelInstantiates, Target: t}
+	}
+	return r
 }
 
 // resolveMethodCalls binds the walker's tentative bare-short-name RelCalls edges

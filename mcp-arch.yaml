@@ -272,6 +272,23 @@ ignore:
   # under src/. Kept in sync with config.Default(), which also lists them as test globs.
   - "**/tests/**/*.rs"
   - "**/benches/**/*.rs"
+  # C and C++ tests: test/, tests/ and testing/ trees. Kept in sync with
+  # config.Default(), which also lists them as test globs.
+  - "**/test/**/*.[ch]"
+  - "**/test/**/*.cc"
+  - "**/test/**/*.hh"
+  - "**/test/**/*.[ch]pp"
+  - "**/test/**/*.[ch]xx"
+  - "**/tests/**/*.[ch]"
+  - "**/tests/**/*.cc"
+  - "**/tests/**/*.hh"
+  - "**/tests/**/*.[ch]pp"
+  - "**/tests/**/*.[ch]xx"
+  - "**/testing/**/*.[ch]"
+  - "**/testing/**/*.cc"
+  - "**/testing/**/*.hh"
+  - "**/testing/**/*.[ch]pp"
+  - "**/testing/**/*.[ch]xx"
   # Ruby / Rails
   - "**/spec/**/*_spec.rb"
   - "**/test/**/*_test.rb"

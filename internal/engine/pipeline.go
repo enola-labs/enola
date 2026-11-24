@@ -342,7 +342,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	r.preCount = e.store.Count()
 	r.progress = newExtractionProgress(r.ctx, r.absRepo, r.files, stagesAfterExtraction(r.deferred))
 	var err error
-	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.srcRoot, r.files, r.allNames, r.hashes, cache, r.progress)
+	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.srcRoot, r.files, r.testFiles, r.allNames, r.hashes, cache, r.progress)
 	if err != nil {
 		return fmt.Errorf("extraction: %w", err)
 	}

@@ -533,6 +533,29 @@ func Default() *Config {
 			// TestGlobs below.
 			"**/tests/**/*.rs",
 			"**/benches/**/*.rs",
+			// C and C++. No tool reserves a directory, so only the names the corpus
+			// keeps its tests under: CMake projects' test/ and tests/ (unit tests,
+			// their helpers and test extensions), the kernel's KUnit tests/ beside the
+			// code they test, and testing/ (kernel selftests, an engine's test
+			// harness). Every C or C++ file under these three names across the corpus
+			// is a test, a harness or a fixture. benchmark/ is not a test tree.
+			// Recovered as test refs by CppExtractor.ExtractWithTests. Keep in sync
+			// with TestGlobs below.
+			"**/test/**/*.[ch]",
+			"**/test/**/*.cc",
+			"**/test/**/*.hh",
+			"**/test/**/*.[ch]pp",
+			"**/test/**/*.[ch]xx",
+			"**/tests/**/*.[ch]",
+			"**/tests/**/*.cc",
+			"**/tests/**/*.hh",
+			"**/tests/**/*.[ch]pp",
+			"**/tests/**/*.[ch]xx",
+			"**/testing/**/*.[ch]",
+			"**/testing/**/*.cc",
+			"**/testing/**/*.hh",
+			"**/testing/**/*.[ch]pp",
+			"**/testing/**/*.[ch]xx",
 			// Dart code generation output. This is not tidiness: build_runner output is
 			// the MAJORITY of files in a real Flutter project, and none of it is code a
 			// human navigates. One @freezed model yields a .freezed.dart of hundreds of
@@ -718,6 +741,22 @@ func Default() *Config {
 			// Rust. Live: RustExtractor implements TestRefExtractor.
 			"**/tests/**/*.rs",
 			"**/benches/**/*.rs",
+			// C and C++. Live: CppExtractor implements TestAwareExtractor.
+			"**/test/**/*.[ch]",
+			"**/test/**/*.cc",
+			"**/test/**/*.hh",
+			"**/test/**/*.[ch]pp",
+			"**/test/**/*.[ch]xx",
+			"**/tests/**/*.[ch]",
+			"**/tests/**/*.cc",
+			"**/tests/**/*.hh",
+			"**/tests/**/*.[ch]pp",
+			"**/tests/**/*.[ch]xx",
+			"**/testing/**/*.[ch]",
+			"**/testing/**/*.cc",
+			"**/testing/**/*.hh",
+			"**/testing/**/*.[ch]pp",
+			"**/testing/**/*.[ch]xx",
 		},
 		Extractors: []string{"asyncapi", "cpp", "dart", "dotnet", "go", "grpc", "java", "kotlin", "openapi", "php", "python", "typescript", "swift", "ruby", "rust", "scala", "hcl", "ansible", "kubernetes", "helm", "vespa", "dbt", "lookml", "avro", "rego", "mdintent", "manifests"},
 		Explainers: append([]string(nil), KnownExplainers...),

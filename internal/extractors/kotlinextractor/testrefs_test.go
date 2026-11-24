@@ -16,7 +16,7 @@ var _ plugin.TestRefExtractor = (*KotlinExtractor)(nil)
 func kotlinTestRefTargets(t *testing.T, relFile, src string) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
-	for _, f := range testRefsFromFile([]byte(src), relFile) {
+	for _, f := range testRefsFromFile([]byte(src), relFile, nil) {
 		for _, r := range f.Relations {
 			out[r.Target] = true
 		}

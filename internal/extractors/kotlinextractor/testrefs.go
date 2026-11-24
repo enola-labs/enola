@@ -31,9 +31,10 @@ import (
 // That is the shape the main walker already gives a navigation call, and the one
 // the Scala, C# and Ruby passes emit.
 //
-// The engine scopes testFiles to .kt files through plugin.FileOwner. prodFiles is
-// unused: nothing here decides whether a referenced module exists.
-func (e *KotlinExtractor) ExtractTestRefs(ctx context.Context, repoPath string, testFiles, _ []string) ([]facts.Fact, error) {
+// The engine scopes testFiles to .kt files through plugin.FileOwner. prodFiles
+// decides one thing: whether an annotation a test applies names a production type
+// (kotlinProdTypes), since an annotation is otherwise the harness (@Test, @Before).
+func (e *KotlinExtractor) ExtractTestRefs(ctx context.Context, repoPath string, testFiles, prodFiles []string) ([]facts.Fact, error) {
 	var ktFiles []string
 	for _, relFile := range testFiles {
 		if isKotlinFile(relFile) {
@@ -43,6 +44,7 @@ func (e *KotlinExtractor) ExtractTestRefs(ctx context.Context, repoPath string, 
 	if len(ktFiles) == 0 {
 		return nil, nil
 	}
+	prodTypes := kotlinProdTypes(ctx, repoPath, prodFiles)
 
 	perFile := parallel.MapFiles(ctx, ktFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
@@ -50,7 +52,7 @@ func (e *KotlinExtractor) ExtractTestRefs(ctx context.Context, repoPath string, 
 			log.Printf("[kotlin-extractor] error reading test file %s: %v", relFile, err)
 			return nil
 		}
-		return testRefsFromFile(src, relFile)
+		return testRefsFromFile(src, relFile, prodTypes)
 	})
 
 	var out []facts.Fact
@@ -139,7 +141,7 @@ var kotlinTestHarnessNames = map[string]bool{
 // fact. The fact Name is the file path, which never equals a symbol name, so the
 // fact introduces no self-reference: the contract the orphan detector's fold
 // relies on.
-func testRefsFromFile(src []byte, relFile string) []facts.Fact {
+func testRefsFromFile(src []byte, relFile string, prodTypes map[string]bool) []facts.Fact {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(kotlin.Language())); err != nil {
@@ -156,7 +158,9 @@ func testRefsFromFile(src []byte, relFile string) []facts.Fact {
 
 	root := tree.RootNode()
 	c := &kotlinTestRefCollector{src: src, seen: map[string]bool{},
-		declared: map[string]bool{}, declaredTypes: map[string]bool{}}
+		declared: map[string]bool{}, declaredTypes: map[string]bool{},
+		prodTypes: prodTypes, imports: map[string]string{}}
+	c.collectHeader(root)
 	c.collectDeclared(root)
 	c.walk(root)
 	if len(c.seen) == 0 {
@@ -199,6 +203,12 @@ type kotlinTestRefCollector struct {
 	// a type can be a receiver: in `histogram.setPercentiles(...)` inside a test
 	// function named histogram(), the receiver is a local, not the function.
 	declaredTypes map[string]bool
+	// The file's package and imports, and the production types they may name: an
+	// annotation counts only when its name resolves to one of those (addAnnotation).
+	prodTypes map[string]bool
+	pkg       string
+	imports   map[string]string
+	wildcards []string
 }
 
 func (c *kotlinTestRefCollector) collectDeclared(n *sitter.Node) {
@@ -244,9 +254,13 @@ func (c *kotlinTestRefCollector) walk(n *sitter.Node) {
 		return
 	}
 	switch kindOf(n) {
-	case "package_header", "import", "annotation":
-		// An import alone is not a use, and a test's annotations (@Test, @Before,
-		// @RunWith) are the harness.
+	case "package_header", "import":
+		// An import alone is not a use.
+		return
+	case "annotation":
+		// Mostly the harness (@Test, @Before, @RunWith); a repository's own
+		// annotation type is a use. The arguments are not walked.
+		c.addAnnotation(n)
 		return
 	case "call_expression":
 		c.addCallee(kotlinUnprefixed(firstNamedChild(n)))
