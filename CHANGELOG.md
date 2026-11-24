@@ -7,6 +7,66 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.5.4 — 2026-11-24
+
+**Agent skills for review, test plans, architecture rules and code memory, warehouse lineage across repositories, and test references recovered in eight languages**
+
+- Skills: `enola install` writes four task skills for every agent (`.claude/skills` and
+  the shared `.agents/skills`): review a branch or pull request, plan what to test, draft
+  and lint architecture rules, and anchor memories to the symbols they describe. The
+  enola skill is slimmed to routing questions to tools. `enola doctor` reports whether
+  each installed skill is current, and the Claude Code plugin version now follows the
+  release, so an installed plugin updates. [docs/SKILLS.md](docs/SKILLS.md) covers each.
+- `enola check --base <ref>` grades a branch against where it left a ref: the merge-base
+  is exported, snapshotted and removed, writing nothing. `baseline show` gives the
+  verdict check would reach and exits 3 when check would decline; doctor reports a
+  missing baseline instead of calling it comparable.
+- Constraints: `lint --declaration` lays a draft over the repository's declaration,
+  reports what each rule and the layer order raise today, and `--fail-empty` fails on a
+  component or layer that selects nothing. A declaration passed as a config is refused.
+  Go stdlib and go.mod imports are outside a rule's reach.
+- `locate` resolves names to stamps in one call, and a single cited line stays inside
+  its symbol, so a rewrite no longer reads as `cited: changed`.
+- Warehouse lineage: a binder links each dbt source to the dbt model, Avro record, Kafka
+  topic or CDC'd service table it names, across repositories. dbt exposures are read,
+  notebooks name the tables their SQL reads, MySQL `structure.sql` dumps are parsed, and
+  Kubernetes Applications list the chart parts their values enable. A walk from a data
+  definition passes through tables along `depends_on`; walks from code are unchanged.
+- Impact summary counts the whole walk by depth, kind, type, repository and area (up to
+  sixty areas), not the first `max_nodes` dependents, and names the first few of each
+  type: dbt model, exposure, Looker view, table, notebook.
+- Test references: Kotlin, Swift, PHP, Java, Rust, C and C++ test trees are ignored for
+  the graph and their references recovered as `test_ref` facts, so test code no longer
+  shapes the architecture but still credits what it reaches. Android per-variant source
+  sets, JavaScript under `test/` and SPM test targets are test code.
+- Dead code, by language: Swift binds types through scope and module visibility, reads
+  protocol witnesses, selectors, Interface Builder attributes and `@main`, and exports
+  only public or open declarations. C++ binds calls and constructions through
+  namespaces, includes and typedefs, credits constructors when their class is
+  instantiated, and reads function values. Java reads annotations, class literals,
+  static imports, return and local types, Spring entry points and MyBatis mappers.
+  Kotlin reads annotations, operator uses, Ktor modules, Metro and Anvil bindings, and
+  recovers accessor misreads. PHP reads Blade views, parameter types, file-scope code,
+  Eloquent relations and Laravel, Flarum and Nextcloud conventions. Scala, Svelte and
+  Vue components resolve through their imports.
+- Routes: duplicate routes are compared only within one application and one mux, across
+  disjoint API versions as separate endpoints, and skip hooks, tests and screens. NestJS
+  path arrays, Flask-AppBuilder `@expose`, Rails engines mounted from plugins, .NET route
+  groups and Go muxes handed in as parameters are read. A route no caller is known to run
+  is marked unjudged rather than unreached.
+- Graph precision: a call no longer lands on a bare client path or on another
+  repository's route or table of the same name; stored-function calls stay out of the
+  module rollup. Coverage reasons appear in `coverage_report`, the receipt and
+  `llm_context`; the receipt lists the binders that ran. `touched` works in a served
+  instance, takes a repository label and lists commits.
+- Reporting: the check summary reads a cycle's size from its members, counts each edge
+  kind, and points at imports; `query_insights` says which input an explainer lacked; an
+  emptied history is told apart from one never recorded. The dashboard shows worktrees
+  by checkout directory and admits every shipped explainer.
+- Generate: a graph written by another enola release is regenerated, and cached facts
+  are keyed on the content of files read off the walk (Tailwind themes included).
+- Engine: cache version is v724, so existing caches re-extract.
+
 ## v0.5.3 — 2026-11-18
 
 **Hundred-repository clusters build three to four times faster, an unchanged tree skips its generate, and dbt, LookML, Avro, Rego and Terragrunt join the graph**
