@@ -85,6 +85,10 @@ name code by symbol, not by line, so nothing else ever stamps them.
    deleted after the memory was written. `git log -S<name> --oneline -1` shows the
    commit that last added or removed it. Searching for what does its job now and
    stamping that is worth doing only when the user asks.
+   Names the graph never holds can go stale too: a tool, a command, a flag, a config
+   key, a constant. For each one a code memory names, `git grep -w -c <name>` says
+   whether it is still written anywhere in the repository. None left is a finding like
+   a missing symbol: a memory about a tool that was removed describes nothing.
 6. A memory whose names are mostly not found describes code that is gone. Say so and
    ask the user before marking it stale or changing it.
 
