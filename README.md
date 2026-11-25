@@ -37,7 +37,7 @@
   Kubernetes indexes in 14 seconds, 6.5 once cached. 100 repositories, the Linux kernel among them, link into one graph in under 5 minutes.</p>
 
 <p align="center">
-  <img src="docs/images/layers-gate.gif" alt="enola check on the layers-gate example: a helper added to storage imports the delivery layer, the default run reports it and exits 0, --fail-on=layers fails the same change, and after the fix the re-run passes" width="80%" />
+  <a href="https://www.youtube.com/watch?v=xytpfmlUD6U"><img src="docs/images/intro-video.svg" alt="Watch the video: Enola, developer tooling for AI assisted development" width="80%" /></a>
 </p>
 </div>
 
@@ -179,6 +179,10 @@ Regressions (fail):
   - [layers] 1.00 — Layer violation: storage -> delivery
       import of notify
 ```
+
+<p align="center">
+  <img src="docs/images/layers-gate.gif" alt="enola check on the layers-gate example: a helper added to storage imports the delivery layer, the default run reports it and exits 0, --fail-on=layers fails the same change, and after the fix the re-run passes" width="80%" />
+</p>
 
 A **regression** is something the change made worse compared with the pin. Some checks grade against how you say your system should look, such as a layer order or which service may call which. You write that down in [docs/INTENT.md](docs/INTENT.md) and [docs/CONSTRAINTS.md](docs/CONSTRAINTS.md).
 
