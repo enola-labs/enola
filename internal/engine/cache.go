@@ -4069,7 +4069,8 @@ import (
 // declared by a parameter, local or member construct its element type.
 // v730: a bare base or field type name with several candidates resolves to the
 // one sharing the most whole path segments with the type that writes it, not the
-// most characters; candidates sharing as many tie and bind nothing. The C and C++
+// most characters, and among those to the one with the fewest segments after
+// them; candidates equal on both, or several sharing none, bind nothing. The C and C++
 // test refs bind inherited members through it inside the extractor.
 const cacheVersion = "v730"
 
