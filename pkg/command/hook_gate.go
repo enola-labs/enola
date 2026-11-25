@@ -321,11 +321,15 @@ func (r *Runner) runPostToolHook() {
 }
 
 // writeSessionStartNote hands the session the note above, as Claude Code's
-// SessionStart contract takes it.
-func writeSessionStartNote() {
+// SessionStart contract takes it, followed by extra when there is any.
+func writeSessionStartNote(extra string) {
+	note := sessionStartNote
+	if extra != "" {
+		note += " " + extra
+	}
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName":     "SessionStart",
-		"additionalContext": sessionStartNote,
+		"additionalContext": note,
 	}})
 	_, _ = os.Stdout.Write(out)
 }

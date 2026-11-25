@@ -113,7 +113,7 @@ func TestPreToolGate(t *testing.T) {
 }
 
 func TestSessionStartNote(t *testing.T) {
-	out := runHookWith(t, writeSessionStartNote, "")
+	out := runHookWith(t, func() { writeSessionStartNote("") }, "")
 	var got struct {
 		HookSpecificOutput struct {
 			HookEventName     string `json:"hookEventName"`

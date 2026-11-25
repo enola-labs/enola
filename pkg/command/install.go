@@ -518,3 +518,45 @@ func (r *Runner) installCheck(repoDir, home string) int {
 	}
 	return 0
 }
+
+// installDriftNote tells an agent session that what `enola install` wrote here is behind
+// the installed binary, or returns "" when it is not. The session-start hook is the one
+// thing that runs in every repository after an upgrade, including one made through pip
+// or the install script, where `enola upgrade` never ran to say so.
+//
+// Worded like updatecheck's agent notice: the fact, and the decision left to the user.
+// An agent told to run `enola install` would run it, and rewriting the user's agent
+// configuration mid-task is not its call.
+func installDriftNote(repoDir, home string) string {
+	var where, cmds []string
+	n := 0
+	for _, s := range []struct {
+		scope install.Scope
+		name  string
+		cmd   string
+	}{
+		{install.ScopeLocal, "in this repository", "`enola install`"},
+		{install.ScopeGlobal, "for this user", "`enola install --global`"},
+	} {
+		rs, _, err := installDrift(s.scope, repoDir, home)
+		if err != nil || len(rs) == 0 {
+			continue
+		}
+		n += len(rs)
+		where, cmds = append(where, s.name), append(cmds, s.cmd)
+	}
+	if n == 0 {
+		return ""
+	}
+	verb, update := "differ", "update"
+	if n == 1 {
+		verb = "differs"
+	}
+	if len(cmds) == 1 {
+		update = "updates"
+	}
+	return fmt.Sprintf("Separately: %s that `enola install` wrote %s %s from what the installed enola "+
+		"writes, most likely left by an older version, so enola's instructions, hooks or skills are out of "+
+		"date. %s %s them. Mention this to the user, who decides whether to run it. Do not run it yourself.",
+		plural(n, "file"), strings.Join(where, " and "), verb, strings.Join(cmds, " and "), update)
+}

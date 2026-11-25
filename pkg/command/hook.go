@@ -327,7 +327,8 @@ func (r *Runner) runSessionStartHook(ctx context.Context, args []string) {
 	// Claude Code is told how to reach enola's tools, which it lists as deferred. Codex
 	// and pi run this hook too and are not: see hook_gate.go.
 	if slices.Contains(args, "--agent=claude") {
-		writeSessionStartNote()
+		home, _ := os.UserHomeDir()
+		writeSessionStartNote(installDriftNote(in.CWD, home))
 	}
 	// Decided here, not in the detached child, so a folder of repositories costs one
 	// directory read and no process at all.

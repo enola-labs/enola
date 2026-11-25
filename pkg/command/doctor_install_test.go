@@ -82,3 +82,29 @@ func TestInstallCheck_ExitsOneOnlyWhenBehind(t *testing.T) {
 		t.Errorf("behind install: code %d\n%s", code, out)
 	}
 }
+
+// The session-start note says nothing about install while it is current, and once it is
+// behind names the command and leaves running it to the user.
+func TestInstallDriftNote(t *testing.T) {
+	repo, home := t.TempDir(), t.TempDir()
+	if note := installDriftNote(repo, home); note != "" {
+		t.Errorf("nothing installed, yet a note: %q", note)
+	}
+	o := install.Options{Scope: install.ScopeLocal, RepoDir: repo, HomeDir: home, Hooks: true, HookCommand: hookBinary()}
+	if _, err := install.Install(o); err != nil {
+		t.Fatal(err)
+	}
+	if note := installDriftNote(repo, home); note != "" {
+		t.Errorf("current install, yet a note: %q", note)
+	}
+	rule := filepath.Join(repo, ".claude", "rules", "enola.md")
+	if err := os.WriteFile(rule, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	note := installDriftNote(repo, home)
+	for _, want := range []string{"1 file that `enola install` wrote in this repository differs", "`enola install` updates them", "Do not run it yourself"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("note lacks %q: %q", want, note)
+		}
+	}
+}

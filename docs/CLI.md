@@ -709,7 +709,7 @@ Claude Code gets three more things, because it lists an MCP server's tools as de
 names only, loaded through its ToolSearch tool - and a file search is always one step
 closer. Told by the rule to use enola, an agent still grepped a question the rule names.
 
-- **`SessionStart`** also tells the session how to load enola's tools, in one ToolSearch call.
+- **`SessionStart`** also tells the session how to load enola's tools, in one ToolSearch call. When what `enola install` wrote in the repository (or for your user) differs from what the installed binary writes, as it does after an upgrade until install runs again, the note says so and asks the agent to tell you, not to run `enola install` itself.
 - **`PreToolUse`** refuses the first two file searches of a session (`Grep`, `Glob`, or a `find`, a recursive `grep` or an `rg` over a directory in `Bash`; a `grep` of files it names, or of piped output, is a read and goes through) with a pointer to the enola tool that answers a structural question. It is bounded twice, as the opencode plugin is: a search run again after two refusals goes through, and the refusals end the moment any enola tool is used.
 - **`PostToolUse`** records that use.
 
