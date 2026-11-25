@@ -34,7 +34,7 @@
   It resolves every import, call, route and database table to what it really refers to, links your services where one calls another, and checks the result: what a change breaks, what nothing uses, where the architecture drifts. Your coding agent gets answers, not source to reason over.</p>
 
   <p><strong>One binary. No AI model, no account, no upload.</strong><br />
-  Kubernetes indexes in 14 seconds, 6.5 once cached. 100 repositories link into one graph in under 5 minutes.</p>
+  Kubernetes indexes in 14 seconds, 6.5 once cached. 100 repositories, the Linux kernel among them, link into one graph in under 5 minutes.</p>
 
 <p align="center">
   <img src="docs/images/layers-gate.gif" alt="enola check on the layers-gate example: a helper added to storage imports the delivery layer, the default run reports it and exits 0, --fail-on=layers fails the same change, and after the fix the re-run passes" width="80%" />
