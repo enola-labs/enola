@@ -1897,3 +1897,35 @@ func TestGoClosureOfAnExportedFunctionDoesNotUseIt(t *testing.T) {
 		t.Fatal("a function only its own closures are called through is still unused")
 	}
 }
+
+// TestTestEntryNamesOnlyInTheirFileKind checks that a test-runner name prefix
+// exempts a symbol only where that runner collects it: Go's Test/Benchmark/
+// Example/Fuzz in a _test.go file and pytest/unittest Test*/test_* in a test*.py
+// or *_test.py module. Elsewhere the same names are production code.
+func TestTestEntryNamesOnlyInTheirFileKind(t *testing.T) {
+	syms := []symInput{
+		// Test entry points, in the file kind whose runner collects them.
+		{Name: "pkg.test_login", Kind: facts.SymbolFunc, Package: "tools", File: "tools/test_login.py"},
+		{Name: "pkg.TestLogin", Kind: facts.SymbolClass, Package: "tools", File: "tools/login_test.py"},
+		{Name: "pkg.TestLogin.test_ok", Kind: facts.SymbolMethod, Package: "app", File: "app/tests.py"},
+		// Production symbols that only look like test entry points.
+		{Name: "app.TestOnlyMarker", Kind: facts.SymbolClass, Package: "app", File: "src/main/kotlin/app/Markers.kt"},
+		{Name: "src.ExampleCard", Kind: facts.SymbolFunc, Package: "src", File: "src/cards.tsx"},
+		{Name: "app.TestDataFactory", Kind: facts.SymbolClass, Package: "app", File: "src/main/java/app/TestDataFactory.java"},
+		{Name: "lib.test_bit", Kind: facts.SymbolFunc, Package: "lib", File: "lib/bits.c"},
+		{Name: "pkg.ExampleConfig", Kind: facts.SymbolFunc, Package: "pkg", File: "pkg/config.go"},
+		{Name: "app.engine.test_connection", Kind: facts.SymbolFunc, Package: "app", File: "app/engine.py"},
+	}
+	got := orphansByName(classify(syms, refsFrom(nil), options{Mode: "both", Visibility: "all"}))
+	for _, name := range []string{"pkg.test_login", "pkg.TestLogin", "pkg.TestLogin.test_ok"} {
+		if _, ok := got[name]; ok {
+			t.Errorf("%s is a test entry point and should be excluded by default", name)
+		}
+	}
+	for _, name := range []string{"app.TestOnlyMarker", "src.ExampleCard", "app.TestDataFactory",
+		"lib.test_bit", "pkg.ExampleConfig", "app.engine.test_connection"} {
+		if _, ok := got[name]; !ok {
+			t.Errorf("%s is production code and should be reported", name)
+		}
+	}
+}
