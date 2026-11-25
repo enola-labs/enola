@@ -1,11 +1,15 @@
 <div align="center">
 
-  <h1>enola</h1>
+  <h1><a href="https://enola.tech"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/enola-wordmark-dark.svg" />
+    <img src="docs/images/enola-wordmark-light.svg" alt="enola" width="420" />
+  </picture></a></h1>
 
-  <p>enola - One graph of your whole software system, built from the code, on your machine</p>
+  <p><strong>A code graph and architecture check for your whole software system, with an MCP server for coding agents.</strong><br />
+  Built from the code, on your machine.</p>
 
   <p align="center">
-  <a href="https://enola.tech">Website</a>
+  <a href="https://enola.tech">enola.tech</a>
   ·
   <a href="docs/README.md">Docs</a>
   ·
@@ -22,7 +26,7 @@
   <a href="https://github.com/enola-labs/enola/actions/workflows/ci.yml"><img src="https://github.com/enola-labs/enola/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/enola-labs/enola/releases"><img src="https://img.shields.io/github/v/release/enola-labs/enola" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/enola-labs/enola" alt="License"></a>
-  <a href="https://github.com/enola-labs/enola/stargazers"><img src="https://img.shields.io/github/stars/enola-labs/enola.svg?style=social&amp;label=Star&amp;maxAge=2592000" alt="GitHub stars"></a>
+  <a href="https://github.com/enola-labs/enola/stargazers"><img src="https://img.shields.io/github/stars/enola-labs/enola?style=social&amp;label=Star" alt="GitHub stars"></a>
   <a href="https://mcptoplist.com/server/glama%2Fenola-labs%2Fenola"><img src="https://mcptoplist.com/badge/glama%2Fenola-labs%2Fenola.svg" alt="MCP Toplist"></a>
   </p>
 
@@ -70,7 +74,7 @@ It also changes answers. Asked the same questions across a backend and its web a
 curl -fsSL https://raw.githubusercontent.com/enola-labs/enola/main/install.sh | sh
 ```
 
-This puts `enola` in `~/.local/bin`. The same binary is on PyPI (`pip install enola-cli`) and RubyGems. Every install route, and how to upgrade, is in [docs/CLI.md](docs/CLI.md#install).
+This puts `enola` in `~/.local/bin`. The same binary is on PyPI (`pip install enola-cli`) and RubyGems. Every install route is in [docs/CLI.md](docs/CLI.md#install).
 
 **2. Point it at a repository you have checked out.**
 
@@ -125,6 +129,23 @@ enola dashboard --open
 ```
 
 The dashboard is a local web page; nothing is sent anywhere. [Dashboard guide](docs/DASHBOARD.md).
+
+**4. Connect your coding agent.** Run this in the repository:
+
+```bash
+enola install --hooks
+```
+
+It tells Claude Code, Codex, Cursor, Copilot, opencode and Pi that enola exists, adds skills for reviewing a branch, planning tests, setting up architecture rules and keeping notes on code, and with `--hooks` grades each agent session. It previews every file it changes and asks first. Then register the MCP server for your client: [Connect your agent](#connect-your-agent).
+
+**5. Stay current.**
+
+```bash
+enola upgrade
+enola install --hooks
+```
+
+`enola upgrade` replaces the binary in place. Run `enola install` again afterwards, with the same flags as the first time: a new release can add hooks or skills, and only `install` writes them. Then restart your agent session so its MCP server runs the new binary. `enola doctor` lists any skill an older version wrote. [Upgrading in detail](docs/CLI.md#upgrade).
 
 ## How enola works
 
