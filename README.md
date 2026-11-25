@@ -1,11 +1,15 @@
 <div align="center">
 
-  <h1>enola</h1>
+  <h1><a href="https://enola.tech"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/enola-wordmark-dark.svg" />
+    <img src="docs/images/enola-wordmark-light.svg" alt="enola" width="420" />
+  </picture></a></h1>
 
-  <p>enola - One graph of your whole software system, built from the code, on your machine</p>
+  <p><strong>A code graph and architecture check for your whole software system, with an MCP server for coding agents.</strong><br />
+  Built from the code, on your machine.</p>
 
   <p align="center">
-  <a href="https://enola.tech">Website</a>
+  <a href="https://enola.tech">enola.tech</a>
   ·
   <a href="docs/README.md">Docs</a>
   ·
@@ -22,45 +26,54 @@
   <a href="https://github.com/enola-labs/enola/actions/workflows/ci.yml"><img src="https://github.com/enola-labs/enola/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/enola-labs/enola/releases"><img src="https://img.shields.io/github/v/release/enola-labs/enola" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/enola-labs/enola" alt="License"></a>
-  <a href="https://github.com/enola-labs/enola/stargazers"><img src="https://img.shields.io/github/stars/enola-labs/enola.svg?style=social&amp;label=Star&amp;maxAge=2592000" alt="GitHub stars"></a>
+  <a href="https://github.com/enola-labs/enola/stargazers"><img src="https://img.shields.io/github/stars/enola-labs/enola?style=social&amp;label=Star" alt="GitHub stars"></a>
   <a href="https://mcptoplist.com/server/glama%2Fenola-labs%2Fenola"><img src="https://mcptoplist.com/badge/glama%2Fenola-labs%2Fenola.svg" alt="MCP Toplist"></a>
   </p>
 
-  <p>enola reads your source code and writes down what is in it: the modules, the functions, the API routes, the database tables it touches, the message topics it publishes. Then it records how each of those pieces connects to the others, inside one repository and across several. That record is a <em>graph</em>: a list of things, and a list of links between them. You can ask the graph questions, hand it to your coding agent, or build your own tools on it.</p>
+  <p><strong>Other code-graph tools index your code. enola compiles it.</strong><br />
+  It resolves every import, call, route and database table to what it really refers to, links your services where one calls another, and checks the result: what a change breaks, what nothing uses, where the architecture drifts. Your coding agent gets answers, not source to reason over.</p>
 
-  <p><strong>Runs locally as one binary. No AI model, no language server, no account, no upload.</strong><br />
-  The graph comes from parsing your code. The same code always produces the same graph.</p>
+  <p><strong>One binary. No AI model, no account, no upload.</strong><br />
+  Kubernetes indexes in 14 seconds, 6.5 once cached. 100 repositories, the Linux kernel among them, link into one graph in under 5 minutes.</p>
 
 <p align="center">
-  <img src="docs/images/layers-gate.gif" alt="enola check on the layers-gate example: a helper added to storage imports the delivery layer, the default run reports it and exits 0, --fail-on=layers fails the same change, and after the fix the re-run passes" width="80%" />
+  <a href="https://www.youtube.com/watch?v=xytpfmlUD6U"><img src="docs/images/intro-video.svg" alt="Watch the video: Enola, developer tooling for AI assisted development" width="80%" /></a>
 </p>
 </div>
 
-## When to use enola
+## What it does for you
 
-- **Find out what a change will break.** Before you edit a function, a route, or a module, ask the graph what depends on it. The answer is a list of real places in the code, not a guess. [Quickstart](#quickstart).
-- **Keep your architecture the way you declared it.** Write down the layer order your code should follow, or which service may call which. Every change is then graded against that, and only what the change broke is reported. [Grade a change](#grade-a-change).
-- **Give your coding agent the structure of the system.** Over MCP, the agent asks the graph what depends on the code it is about to touch, and a hook grades its edit when it is done. [Connect your agent](#connect-your-agent).
-- **See several repositories as one system.** A frontend's call to `/api/orders` is linked to the Go handler that serves it. One service's Kafka producer is linked to the service that consumes the topic. [Across repositories](#across-repositories).
-- **Build your own tools on the graph.** A snapshot is a set of plain files with a documented format. Load them wherever you need them. [Build on the graph](#build-on-the-graph).
+Most of this you ask your coding agent in plain words, once enola is [connected](#connect-your-agent). The agent picks the tool or [skill](docs/SKILLS.md) and answers from the graph instead of from text searches.
 
-That difference shows up in ordinary work. Across 238 real Claude Code and OpenCode sessions, 4,375 enola calls put 4.1 million tokens into context. Opening only the files named in those answers was estimated at 5.4× to 7.7× as much; reading the full source represented by each session, 450× to 623×. In 205 of 210 sessions that took a snapshot, that source was larger than the agent's median active context. [Measured latency, token costs, method and limits](docs/BENCHMARKS.md#real-session-usage).
+| When you… | Ask or run | You get |
+| --- | --- | --- |
+| are about to change shared code | "What breaks if I change `X`?" | Every place that depends on it, directly or through other packages, and the endpoints it affects. [Impact](docs/CLI.md#the-twenty-four-tools) |
+| review a pull request | "Review this branch against main" | What the change did to the structure, and up to five places a reviewer should look, each with the reason. `--reviewers` adds who owns what it touched. [Review skill](docs/SKILLS.md#review) |
+| need to test a change | "What should be tested for this change?" | The tests that reach it, nearest first, the entry points to exercise, and the changed code no test reaches. [Test-plan skill](docs/SKILLS.md#test-plan) |
+| want the architecture to hold | "Set up architecture rules for this repository" | Rules the code already almost follows, proposed for you to accept, then checked on every change, by your agent and in CI. [Intent skill](docs/SKILLS.md#intent), [Grade a change](#grade-a-change) |
+| keep notes or agent memory about code | "Which of our notes still hold?" | Each note tied to the code it describes, and marked current, moved, changed or gone when that code moves on. [Memory skill](docs/SKILLS.md#memory) |
+| open a repository you do not know | `enola --explain --summary`, `enola flows` | What the repository is, its ways in, what is risky to change and where to start reading. [Quickstart](#quickstart) |
+| want to clean up | "What does nothing use?" | Dead code, backend routes no client calls, and database queries run once per loop iteration. [Explainers](docs/EXPLAINERS.md) |
+| wonder when something got in | `enola blame "pkg/a -> pkg/b"` | The commit where a dependency, a cycle or a symbol entered the architecture, and when it left. [History](docs/HISTORY.md) |
+| work across services | "Who calls `/api/orders`?" | The callers in the other repositories, and the screens behind them. [Across repositories](#across-repositories) |
+| want one graph for the whole company | `enola serve` | Every repository linked into one graph, served over HTTP to your agents, portal or review bot, with tokens, confined roots and an audit log. [Serving](docs/SERVING.md) |
+| build your own tooling | `enola --generate` | Plain files in a documented format, ready to load anywhere. [Build on the graph](#build-on-the-graph) |
 
-It also changes answers. Asked the same questions across a backend and its web and mobile clients, code the model had never seen, Opus 5.5 gave an exact final answer in 4 of 20 trials on its own and in 18 of 20 with enola, whose own analysis was right in all 20. On the three endpoint questions it also cut median cost by 29 to 52% and median time by more than half. Where a grep or a short script already answers the question, both were right. [The A/B, question by question](docs/BENCHMARKS.md#agent-ab-on-code-the-model-has-not-seen).
+New here? Start with the [Quickstart](#quickstart), or follow [one graded change end to end](docs/FIRST-CHANGE.md).
 
-## Choose your starting point
+## Indexing versus compiling
 
-| I want to… | Start here |
-| --- | --- |
-| See what enola finds in a repository I have | [Quickstart](#quickstart) |
-| Check whether a change broke the architecture | [Grade a change](#grade-a-change) |
-| Run that check on every pull request | [Use it in CI](#use-it-in-ci) |
-| Give my coding agent the graph | [Connect your agent](#connect-your-agent) |
-| Have my agent review a branch, plan tests, set up rules or keep notes on code | [Skills](docs/SKILLS.md) |
-| Link a backend and the apps that call it | [Across repositories](#across-repositories) |
-| Load the graph into my own tool | [Build on the graph](#build-on-the-graph) |
-| Know which languages it understands | [What it reads](#what-it-reads) |
-| Follow one worked example end to end | [Your first graded change](docs/FIRST-CHANGE.md) |
+Code-graph tools such as Graphify, CodeGraph and codebase-memory-mcp index code for retrieval: they store symbols and source, joined by name, and hand them to your agent to work out the answer. enola treats the code as a program to resolve, the way a compiler does, and computes the answer itself.
+
+The difference shows on a single endpoint. A web app calls `GET /api/v2/orders/{id}`. The API never writes that string: `/api/v2` is a prefix set in `main()`, and `/orders/{id}` is registered in another function. An index finds `/orders/{id}` and stops. enola follows the prefix the way a compiler follows a call, and links the web app's request to the handler that serves it.
+
+| | Indexing tools | enola |
+| --- | --- | --- |
+| Reads code as | text and syntax trees, matched by name | a program: imports, calls and routes resolved to what they point at |
+| A route is | the string written in one file | the address it answers on, prefix and method included |
+| Across repositories | joined where names or paths match as written | linked where one side calls the other |
+| Your agent gets | source to read and reason over | the answer: what breaks, what is unused, what a change did |
+| The graph is | a store kept current as files change | a snapshot with an ID: the same code gives the same graph, so a change can be graded against a baseline |
 
 ## Quickstart
 
@@ -70,61 +83,57 @@ It also changes answers. Asked the same questions across a backend and its web a
 curl -fsSL https://raw.githubusercontent.com/enola-labs/enola/main/install.sh | sh
 ```
 
-This puts `enola` in `~/.local/bin`. The same binary is on PyPI (`pip install enola-cli`) and RubyGems. Every install route, and how to upgrade, is in [docs/CLI.md](docs/CLI.md#install).
+This puts `enola` in `~/.local/bin`. The same binary is on PyPI (`pip install enola-cli`) and RubyGems. Every install route is in [docs/CLI.md](docs/CLI.md#install).
 
-**2. Point it at a repository you have checked out.**
-
-```bash
-enola --explain /path/to/your/repo
-```
-
-No config file, no account, nothing written to disk. It reads the code and prints what it found. If you have nothing at hand, run it on enola itself:
+**2. Read a repository you have checked out.** No config file, no account, nothing written to disk:
 
 ```bash
-git clone https://github.com/enola-labs/enola
-enola --explain enola
+enola --explain --summary /path/to/your/repo
 ```
 
-Part of what that prints (the numbers move as the code does):
+It says what the repository is, whether its structure holds, where to start reading and what is risky to change, and marks each statement with how sure enola is. Part of what it prints for enola itself (the numbers move as the code does):
 
 ```
-Overview
-  Languages:           go, typescript, c, ruby, python
-  Total facts:         10814
+Structure: healthy
+  No circular dependencies, and no layer rule broken.
 
-Architecture
-  cyclic dependencies         0
-  layer violations            0
-
-Impact analysis (hotspots)
-  Top hotspots (by coupling):
-    module                            fan-in  fan-out crit     blast radius
-    internal/facts                       253        1 high     96
-    pkg/command                            1       94 high     1
-    pkg/bootstrap                         15       69 high     4
+Careful when changing
+  github.com/enola-labs/enola/internal/facts
+    A change here can reach 127 other folders of code within three import
+    steps. Have tests in place before changing it.
 ```
 
-How to read it:
+Drop `--summary` for the full report with every check's numbers; the terms it uses are in the [glossary](docs/GLOSSARY.md).
 
-- A **fact** is one thing enola recorded: "this function exists", "this function calls that one", "this route is served here". `Total facts` is how many it found.
-- A **cyclic dependency** is two or more modules that each need the other, so neither can be changed or tested alone.
-- A **layer violation** is a module reaching into a layer it is not allowed to use, under a layer order the repository declared. enola declares its own in [`enola-intent.yaml`](enola-intent.yaml); 0 means nothing in the code crosses it.
-- A **hotspot** is a module many other modules depend on. `fan-in` is how many modules use it; `fan-out` is how many it uses; `blast radius` is how many modules a change to it can reach. Read the first row as: `internal/facts` is used from 253 places, and a change to it can reach 96 modules.
-
-If that is more vocabulary than you need, ask for the plain-language summary instead. It says what the repository is, whether its structure holds, where to start reading, what is risky to change and what is worth a look, and marks each statement with how sure enola is:
+**3. Connect your coding agent.** In the repository:
 
 ```bash
-enola --explain --summary enola
+enola install --hooks
+claude mcp add-json enola '{"command":"enola","alwaysLoad":true}'
 ```
 
-**3. Keep the graph and look at it.** `--explain` only prints. To save the graph, build it with `--generate`. It is written under `.enola/` in the repository, and that saved graph is what the local dashboard shows:
+The first line tells Claude Code, Codex, Cursor, Copilot, opencode and Pi that enola exists, adds its [skills](docs/SKILLS.md), and with `--hooks` grades each agent session. It previews every file it changes and asks first. The second registers the MCP server for Claude Code; other clients are one line each in [Connect your agent](#connect-your-agent). Then ask the agent something only the graph answers well:
+
+> What breaks if I change `OrderService.cancel`?
+
+**4. Change code with your agent, then review it.** The hooks grade every turn: if the agent's edit adds a dependency cycle or crosses a layer, it is told before it says it is done. When the work is finished, ask for a review:
+
+> Review my changes against main.
+
+or call the skill by name: `/enola-review` in Claude Code (`/enola:review` with the plugin, `$enola-review` in Codex). You get what the change did to the structure and where a reviewer should look. Without an agent, the same check is `enola baseline pin`, then your edit, then `enola check`; see [Grade a change](#grade-a-change) and [Use it in CI](#use-it-in-ci).
+
+**5. If your agent keeps memory, stamp it once.** Run `/enola-memory` with no task. It ties each note about code to the code it describes, and lists the notes whose code was renamed or deleted since. To keep new notes stamped, add one line to the agent's instructions: "stamp notes about code with enola-memory". [Memory skill](docs/SKILLS.md#memory).
+
+**6. Stay current.**
 
 ```bash
-enola --generate .
-enola dashboard --open
+enola upgrade
+enola install --hooks
 ```
 
-The dashboard is a local web page; nothing is sent anywhere. [Dashboard guide](docs/DASHBOARD.md).
+`enola upgrade` replaces the binary in place. Run `enola install` again afterwards, with the same flags as the first time: a new release can add hooks or skills, and only `install` writes them. Then restart your agent session so its MCP server runs the new binary. `enola doctor` lists any skill an older version wrote. [Upgrading in detail](docs/CLI.md#upgrade).
+
+To keep the graph and browse it, `enola --generate .` saves it under `.enola/` and `enola dashboard --open` shows it in a local web page. [Dashboard guide](docs/DASHBOARD.md).
 
 ## How enola works
 
@@ -171,6 +180,10 @@ Regressions (fail):
       import of notify
 ```
 
+<p align="center">
+  <img src="docs/images/layers-gate.gif" alt="enola check on the layers-gate example: a helper added to storage imports the delivery layer, the default run reports it and exits 0, --fail-on=layers fails the same change, and after the fix the re-run passes" width="80%" />
+</p>
+
 A **regression** is something the change made worse compared with the pin. Some checks grade against how you say your system should look, such as a layer order or which service may call which. You write that down in [docs/INTENT.md](docs/INTENT.md) and [docs/CONSTRAINTS.md](docs/CONSTRAINTS.md).
 
 Nothing fails by default. You choose what should, for example `enola check --fail-on=layers`. [docs/GATING.md](docs/GATING.md) explains what can fail a build and why; [docs/HISTORY.md](docs/HISTORY.md) covers how the architecture changed over time. The whole loop on a module small enough to read in a minute: [docs/FIRST-CHANGE.md](docs/FIRST-CHANGE.md).
@@ -215,6 +228,8 @@ Then give the agent the graph over **MCP** (Model Context Protocol: the standard
 What changes for the agent: before an edit, it asks the graph what depends on the code it is about to touch, instead of piecing that together from text searches. After the edit, a **hook** (a command the agent runs automatically at the end of its turn) runs the same `enola check` as above. The agent sees what it actually changed and fixes a regression before telling you it is done.
 
 `enola install` also gives the agent skills for whole tasks: reviewing a branch, planning what to test, setting up architecture rules, and keeping notes tied to the code they describe. Ask for the task ("review this branch against main") and the agent loads the skill, or call one by name. [docs/SKILLS.md](docs/SKILLS.md) covers each skill, the Claude Code plugin, and how to call them in every agent.
+
+On Claude Code you can use the plugin instead of `enola install`: `/plugin marketplace add enola-labs/enola`, then `/plugin install enola@enola`. It registers the MCP server, the hooks and the skills; use one route or the other, not both.
 
 `enola install` previews every file it changes and asks first; `enola uninstall` reverses all of it. `enola doctor` tells you whether the hooks are really firing. Per-client details, including Copilot's different config key: [docs/CLI.md](docs/CLI.md#connect-it-to-your-agent).
 
@@ -275,6 +290,10 @@ Each example is a small repository plus a `run.sh` that reproduces the output sh
 - [Per-language configuration files](examples/) for Go, TypeScript, Python, Ruby, PHP, Kotlin, Swift and C++.
 
 ## Benchmarks
+
+In ordinary work, across 238 real Claude Code and OpenCode sessions, 4,375 enola calls put 4.1 million tokens into context. Opening only the files named in those answers was estimated at 5.4× to 7.7× as much; reading the full source represented by each session, 450× to 623×. In 205 of 210 sessions that took a snapshot, that source was larger than the agent's median active context. [Measured latency, token costs, method and limits](docs/BENCHMARKS.md#real-session-usage).
+
+It also changes answers. Asked the same questions across a backend and its web and mobile clients, code the model had never seen, Opus 5.5 gave an exact final answer in 4 of 20 trials on its own and in 18 of 20 with enola, whose own analysis was right in all 20. On the three endpoint questions it also cut median cost by 29 to 52% and median time by more than half. Where a grep or a short script already answers the question, both were right. [The A/B, question by question](docs/BENCHMARKS.md#agent-ab-on-code-the-model-has-not-seen).
 
 Every number below but the first is measured on public repositories with scripts you can rerun. The first is an A/B on code the model had never seen, run with [graph-bench](https://github.com/dejo1307/graph-bench), which you can point at your own. Method, corpus and limits: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
