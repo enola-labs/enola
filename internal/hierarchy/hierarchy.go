@@ -288,21 +288,27 @@ func (ix *Index) resolveName(repo, sub, raw string, notSelf bool) string {
 	}
 	// A bare name: the candidate sharing the most leading path segments with the
 	// subclass, so a type of the subclass's own package wins over a namesake
-	// elsewhere. Candidates sharing as many tie and bind nothing.
-	best, bestLen, tied := "", -1, false
+	// elsewhere. Among those sharing as many, the one with the fewest segments
+	// after them is nearest (a base in the subclass's own directory beats one a
+	// directory further down). Candidates equal on both tie and bind nothing, and
+	// so do several that share no segment at all: being shorter is no reason to
+	// prefer an unrelated tree.
+	best, bestShared, bestRest, tied, considered := "", -1, 0, false, 0
 	for _, c := range cands {
 		if notSelf && c == sub {
 			continue
 		}
-		n := commonSegments(c, sub)
+		considered++
+		shared := commonSegments(c, sub)
+		rest := countSegments(c) - shared
 		switch {
-		case n > bestLen:
-			best, bestLen, tied = c, n, false
-		case n == bestLen:
+		case shared > bestShared || shared == bestShared && rest < bestRest:
+			best, bestShared, bestRest, tied = c, shared, rest, false
+		case shared == bestShared && rest == bestRest:
 			tied = true
 		}
 	}
-	if tied {
+	if tied || bestShared == 0 && considered > 1 {
 		return ""
 	}
 	return best
@@ -364,6 +370,15 @@ func commonSegments(a, b string) int {
 		n++
 		a, b = ra, rb
 	}
+}
+
+// countSegments counts the segments of a name, as commonSegments splits them.
+func countSegments(s string) int {
+	n := 0
+	for seg, rest := nextSegment(s); seg != ""; seg, rest = nextSegment(rest) {
+		n++
+	}
+	return n
 }
 
 // nextSegment returns the first segment of s and the rest after it, skipping the
