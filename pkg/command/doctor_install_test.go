@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enola-labs/enola/internal/hookstate"
 	"github.com/enola-labs/enola/pkg/install"
 )
 
@@ -106,5 +107,37 @@ func TestInstallDriftNote(t *testing.T) {
 		if !strings.Contains(note, want) {
 			t.Errorf("note lacks %q: %q", want, note)
 		}
+	}
+}
+
+// A repository inside a folder of repositories whose hooks have run is told where its
+// sessions start, found by walking up rather than by any folder name; a repository with
+// no such folder above it gets no such sentence.
+func TestFolderHooksRan(t *testing.T) {
+	folder := t.TempDir()
+	repo := filepath.Join(folder, "nested", "service")
+	for _, d := range []string{filepath.Join(repo, ".git"), filepath.Join(folder, "other", ".git"), filepath.Join(folder, "nested", ".git")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// nested/ is itself a repository, so the walk has to pass it to reach the folder.
+	if got := folderHooksRan(repo); got != "" {
+		t.Fatalf("no hooks above, yet: %q", got)
+	}
+	o := install.Options{Scope: install.ScopeLocal, RepoDir: folder, HomeDir: t.TempDir(), Hooks: true,
+		FolderOfRepos: true, Targets: []string{"claude"}, HookCommand: "enola"}
+	if _, err := install.Install(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := folderHooksRan(repo); got != "" {
+		t.Fatalf("folder hooks that never ran, yet: %q", got)
+	}
+	if dir, _, ok := enclosingFolderHooks(repo); !ok || dir != folder {
+		t.Fatalf("enclosing folder = %q, %v; want %q", dir, ok, folder)
+	}
+	hookstate.RecordFired(hookOutputDir(folder), hookstate.EventSessionStart, hookstate.OutcomeNotARepo)
+	if got := folderHooksRan(repo); !strings.Contains(got, displayPath(folder)) || !strings.Contains(got, "last run") {
+		t.Errorf("folder hooks that ran are not reported: %q", got)
 	}
 }

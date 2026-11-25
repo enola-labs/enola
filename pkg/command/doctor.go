@@ -183,6 +183,11 @@ func (r *Runner) Doctor(args []string) {
 
 	if !installed {
 		fmt.Println("  not configured for this repository.")
+		if dir, _, ok := enclosingFolderHooks(repoDir); ok {
+			printWrapped(fmt.Sprintf("Sessions started in %s get that folder's enola hooks, which point "+
+				"the agent at enola's tools here too but grade nothing: grading needs a session started "+
+				"inside this repository.", displayPath(dir)))
+		}
 		fmt.Printf("  Run `%s install --hooks` to have the loop run itself: a baseline pinned\n", r.name())
 		fmt.Println("  at session start, and the change graded when the session ends.")
 		return
@@ -208,9 +213,14 @@ func (r *Runner) Doctor(args []string) {
 		}
 		fmt.Printf("  %-15s %s\n", "pre-tool", "refuses a session's first searches until an enola tool is used")
 		fmt.Println()
-		fmt.Println("  This is a folder of repositories: these hooks point the agent at enola and grade")
-		fmt.Println("  nothing, because a baseline needs one repository. To have a change graded,")
-		fmt.Printf("  run `%s install --hooks` inside each repository.\n", r.name())
+		msg := ""
+		if st != nil && st.Count > 0 {
+			msg = "These hooks are working: they point the agent at enola's tools in whichever repository it works in. "
+		}
+		printWrapped(msg + "Grading a change (a baseline when the session starts, a report when it ends) needs a " +
+			"session started inside one repository, with `" + r.name() + " install --hooks` run there. From this " +
+			"folder, ask the agent to pin a baseline and diff against it, or run `" + r.name() + " baseline pin` " +
+			"and `" + r.name() + " check` in the repository.")
 		return
 	}
 
@@ -241,6 +251,16 @@ func (r *Runner) Doctor(args []string) {
 		fmt.Println("  repositories, not a repository, and grading it would snapshot all of them as")
 		fmt.Printf("  one. Install the hooks inside each repository instead (`%s install --hooks`\n", r.name())
 		fmt.Println("  run there).")
+	case !state.Fired(hookstate.EventStop) && !state.Fired(hookstate.EventSessionStart) && folderHooksRan(repoDir) != "":
+		// Sessions start in an enclosing folder of repositories, whose own hooks run
+		// instead. Reporting that as a broken configuration sent people hunting for a
+		// defect that is a choice of where to start the agent.
+		fmt.Println("  NEVER RUN FROM A SESSION STARTED HERE.")
+		printWrapped(folderHooksRan(repoDir))
+		printWrapped("An agent runs the hooks of the folder its session starts in, so these run only for a " +
+			"session started inside this repository. Changes made here from that folder are not graded " +
+			"automatically: start the agent here, or pin and check yourself (`" + r.name() + " baseline pin`, " +
+			"then `" + r.name() + " check`).")
 	case !state.Fired(hookstate.EventStop) && !state.Fired(hookstate.EventSessionStart):
 		fmt.Println("  NEITHER HOOK HAS EVER RUN.")
 		fmt.Println("  The configuration exists but nothing is invoking it. Start a session in this")
@@ -530,4 +550,49 @@ func (r *Runner) printInstall(repoDir, home string, local, global installStatus)
 		fmt.Println("  kept; restart your agent session afterwards.")
 	}
 	fmt.Println()
+}
+
+// enclosingFolderHooks finds the nearest directory above repoDir that is a folder of
+// repositories with enola's hooks configured, and the record of those hooks. Found by
+// walking up, never by name: where someone keeps their repositories is theirs.
+func enclosingFolderHooks(repoDir string) (dir string, state hookstate.State, ok bool) {
+	for d := filepath.Dir(repoDir); ; d = filepath.Dir(d) {
+		if workspace.IsFolderOfRepos(d) && hooksConfiguredIn(d) != "" {
+			return d, hookstate.Load(hookOutputDir(d)), true
+		}
+		if parent := filepath.Dir(d); parent == d {
+			return "", hookstate.State{}, false
+		}
+	}
+}
+
+// folderHooksRan says where this repository's sessions start when an enclosing folder
+// of repositories has enola hooks that have run, or "" when none has.
+func folderHooksRan(repoDir string) string {
+	dir, st, ok := enclosingFolderHooks(repoDir)
+	if !ok || !st.Fired(hookstate.EventSessionStart) {
+		return ""
+	}
+	return fmt.Sprintf("Sessions start in %s instead, a folder of repositories with its own enola hooks, "+
+		"last run %s ago.", displayPath(dir), humanSince(st.Get(hookstate.EventSessionStart).LastFired))
+}
+
+// displayPath shortens a path under the home directory to ~/..., for reading only.
+func displayPath(p string) string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if rel, err := filepath.Rel(home, p); err == nil && !strings.HasPrefix(rel, "..") {
+			if rel == "." {
+				return "~"
+			}
+			return filepath.Join("~", rel)
+		}
+	}
+	return p
+}
+
+// printWrapped prints a paragraph indented under a doctor section.
+func printWrapped(text string) {
+	for _, line := range wrap(text, 76) {
+		fmt.Println("  " + line)
+	}
 }
