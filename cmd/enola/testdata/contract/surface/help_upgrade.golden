@@ -13,6 +13,11 @@ is reported and the upgrade still succeeds. Any non-empty value of
 ENOLA_NO_RUBYDEX_FETCH skips it, 0 included. An up-to-date binary
 still fetches the library when it is missing.
 
+Last, the new binary runs `install --check` in the current directory: the
+instructions, hooks and skills `enola install` wrote stay as the old
+version left them until install runs again, and this says whether they
+differ from what the new one writes.
+
 Exit codes:
   0  upgraded, already current, or left to the package manager
   1  the upgrade failed

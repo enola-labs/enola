@@ -181,6 +181,10 @@ func opencodePluginResults(o Options, remove bool) ([]Result, error) {
 		return []Result{r}, err
 	}
 	if !o.Hooks {
+		if o.DropHooks {
+			r, err := removeOwnedFile(path, opencodePruneStop(o), o.DryRun)
+			return []Result{r}, err
+		}
 		return nil, nil
 	}
 	r, err := writeOwnedFile(path, opencodePlugin, o.DryRun)

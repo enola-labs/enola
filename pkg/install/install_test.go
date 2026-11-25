@@ -220,8 +220,14 @@ func TestHookSummary_DescribesExactlyWhatIsInstalled(t *testing.T) {
 	// mechanism and is asserted separately below.
 	sessionOnly := o
 	sessionOnly.Targets = []string{"claude"}
-	if len(HookSummary(sessionOnly)) != len(installedHooks) {
-		t.Fatalf("HookSummary has %d entries for %d installed hooks", len(HookSummary(sessionOnly)), len(installedHooks))
+	outsideFolder := 0
+	for _, h := range installedHooks {
+		if !h.FolderOnly {
+			outsideFolder++
+		}
+	}
+	if len(HookSummary(sessionOnly)) != outsideFolder {
+		t.Fatalf("HookSummary has %d entries for %d installed hooks", len(HookSummary(sessionOnly)), outsideFolder)
 	}
 
 	// The same rule one target further along: opencode gets a plugin and no session
@@ -234,7 +240,7 @@ func TestHookSummary_DescribesExactlyWhatIsInstalled(t *testing.T) {
 	if InstallsSessionHooks(opencodeOnly) {
 		t.Error("opencode is reported as installing session hooks, which it cannot")
 	}
-	if got := HookSummary(o); len(got) != len(installedHooks)+1 {
+	if got := HookSummary(o); len(got) != outsideFolder+1 {
 		t.Errorf("a full install should describe every hook and the plugin, got %d entries", len(got))
 	}
 

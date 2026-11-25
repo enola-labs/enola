@@ -25,9 +25,11 @@ func (r *Runner) Install(args []string, remove bool) {
 	var (
 		global  = fs.Bool("global", false, "configure this user (all projects) instead of this repository")
 		hooks   = fs.Bool("hooks", false, "also install the session-start and stop hooks (install only)")
+		noHooks = fs.Bool("no-hooks", false, "remove the hooks an earlier install wrote (install only)")
 		dryRun  = fs.Bool("dry-run", false, "show what would change, write nothing")
 		targets = fs.String("targets", "", "comma-separated subset of: "+strings.Join(install.TargetNames, ", "))
 		yes     = fs.Bool("yes", false, "skip the confirmation prompt")
+		check   = fs.Bool("check", false, "say whether what an earlier install wrote is current with this binary; writes nothing, exits 1 when it is not (install only)")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s %s [flags] [repo_path]\n\n", r.name(), name)
@@ -42,7 +44,9 @@ func (r *Runner) Install(args []string, remove bool) {
 					"agent the tools exist and how to use them. Pass --hooks to also run the loop\n"+
 					"automatically: a baseline pinned at session start, and the architectural delta\n"+
 					"reported at the end if the change introduced a regression. Hooks run commands,\n"+
-					"so they are opt-in.\n\n")
+					"so they are opt-in.\n\n"+
+					"Re-run it after `enola upgrade`, with no flags: hooks an earlier install wrote\n"+
+					"are kept and updated without --hooks. --no-hooks removes them.\n\n")
 		}
 		fmt.Fprint(os.Stderr, "Flags:\n")
 		fs.PrintDefaults()
@@ -67,6 +71,10 @@ func (r *Runner) Install(args []string, remove bool) {
 		r.installFatal("cannot determine the home directory: %v", err)
 	}
 
+	if *check && !remove {
+		os.Exit(r.installCheck(repoDir, home))
+	}
+
 	opts := install.Options{
 		Scope:       install.ScopeLocal,
 		RepoDir:     repoDir,
@@ -78,6 +86,21 @@ func (r *Runner) Install(args []string, remove bool) {
 	if *global {
 		opts.Scope = install.ScopeGlobal
 	}
+	// A re-run keeps what the first run set up, so `enola install` alone is the whole
+	// instruction after an upgrade. Without this a plain re-run over a --hooks install
+	// rewrote the instructions without the hooks note and switched Pi's hooks off, while
+	// Claude Code's entries stayed behind, never updated again.
+	keptHooks := false
+	if !remove {
+		switch {
+		case *hooks && *noHooks:
+			r.installFatal("--hooks and --no-hooks contradict each other")
+		case *noHooks:
+			opts.DropHooks = true
+		case !*hooks && install.HooksInstalled(opts):
+			opts.Hooks, keptHooks = true, true
+		}
+	}
 	// A baseline and its grading snapshot the directory they run in as one repository,
 	// so in a folder of repositories those hooks could only ever skip, and installing
 	// them would configure a mechanism that does nothing. The hooks that steer the agent
@@ -86,10 +109,12 @@ func (r *Runner) Install(args []string, remove bool) {
 	folder := opts.Hooks && opts.Scope == install.ScopeLocal && workspace.IsFolderOfRepos(repoDir)
 	if folder {
 		opts.FolderOfRepos = true
-		fmt.Printf("%s is a folder of repositories, not a repository: installing the hooks that\n", repoDir)
-		fmt.Println("point the agent at enola, not the ones that pin a baseline and grade a change,")
-		fmt.Println("which need one repository. Run `install --hooks` inside each repository you")
-		fmt.Println("want graded.")
+		for _, line := range wrap(fmt.Sprintf("%s is a folder of repositories, not a repository. Sessions "+
+			"started here are graded per repository, in Claude Code only: a repository's baseline is "+
+			"pinned before the session's first edit in it, and the change graded when the turn ends. "+
+			"Codex and Pi get no hooks here; run `install --hooks` inside a repository for those.", repoDir), 80) {
+			fmt.Println(line)
+		}
 		fmt.Println()
 	}
 	if *targets != "" {
@@ -132,9 +157,12 @@ func (r *Runner) Install(args []string, remove bool) {
 			// Described by the installer itself, so this can never announce a hook that
 			// is not actually configured.
 			if opts.FolderOfRepos {
-				fmt.Println("Hooks:      the ones that steer the agent (a folder of repositories, see above)")
+				fmt.Println("Hooks:      yes, Claude Code's (a folder of repositories, see above)")
 			} else {
 				fmt.Println("Hooks:      yes")
+			}
+			if keptHooks {
+				fmt.Println("            Kept: an earlier install wrote them. --no-hooks removes them.")
 			}
 			for _, d := range install.HookSummary(opts) {
 				for i, line := range wrap(d, 66) {
@@ -148,6 +176,8 @@ func (r *Runner) Install(args []string, remove bool) {
 			if install.InstallsSessionHooks(opts) {
 				fmt.Println("            Never blocks, and never interrupts on failure.")
 			}
+		} else if opts.DropHooks {
+			fmt.Println("Hooks:      removed (--no-hooks); instructions and skills only.")
 		} else if install.InstallsOpencodePlugin(opts) && !install.InstallsSessionHooks(opts) {
 			// opencode's --hooks is a plugin, not the grading loop. Offering "the loop"
 			// here would name a mechanism this run cannot install however it is re-run.
@@ -199,7 +229,7 @@ func (r *Runner) Install(args []string, remove bool) {
 	if opts.Scope == install.ScopeLocal {
 		if outDir := hookOutputDir(repoDir); outDir != "" {
 			switch {
-			case remove:
+			case remove, opts.DropHooks:
 				clearHookHeartbeat(repoDir, outDir)
 			case install.InstallsSessionHooks(opts):
 				// Only the session hooks, not every --hooks run. The heartbeat is what
@@ -450,4 +480,85 @@ func wrap(text string, width int) []string {
 func (r *Runner) installFatal(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, r.name()+" install: "+format+"\n", args...)
 	os.Exit(2)
+}
+
+// installDrift is what a plain `enola install` run from here would change in one scope,
+// with the options that run would use: this binary in the hooks, and a folder of
+// repositories treated as one. installed is false when nothing of enola's is there.
+func installDrift(scope install.Scope, repoDir, home string) (changed []install.Result, installed bool, err error) {
+	o := install.Options{Scope: scope, RepoDir: repoDir, HomeDir: home, HookCommand: hookBinary()}
+	if scope == install.ScopeGlobal {
+		if home == "" {
+			return nil, false, nil
+		}
+	} else {
+		o.FolderOfRepos = workspace.IsFolderOfRepos(repoDir)
+	}
+	return install.Drift(o)
+}
+
+// installCheck is `install --check`: whether this repository's and this user's install
+// are what a plain `enola install` from this binary would leave, which `enola upgrade`
+// asks the new binary right after replacing the old one. It returns the exit code: 1
+// when something is behind, so a script can act on it.
+func (r *Runner) installCheck(repoDir, home string) int {
+	if abs, err := filepath.Abs(repoDir); err == nil {
+		repoDir = abs
+	}
+	local := installStatusFor(install.ScopeLocal, repoDir, home)
+	global := installStatusFor(install.ScopeGlobal, repoDir, home)
+	if !local.Installed && !global.Installed && local.Error == "" && global.Error == "" {
+		fmt.Printf("Nothing of enola's is installed for your agents in %s or your home directory.\n", repoDir)
+		fmt.Printf("In each repository you work in, `%s install --hooks` wires your agents to enola.\n", r.name())
+		return 0
+	}
+	r.printInstall(repoDir, home, local, global)
+	fmt.Printf("Each other repository you ran `%s install` in is checked the same way by\n", r.name())
+	fmt.Printf("`%s doctor` or `%s install --check` there.\n", r.name(), r.name())
+	if len(local.Changes) > 0 || len(global.Changes) > 0 || local.Error != "" || global.Error != "" {
+		return 1
+	}
+	return 0
+}
+
+// installDriftNote tells an agent session that what `enola install` wrote here is behind
+// the installed binary, or returns "" when it is not. The session-start hook is the one
+// thing that runs in every repository after an upgrade, including one made through pip
+// or the install script, where `enola upgrade` never ran to say so.
+//
+// Worded like updatecheck's agent notice: the fact, and the decision left to the user.
+// An agent told to run `enola install` would run it, and rewriting the user's agent
+// configuration mid-task is not its call.
+func installDriftNote(repoDir, home string) string {
+	var where, cmds []string
+	n := 0
+	for _, s := range []struct {
+		scope install.Scope
+		name  string
+		cmd   string
+	}{
+		{install.ScopeLocal, "in this repository", "`enola install`"},
+		{install.ScopeGlobal, "for this user", "`enola install --global`"},
+	} {
+		rs, _, err := installDrift(s.scope, repoDir, home)
+		if err != nil || len(rs) == 0 {
+			continue
+		}
+		n += len(rs)
+		where, cmds = append(where, s.name), append(cmds, s.cmd)
+	}
+	if n == 0 {
+		return ""
+	}
+	verb, update := "differ", "update"
+	if n == 1 {
+		verb = "differs"
+	}
+	if len(cmds) == 1 {
+		update = "updates"
+	}
+	return fmt.Sprintf("Separately: %s that `enola install` wrote %s %s from what the installed enola "+
+		"writes, most likely left by an older version, so enola's instructions, hooks or skills are out of "+
+		"date. %s %s them. Mention this to the user, who decides whether to run it. Do not run it yourself.",
+		plural(n, "file"), strings.Join(where, " and "), verb, strings.Join(cmds, " and "), update)
 }

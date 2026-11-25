@@ -79,6 +79,13 @@ fi
 INSTALL_DIR="${ENOLA_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$INSTALL_DIR"
 
+# A binary already there makes this run an upgrade, which needs different advice at
+# the end: install has to run again, rather than for the first time.
+UPGRADE=""
+if [ -e "$INSTALL_DIR/$TARGET" ]; then
+  UPGRADE=1
+fi
+
 # Windows refuses to overwrite a running executable, and a re-run to upgrade
 # usually finds the MCP server holding this one. Renaming it is allowed, so move
 # it aside first, as `enola upgrade` does.
@@ -104,3 +111,26 @@ fi
 echo ""
 echo "If $INSTALL_DIR is not in your PATH, add it:"
 echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+
+# The binary is not the whole install: `enola install` writes the instructions, hooks
+# and skills your agents read, per repository. After an upgrade they stay as the old
+# version left them until it runs again, so the new binary says whether they are behind
+# here. Exit 0 or 1 is its answer; anything else is a release from before `--check`,
+# whose usage error would only confuse, so the plain advice stands in for it.
+echo ""
+if [ -n "$UPGRADE" ]; then
+  set +e
+  CHECK="$("$INSTALL_DIR/$TARGET" install --check 2>/dev/null)"
+  STATUS=$?
+  set -e
+  if [ "$STATUS" -le 1 ]; then
+    echo "$CHECK"
+  else
+    echo "Run \`enola install\` again in each repository you set up, so your agents get this"
+    echo "version's instructions, hooks and skills. Hooks an earlier install wrote are kept."
+  fi
+else
+  echo "Next, in each repository you work in:"
+  echo "  enola install --hooks"
+  echo "It tells your coding agents enola exists, adds its skills, and grades each session."
+fi

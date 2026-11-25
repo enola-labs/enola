@@ -44,7 +44,7 @@ func (r *Runner) Doctor(args []string) {
 				"Report whether enola's agent hooks are actually firing in this repository.\n\n"+
 				"`install --hooks` can write a configuration the agent ignores — it reports\n"+
 				"success either way. This asks the only question that settles it: when did the\n"+
-				"hooks last run?\n\nIt also lists enola's skills in each directory `install` writes them to, and\nany that differ from what this binary would write.\n\nFlags:\n")
+				"hooks last run?\n\nIt also lists the files `install` wrote that differ from what this binary\nwould write, here and in your home directory, and enola's skills in each\ndirectory `install` writes them to.\n\nFlags:\n")
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "doctor")
 	}
@@ -82,8 +82,13 @@ func (r *Runner) Doctor(args []string) {
 		update = updatecheck.For(engine.ExtractorVersion())
 	}
 
+	home, _ := os.UserHomeDir()
+	local := installStatusFor(install.ScopeLocal, repoDir, home)
+	global := installStatusFor(install.ScopeGlobal, repoDir, home)
+
 	if *asJSON {
 		out := map[string]any{
+			"install":           map[string]installStatus{"local": local, "global": global},
 			"repo":              repoDir,
 			"hooks_configured":  installed,
 			"state":             state,
@@ -171,12 +176,43 @@ func (r *Runner) Doctor(args []string) {
 	}
 	fmt.Println()
 
+	r.printInstall(repoDir, home, local, global)
 	r.printSkills(repoDir)
 
 	fmt.Println("Session hooks")
 
 	if !installed {
 		fmt.Println("  not configured for this repository.")
+		if dir, _, ok := enclosingFolderHooks(repoDir); ok {
+			if folderGrades(dir) {
+				printWrapped(fmt.Sprintf("Sessions started in %s get that folder's enola hooks, which in "+
+					"Claude Code grade this repository too: its baseline is pinned before a session's first "+
+					"edit here, and the change graded when the turn ends.", displayPath(dir)))
+				fmt.Println()
+				for _, e := range []struct {
+					event       hookstate.Event
+					label, does string
+				}{
+					{hookstate.EventSessionStart, "pin", "before a session's first edit here"},
+					{hookstate.EventStop, "grade", "when a turn that edited here ends"},
+				} {
+					fmt.Printf("  %-15s %s\n", e.label, e.does)
+					if rec := state.Get(e.event); rec == nil || rec.Count == 0 {
+						fmt.Printf("  %-15s not yet: no session there has edited this repository\n", "")
+					} else {
+						fmt.Printf("  %-15s last ran %s ago · %d run(s) · last outcome: %s\n",
+							"", humanSince(rec.LastFired), rec.Count, rec.LastOutcome)
+					}
+				}
+				fmt.Println()
+				printWrapped(fmt.Sprintf("To have sessions started here graded as well, run `%s install --hooks` here.", r.name()))
+				return
+			} else {
+				printWrapped(fmt.Sprintf("Sessions started in %s get that folder's enola hooks, which point "+
+					"the agent at enola's tools here too but grade nothing. `%s install` run in %s adds the "+
+					"hooks that grade each repository a Claude Code session edits.", displayPath(dir), r.name(), displayPath(dir)))
+			}
+		}
 		fmt.Printf("  Run `%s install --hooks` to have the loop run itself: a baseline pinned\n", r.name())
 		fmt.Println("  at session start, and the change graded when the session ends.")
 		return
@@ -192,7 +228,6 @@ func (r *Runner) Doctor(args []string) {
 	fmt.Println()
 
 	if folder {
-		// Only the hooks that steer the agent are installed in a folder of repositories.
 		st := state.Get(hookstate.EventSessionStart)
 		fmt.Printf("  %-15s %s\n", "session-start", "tells the agent how to reach enola's tools")
 		if st == nil || st.Count == 0 {
@@ -201,10 +236,31 @@ func (r *Runner) Doctor(args []string) {
 			fmt.Printf("  %-15s last ran %s ago · %d run(s)\n", "", humanSince(st.LastFired), st.Count)
 		}
 		fmt.Printf("  %-15s %s\n", "pre-tool", "refuses a session's first searches until an enola tool is used")
+		grades := folderGrades(repoDir)
+		if grades {
+			fmt.Printf("  %-15s %s\n", "pre-edit", "pins a repository's baseline before the session's first edit in it")
+			fmt.Printf("  %-15s %s\n", "stop", "grades each repository the session edited")
+			if sp := state.Get(hookstate.EventStop); sp == nil || sp.Count == 0 {
+				fmt.Printf("  %-15s NEVER FIRED\n", "")
+			} else {
+				fmt.Printf("  %-15s last ran %s ago · %d run(s)\n", "", humanSince(sp.LastFired), sp.Count)
+			}
+		}
 		fmt.Println()
-		fmt.Println("  This is a folder of repositories: these hooks point the agent at enola and grade")
-		fmt.Println("  nothing, because a baseline needs one repository. To have a change graded,")
-		fmt.Printf("  run `%s install --hooks` inside each repository.\n", r.name())
+		msg := ""
+		if st != nil && st.Count > 0 {
+			msg = "These hooks are working: they point the agent at enola's tools in whichever repository it works in. "
+		}
+		if grades {
+			printWrapped(msg + "A Claude Code session here is graded per repository: each repository's baseline is " +
+				"pinned before the session's first edit in it, and the change graded when the turn ends. " +
+				"`" + r.name() + " doctor` in a repository shows its own record. Edits made through a shell " +
+				"command rather than an edit tool do not pin a baseline, and other agents are not graded from here.")
+		} else {
+			printWrapped(msg + "They grade nothing: they were installed by a version that did not grade from a " +
+				"folder. `" + r.name() + " install` here adds the hooks that grade each repository a Claude Code " +
+				"session edits.")
+		}
 		return
 	}
 
@@ -235,6 +291,24 @@ func (r *Runner) Doctor(args []string) {
 		fmt.Println("  repositories, not a repository, and grading it would snapshot all of them as")
 		fmt.Printf("  one. Install the hooks inside each repository instead (`%s install --hooks`\n", r.name())
 		fmt.Println("  run there).")
+	case !state.Fired(hookstate.EventStop) && !state.Fired(hookstate.EventSessionStart) && folderHooksRan(repoDir) != "":
+		// Sessions start in an enclosing folder of repositories, whose own hooks run
+		// instead. Reporting that as a broken configuration sent people hunting for a
+		// defect that is a choice of where to start the agent.
+		fmt.Println("  NEVER RUN FROM A SESSION STARTED HERE.")
+		printWrapped(folderHooksRan(repoDir))
+		dir, _, _ := enclosingFolderHooks(repoDir)
+		if folderGrades(dir) {
+			printWrapped("An agent runs the hooks of the folder its session starts in. That folder's hooks grade " +
+				"this repository too, in Claude Code, from a session's first edit here; no session there has " +
+				"edited it yet.")
+		} else {
+			printWrapped("An agent runs the hooks of the folder its session starts in, so these run only for a " +
+				"session started inside this repository, and that folder's hooks grade nothing. `" + r.name() +
+				" install` run in " + displayPath(dir) + " adds the hooks that grade each repository a Claude " +
+				"Code session edits; until then, pin and check yourself (`" + r.name() + " baseline pin`, then `" +
+				r.name() + " check`).")
+		}
 	case !state.Fired(hookstate.EventStop) && !state.Fired(hookstate.EventSessionStart):
 		fmt.Println("  NEITHER HOOK HAS EVER RUN.")
 		fmt.Println("  The configuration exists but nothing is invoking it. Start a session in this")
@@ -448,4 +522,133 @@ func (r *Runner) printSkills(repoDir string) {
 func binderLine(preLink, postLink []string) string {
 	return fmt.Sprintf("binders: %d run on every snapshot (%d pre-link, %d post-link); a snapshot's receipt lists those that ran without error",
 		len(preLink)+len(postLink), len(preLink), len(postLink))
+}
+
+// installStatus is how one scope's install compares with what this binary writes.
+type installStatus struct {
+	Installed bool `json:"installed"`
+	// Changes are the files a plain `enola install` would change, as "<action> <path>".
+	Changes []string `json:"changes,omitempty"`
+	Error   string   `json:"error,omitempty"`
+}
+
+func installStatusFor(scope install.Scope, repoDir, home string) installStatus {
+	rs, installed, err := installDrift(scope, repoDir, home)
+	st := installStatus{Installed: installed}
+	if err != nil {
+		st.Error = err.Error()
+	}
+	base := repoDir
+	if scope == install.ScopeGlobal {
+		base = home
+	}
+	for _, r := range rs {
+		p := r.Path
+		if rel, err := filepath.Rel(base, p); err == nil && !strings.HasPrefix(rel, "..") {
+			p = rel
+			if scope == install.ScopeGlobal {
+				p = filepath.Join("~", rel)
+			}
+		}
+		st.Changes = append(st.Changes, string(r.Action)+" "+p)
+	}
+	return st
+}
+
+// printInstall reports whether the files `enola install` wrote are the ones this binary
+// would write: the instructions, the hooks and the extensions as well as the skills,
+// which an upgrade leaves as the old version wrote them. The home directory is listed
+// only when something of enola's is there, since most installs are per repository.
+func (r *Runner) printInstall(repoDir, home string, local, global installStatus) {
+	fmt.Println("Installed for your agents")
+	behind := false
+	row := func(label string, st installStatus) {
+		switch {
+		case st.Error != "":
+			fmt.Printf("  %-18s could not be read: %s\n", label, st.Error)
+		case !st.Installed:
+			fmt.Printf("  %-18s nothing installed. `%s install --hooks` wires your agents to enola.\n", label, r.name())
+		case len(st.Changes) == 0:
+			fmt.Printf("  %-18s current with this binary\n", label)
+		default:
+			behind = true
+			verb := "differ"
+			if len(st.Changes) == 1 {
+				verb = "differs"
+			}
+			fmt.Printf("  %-18s %s %s from what this binary writes\n", label, plural(len(st.Changes), "file"), verb)
+			for _, c := range st.Changes {
+				fmt.Printf("  %-18s   %s\n", "", c)
+			}
+		}
+	}
+	row("this repository", local)
+	if global.Installed || global.Error != "" {
+		row("~ (all projects)", global)
+	}
+	if behind {
+		var cmds []string
+		if len(local.Changes) > 0 {
+			cmds = append(cmds, "`"+r.name()+" install`")
+		}
+		if len(global.Changes) > 0 {
+			cmds = append(cmds, "`"+r.name()+" install --global`")
+		}
+		fmt.Printf("  Run %s to bring them in line. Hooks an earlier install wrote are\n", strings.Join(cmds, " and "))
+		fmt.Println("  kept; restart your agent session afterwards.")
+	}
+	fmt.Println()
+}
+
+// enclosingFolderHooks finds the nearest directory above repoDir that is a folder of
+// repositories with enola's hooks configured, and the record of those hooks. Found by
+// walking up, never by name: where someone keeps their repositories is theirs.
+func enclosingFolderHooks(repoDir string) (dir string, state hookstate.State, ok bool) {
+	for d := filepath.Dir(repoDir); ; d = filepath.Dir(d) {
+		if workspace.IsFolderOfRepos(d) && hooksConfiguredIn(d) != "" {
+			return d, hookstate.Load(hookOutputDir(d)), true
+		}
+		if parent := filepath.Dir(d); parent == d {
+			return "", hookstate.State{}, false
+		}
+	}
+}
+
+// folderHooksRan says where this repository's sessions start when an enclosing folder
+// of repositories has enola hooks that have run, or "" when none has.
+func folderHooksRan(repoDir string) string {
+	dir, st, ok := enclosingFolderHooks(repoDir)
+	if !ok || !st.Fired(hookstate.EventSessionStart) {
+		return ""
+	}
+	return fmt.Sprintf("Sessions start in %s instead, a folder of repositories with its own enola hooks, "+
+		"last run %s ago.", displayPath(dir), humanSince(st.Get(hookstate.EventSessionStart).LastFired))
+}
+
+// displayPath shortens a path under the home directory to ~/..., for reading only.
+func displayPath(p string) string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if rel, err := filepath.Rel(home, p); err == nil && !strings.HasPrefix(rel, "..") {
+			if rel == "." {
+				return "~"
+			}
+			return filepath.Join("~", rel)
+		}
+	}
+	return p
+}
+
+// printWrapped prints a paragraph indented under a doctor section.
+func printWrapped(text string) {
+	for _, line := range wrap(text, 76) {
+		fmt.Println("  " + line)
+	}
+}
+
+// folderGrades reports whether the folder's Claude Code hooks include the pre-edit hook,
+// the one that makes a folder's sessions graded. Folder installs made before it existed
+// only steer.
+func folderGrades(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	return err == nil && strings.Contains(string(data), " hook pre-edit")
 }

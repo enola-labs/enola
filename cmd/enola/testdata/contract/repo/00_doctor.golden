@@ -20,6 +20,9 @@ Baseline
       enola baseline pin
   or let the session-start hook pin it.
 
+Installed for your agents
+  this repository    nothing installed. `enola install --hooks` wires your agents to enola.
+
 Skills
   .claude/skills     for Claude Code
                      none installed

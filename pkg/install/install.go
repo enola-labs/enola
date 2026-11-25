@@ -29,6 +29,9 @@ type Options struct {
 	// Off by default: instructions are inert context, whereas hooks run commands, and
 	// that difference should be a decision the user makes rather than one they discover.
 	Hooks bool
+	// DropHooks removes the hooks an earlier install wrote, on an install run without
+	// Hooks. Without it such a run leaves them as they are.
+	DropHooks bool
 	// HookCommand is the binary the hook config invokes. Defaults to "enola".
 	HookCommand string
 	// FolderOfRepos marks a target that is a folder of repositories rather than one. Its
@@ -186,10 +189,11 @@ func codexTarget(o Options, remove bool) ([]Result, error) {
 		}
 	}
 	// Codex's hooks pin and grade, and do nothing else: a folder of repositories gets none.
-	if !remove && !o.grades() {
+	drop := !remove && !o.Hooks && o.DropHooks
+	if !remove && !o.grades() && !drop {
 		return out, nil
 	}
-	hr, err := writeCodexHooks(path, codexPruneStop(o), o, remove)
+	hr, err := writeCodexHooks(path, codexPruneStop(o), o, remove || drop)
 	if err != nil {
 		return nil, err
 	}
@@ -305,8 +309,8 @@ func claudeTarget(o Options, remove bool) ([]Result, error) {
 	}
 	out = append(out, sr...)
 
-	if o.Hooks {
-		hr, err := writeHooks(o, false)
+	if o.Hooks || o.DropHooks {
+		hr, err := writeHooks(o, !o.Hooks)
 		if err != nil {
 			return nil, err
 		}

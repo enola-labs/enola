@@ -1,0 +1,143 @@
+package command
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/enola-labs/enola/internal/hookstate"
+	"github.com/enola-labs/enola/pkg/install"
+)
+
+// doctor reports every file a plain re-install would change, not only skills: here a
+// hook command pointing at another binary, which is what an upgrade or a move leaves.
+func TestDoctorReportsInstallDrift(t *testing.T) {
+	repo, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	o := install.Options{Scope: install.ScopeLocal, RepoDir: repo, HomeDir: home, Hooks: true,
+		Targets: []string{"claude"}, HookCommand: hookBinary()}
+	if _, err := install.Install(o); err != nil {
+		t.Fatal(err)
+	}
+	show := func() string {
+		local := installStatusFor(install.ScopeLocal, repo, home)
+		global := installStatusFor(install.ScopeGlobal, repo, home)
+		return captureStdout(t, func() { testRunner().printInstall(repo, home, local, global) })
+	}
+
+	if out := show(); !strings.Contains(out, "current with this binary") || strings.Contains(out, "~ (all projects)") {
+		t.Errorf("a fresh install is not reported current, or an empty home is listed:\n%s", out)
+	}
+
+	o.HookCommand = "/elsewhere/enola"
+	if _, err := install.Install(o); err != nil {
+		t.Fatal(err)
+	}
+	out := show()
+	if !strings.Contains(out, "updated "+filepath.Join(".claude", "settings.json")) {
+		t.Errorf("hooks invoking another binary are not reported:\n%s", out)
+	}
+	if !strings.Contains(out, "Run `enola install` to bring them in line") {
+		t.Errorf("no command to fix it:\n%s", out)
+	}
+}
+
+// Nothing installed is said as such, with the command that installs it.
+func TestDoctorSaysWhenNothingIsInstalled(t *testing.T) {
+	repo, home := t.TempDir(), t.TempDir()
+	local := installStatusFor(install.ScopeLocal, repo, home)
+	out := captureStdout(t, func() { testRunner().printInstall(repo, home, local, installStatus{}) })
+	if !strings.Contains(out, "nothing installed. `enola install --hooks`") {
+		t.Errorf("an empty repository is not reported as having nothing installed:\n%s", out)
+	}
+}
+
+// `install --check` is what upgrade runs in the new binary: exit 0 when current or when
+// nothing is installed, 1 when a re-install would change something.
+func TestInstallCheck_ExitsOneOnlyWhenBehind(t *testing.T) {
+	repo, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	var code int
+	out := captureStdout(t, func() { code = testRunner().installCheck(repo, home) })
+	if code != 0 || !strings.Contains(out, "Nothing of enola's is installed") {
+		t.Errorf("empty repository: code %d\n%s", code, out)
+	}
+
+	o := install.Options{Scope: install.ScopeLocal, RepoDir: repo, HomeDir: home, HookCommand: hookBinary()}
+	if _, err := install.Install(o); err != nil {
+		t.Fatal(err)
+	}
+	if out := captureStdout(t, func() { code = testRunner().installCheck(repo, home) }); code != 0 {
+		t.Errorf("current install: code %d\n%s", code, out)
+	}
+
+	rule := filepath.Join(repo, ".claude", "rules", "enola.md")
+	if err := os.WriteFile(rule, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = captureStdout(t, func() { code = testRunner().installCheck(repo, home) })
+	if code != 1 || !strings.Contains(out, "Run `enola install` to bring them in line") {
+		t.Errorf("behind install: code %d\n%s", code, out)
+	}
+}
+
+// The session-start note says nothing about install while it is current, and once it is
+// behind names the command and leaves running it to the user.
+func TestInstallDriftNote(t *testing.T) {
+	repo, home := t.TempDir(), t.TempDir()
+	if note := installDriftNote(repo, home); note != "" {
+		t.Errorf("nothing installed, yet a note: %q", note)
+	}
+	o := install.Options{Scope: install.ScopeLocal, RepoDir: repo, HomeDir: home, Hooks: true, HookCommand: hookBinary()}
+	if _, err := install.Install(o); err != nil {
+		t.Fatal(err)
+	}
+	if note := installDriftNote(repo, home); note != "" {
+		t.Errorf("current install, yet a note: %q", note)
+	}
+	rule := filepath.Join(repo, ".claude", "rules", "enola.md")
+	if err := os.WriteFile(rule, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	note := installDriftNote(repo, home)
+	for _, want := range []string{"1 file that `enola install` wrote in this repository differs", "`enola install` updates them", "Do not run it yourself"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("note lacks %q: %q", want, note)
+		}
+	}
+}
+
+// A repository inside a folder of repositories whose hooks have run is told where its
+// sessions start, found by walking up rather than by any folder name; a repository with
+// no such folder above it gets no such sentence.
+func TestFolderHooksRan(t *testing.T) {
+	folder := t.TempDir()
+	repo := filepath.Join(folder, "nested", "service")
+	for _, d := range []string{filepath.Join(repo, ".git"), filepath.Join(folder, "other", ".git"), filepath.Join(folder, "nested", ".git")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// nested/ is itself a repository, so the walk has to pass it to reach the folder.
+	if got := folderHooksRan(repo); got != "" {
+		t.Fatalf("no hooks above, yet: %q", got)
+	}
+	o := install.Options{Scope: install.ScopeLocal, RepoDir: folder, HomeDir: t.TempDir(), Hooks: true,
+		FolderOfRepos: true, Targets: []string{"claude"}, HookCommand: "enola"}
+	if _, err := install.Install(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := folderHooksRan(repo); got != "" {
+		t.Fatalf("folder hooks that never ran, yet: %q", got)
+	}
+	if dir, _, ok := enclosingFolderHooks(repo); !ok || dir != folder {
+		t.Fatalf("enclosing folder = %q, %v; want %q", dir, ok, folder)
+	}
+	hookstate.RecordFired(hookOutputDir(folder), hookstate.EventSessionStart, hookstate.OutcomeNotARepo)
+	if got := folderHooksRan(repo); !strings.Contains(got, displayPath(folder)) || !strings.Contains(got, "last run") {
+		t.Errorf("folder hooks that ran are not reported: %q", got)
+	}
+}

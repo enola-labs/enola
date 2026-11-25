@@ -42,6 +42,9 @@ type hookSpec struct {
 	// is less than Description says.
 	GradesOnly        bool
 	FolderDescription string
+	// FolderOnly marks a hook installed only in a folder of repositories, where a
+	// session does not start in the repository it edits.
+	FolderOnly bool
 }
 
 // agentClaude names the Claude Code writer, for the specs that differ by harness.
@@ -59,7 +62,8 @@ var installedHooks = []hookSpec{{
 		"never replaced. Claude Code is also told how to load enola's tools, which it lists " +
 		"as deferred",
 	FolderDescription: "at the start of a session Claude Code is told how to load enola's tools, " +
-		"which it lists as deferred. No baseline is frozen: that needs one repository",
+		"which it lists as deferred. No baseline is frozen yet: in a folder of repositories each one's " +
+		"is frozen before the session's first edit in it",
 }, {
 	Event:      "PreToolUse",
 	Matcher:    "Grep|Glob|Bash",
@@ -74,6 +78,15 @@ var installedHooks = []hookSpec{{
 	ClaudeOnly:  true,
 	Description: "in Claude Code, a use of an enola tool is recorded, which ends those refusals",
 }, {
+	Event:      "PreToolUse",
+	Matcher:    "Edit|Write|MultiEdit|NotebookEdit",
+	Subcommand: "hook pre-edit",
+	ClaudeOnly: true,
+	FolderOnly: true,
+	Description: "in Claude Code, before a session's first edit inside one of the folder's repositories, " +
+		"that repository's architecture is frozen as a baseline, once per repository per session. That " +
+		"edit waits for one snapshot; a baseline you pinned yourself is never replaced",
+}, {
 	Event:      "Stop",
 	Subcommand: "hook stop",
 	GradesOnly: true,
@@ -81,6 +94,9 @@ var installedHooks = []hookSpec{{
 		"change introduced a regression or a finding no policy enforces, or that the baseline " +
 		"was not comparable so nothing could be graded at all. Said once per distinct report " +
 		"per session, never repeated at every stop",
+	FolderDescription: "in Claude Code, at the end of a turn, each repository the session edited is graded " +
+		"against the baseline frozen before its first edit, and reported only as in a repository: a " +
+		"regression, a finding no policy enforces, or a baseline that could not be compared",
 }}
 
 // HookSummary describes what --hooks will actually configure for THIS run, for callers
@@ -101,9 +117,13 @@ func HookSummary(o Options) []string {
 			if h.ClaudeOnly && !claude {
 				continue
 			}
+			if h.FolderOnly && !o.FolderOfRepos {
+				continue
+			}
 			if o.FolderOfRepos {
-				// Only Claude Code's hooks steer; the rest only grade.
-				if !claude || h.GradesOnly {
+				// Only Claude Code's hooks run in a folder: it alone says which file an
+				// edit touches, which is what finds the repository to grade.
+				if !claude {
 					continue
 				}
 				if h.FolderDescription != "" {
@@ -170,8 +190,13 @@ func writeHooksAt(path, stop string, o Options, remove bool, makeEntry hookEntry
 		if h.ClaudeOnly && agent != agentClaude {
 			continue
 		}
-		// Uninstall removes every hook enola owns, whatever kind of target it was.
-		if h.GradesOnly && o.FolderOfRepos && !remove {
+		// Uninstall removes every hook enola owns, whatever kind of target it was. In a
+		// folder of repositories only Claude Code grades, since only its pre-edit hook
+		// finds the repository an edit lands in; outside one, that hook has no job.
+		if !remove && h.GradesOnly && o.FolderOfRepos && agent != agentClaude {
+			continue
+		}
+		if !remove && h.FolderOnly && !o.FolderOfRepos {
 			continue
 		}
 		if agent == agentClaude && h.ClaudeArgs != "" {
@@ -198,12 +223,25 @@ func writeHooksAt(path, stop string, o Options, remove bool, makeEntry hookEntry
 		// `Stop` silently graded nothing, which is the worst of the three possible
 		// states: everything looks configured and the half that produces the value is
 		// absent. Verified against a real session, both shapes, one variable.
-		for _, h := range specs {
-			entry := makeEntry(o.hookCommand() + " " + h.Subcommand)
-			hooks[h.Event] = mergeMatcher(hooks[h.Event], h.Matcher, entry, remove)
+		// Every enola entry of an event goes first, then each spec's is added. Stripping
+		// inside each add would let a second hook on one event (PreToolUse has two)
+		// delete the first; stripping the whole event, not only the specs' matchers, is
+		// what migrates an entry whose matcher an older version spelled differently.
+		// The events of every hook enola has, not only this run's, so a hook this run
+		// leaves out (a folder's, outside a folder) is removed rather than left behind.
+		for _, h := range installedHooks {
+			if hooks[h.Event] != nil {
+				hooks[h.Event] = mergeMatcher(hooks[h.Event], h.Matcher, nil, true)
+			}
+		}
+		if !remove {
+			for _, h := range specs {
+				entry := makeEntry(o.hookCommand() + " " + h.Subcommand)
+				hooks[h.Event] = addToMatcher(hooks[h.Event], h.Matcher, entry)
+			}
 		}
 
-		for _, h := range specs {
+		for _, h := range installedHooks {
 			if lst, ok := hooks[h.Event].([]any); ok && len(lst) == 0 {
 				delete(hooks, h.Event)
 			}
@@ -278,6 +316,28 @@ func mergeMatcher(existing any, matcher string, entry map[string]any, remove boo
 		out = append(out, group)
 	}
 	return out
+}
+
+// addToMatcher appends entry to the event's group with this matcher, or adds the group,
+// leaving every other entry, enola's included, where it is.
+func addToMatcher(existing any, matcher string, entry map[string]any) any {
+	groups, _ := existing.([]any)
+	for _, g := range groups {
+		group, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, grouped := group["hooks"]; grouped && matcherOf(group) == matcher {
+			inner, _ := group["hooks"].([]any)
+			group["hooks"] = append(inner, entry)
+			return groups
+		}
+	}
+	group := map[string]any{"hooks": []any{entry}}
+	if matcher != "" {
+		group["matcher"] = matcher
+	}
+	return append(groups, group)
 }
 
 // matcherOf returns a group's matcher, treating an absent or non-string value as the
