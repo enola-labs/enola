@@ -4061,7 +4061,13 @@ import (
 // call scan), and a typed top-level final or const tear-off is a names edge.
 // v728: Dart: the modules under lib/ of a package pub would publish (a version, a
 // license file beside the pubspec, no `publish_to: none`) carry `published`.
-const cacheVersion = "v728"
+// v729: C++: a member function template that news its type parameter, or passes it
+// to another factory through the object, a member (a smart pointer's pointee
+// included) or a typed receiver, constructs the type argument a call writes, and a
+// template body counts wherever the construction sits, not only in its return
+// statement. emplace_back, emplace_front and emplace on a standard container
+// declared by a parameter, local or member construct its element type.
+const cacheVersion = "v729"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

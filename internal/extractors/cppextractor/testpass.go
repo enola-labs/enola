@@ -169,7 +169,7 @@ func (tp *testPass) resolve(ctx context.Context, repoPath string, prod []facts.F
 var resolutionProps = []string{
 	"symbol_kind", "has_body", "receiver", "language", propReturnType, "superclass",
 	"abstract", "final", "override", "exported", "static", facts.PropFieldTypes,
-	"include", "include_style", propFactoryNew, propFactoryForwards,
+	"include", "include_style", propFactoryNew, propFactoryForwards, propFieldTemplates,
 }
 
 // resolutionView copies the production facts test resolution reads: each

@@ -217,3 +217,131 @@ func TestCppConstructionYieldsToTypedefsAndFileLocalTypes(t *testing.T) {
 		}
 	}
 }
+
+const memberFactories = `#include <memory>
+#include <vector>
+namespace db {
+class ByArena { public: ByArena(); };
+class ByArenaAlias { public: ByArenaAlias(); };
+class ByPlanner { public: ByPlanner(int); };
+class ByTyped { public: ByTyped(); };
+class ByEmplaceLocal { public: ByEmplaceLocal(int); };
+class ByEmplaceField { public: ByEmplaceField(int); };
+class ByGet { public: ByGet(); };
+class Arena {
+public:
+	template <class T, class... ARGS>
+	T *Make(ARGS &&...args) {
+		auto mem = Allocate(sizeof(T));
+		return new (mem) T(std::forward<ARGS>(args)...);
+	}
+	template <class T, class... ARGS>
+	T *MakeAlias(ARGS &&...args) {
+		return Make<T>(std::forward<ARGS>(args)...);
+	}
+	void *Allocate(int n);
+};
+class Plan {
+public:
+	template <class T, class... ARGS>
+	T &Make(ARGS &&...args) {
+		auto ptr = arena.Make<T>(std::forward<ARGS>(args)...);
+		ops.push_back(ptr);
+		return *ptr;
+	}
+	Arena arena;
+	std::vector<void *> ops;
+};
+class Getter {
+public:
+	template <class T>
+	T *Get() { return static_cast<T *>(nullptr); }
+};
+class Planner {
+public:
+	template <class T, class... ARGS>
+	T &Make(ARGS &&...args) {
+		return plan->Make<T>(std::forward<ARGS>(args)...);
+	}
+	void Build();
+	void Typed(Planner &other, Arena &a);
+	void Shadow();
+	std::unique_ptr<Plan> plan;
+	std::vector<ByEmplaceField> items;
+};
+}
+`
+
+func memberFactoryProject(t *testing.T) []facts.Fact {
+	t.Helper()
+	return extractProject(t, map[string]string{
+		"include/arena.hpp": memberFactories,
+		"src/planner.cpp": `#include "../include/arena.hpp"
+namespace db {
+void Planner::Build() {
+	Make<ByPlanner>(1);
+	items.emplace_back(2);
+	std::vector<ByEmplaceLocal> locals;
+	locals.emplace_back(3);
+	Getter g;
+	g.Get<ByGet>();
+}
+void Planner::Typed(Planner &other, Arena &a) {
+	other.Make<ByTyped>();
+	a.Make<ByArena>();
+	a.MakeAlias<ByArenaAlias>();
+}
+void Planner::Shadow() {
+	auto items = Getter();
+	items.emplace_back(4);
+}
+}
+`,
+	})
+}
+
+// A member function template that news its type parameter, or passes it to such a
+// template through the object, a member or a typed receiver, constructs the type
+// argument a call writes.
+func TestCppMemberFactoryTemplatesInstantiate(t *testing.T) {
+	ff := memberFactoryProject(t)
+	build := mustFact(t, ff, "src.db::Planner::Build")
+	if !hasRelation(build, facts.RelInstantiates, "include.db::ByPlanner") {
+		t.Errorf("Build should instantiate ByPlanner through Planner::Make, Plan::Make and Arena::Make, got %+v", build.Relations)
+	}
+	if hasRelation(build, facts.RelInstantiates, "include.db::ByGet") {
+		t.Errorf("a member template that only casts is no factory, got %+v", build.Relations)
+	}
+	typed := mustFact(t, ff, "src.db::Planner::Typed")
+	for _, want := range []string{"include.db::ByTyped", "include.db::ByArena", "include.db::ByArenaAlias"} {
+		if !hasRelation(typed, facts.RelInstantiates, want) {
+			t.Errorf("Typed should instantiate %s, got %+v", want, typed.Relations)
+		}
+	}
+	for _, f := range ff {
+		if f.PropAny(propFieldTemplates) != nil || f.PropAny(propFactoryForwards) != nil {
+			t.Errorf("%s keeps a private prop", f.Name)
+		}
+		for _, r := range f.Relations {
+			if r.Kind == relFieldElementCandidate {
+				t.Errorf("%s keeps a provisional edge %+v", f.Name, r)
+			}
+		}
+	}
+}
+
+// emplace_back and emplace construct the element type of the container a local,
+// a parameter or a member of the class declares; a local of the member's name
+// hides it.
+func TestCppEmplaceInstantiatesElementType(t *testing.T) {
+	ff := memberFactoryProject(t)
+	build := mustFact(t, ff, "src.db::Planner::Build")
+	for _, want := range []string{"include.db::ByEmplaceLocal", "include.db::ByEmplaceField"} {
+		if !hasRelation(build, facts.RelInstantiates, want) {
+			t.Errorf("Build should instantiate %s, got %+v", want, build.Relations)
+		}
+	}
+	if shadow := mustFact(t, ff, "src.db::Planner::Shadow"); hasRelation(shadow, facts.RelInstantiates, "include.db::ByEmplaceField") {
+		t.Errorf("a local hides the member of its name, got %+v", shadow.Relations)
+	}
+}
