@@ -109,10 +109,12 @@ func (r *Runner) Install(args []string, remove bool) {
 	folder := opts.Hooks && opts.Scope == install.ScopeLocal && workspace.IsFolderOfRepos(repoDir)
 	if folder {
 		opts.FolderOfRepos = true
-		fmt.Printf("%s is a folder of repositories, not a repository: installing the hooks that\n", repoDir)
-		fmt.Println("point the agent at enola, not the ones that pin a baseline and grade a change,")
-		fmt.Println("which need one repository. Run `install --hooks` inside each repository you")
-		fmt.Println("want graded.")
+		for _, line := range wrap(fmt.Sprintf("%s is a folder of repositories, not a repository. Sessions "+
+			"started here are graded per repository, in Claude Code only: a repository's baseline is "+
+			"pinned before the session's first edit in it, and the change graded when the turn ends. "+
+			"Codex and Pi get no hooks here; run `install --hooks` inside a repository for those.", repoDir), 80) {
+			fmt.Println(line)
+		}
 		fmt.Println()
 	}
 	if *targets != "" {
@@ -155,7 +157,7 @@ func (r *Runner) Install(args []string, remove bool) {
 			// Described by the installer itself, so this can never announce a hook that
 			// is not actually configured.
 			if opts.FolderOfRepos {
-				fmt.Println("Hooks:      the ones that steer the agent (a folder of repositories, see above)")
+				fmt.Println("Hooks:      yes, Claude Code's (a folder of repositories, see above)")
 			} else {
 				fmt.Println("Hooks:      yes")
 			}

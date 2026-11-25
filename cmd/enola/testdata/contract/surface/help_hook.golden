@@ -15,6 +15,9 @@ Each event reads the agent's JSON payload on stdin.
   pre-tool       Claude Code only: refuse a session's first two file searches
                  with a pointer to enola's tools, until one of them is used
   post-tool      Claude Code only: record that an enola tool was used
+  pre-edit       Claude Code only, in a folder of repositories: before the
+                 session's first edit in one of them, pin its baseline so
+                 stop can grade it
 
 It never breaks, delays or clutters a session: every failure, and every
 event this build does not know, exits 0 and says nothing. Run

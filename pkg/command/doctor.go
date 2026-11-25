@@ -184,9 +184,34 @@ func (r *Runner) Doctor(args []string) {
 	if !installed {
 		fmt.Println("  not configured for this repository.")
 		if dir, _, ok := enclosingFolderHooks(repoDir); ok {
-			printWrapped(fmt.Sprintf("Sessions started in %s get that folder's enola hooks, which point "+
-				"the agent at enola's tools here too but grade nothing: grading needs a session started "+
-				"inside this repository.", displayPath(dir)))
+			if folderGrades(dir) {
+				printWrapped(fmt.Sprintf("Sessions started in %s get that folder's enola hooks, which in "+
+					"Claude Code grade this repository too: its baseline is pinned before a session's first "+
+					"edit here, and the change graded when the turn ends.", displayPath(dir)))
+				fmt.Println()
+				for _, e := range []struct {
+					event       hookstate.Event
+					label, does string
+				}{
+					{hookstate.EventSessionStart, "pin", "before a session's first edit here"},
+					{hookstate.EventStop, "grade", "when a turn that edited here ends"},
+				} {
+					fmt.Printf("  %-15s %s\n", e.label, e.does)
+					if rec := state.Get(e.event); rec == nil || rec.Count == 0 {
+						fmt.Printf("  %-15s not yet: no session there has edited this repository\n", "")
+					} else {
+						fmt.Printf("  %-15s last ran %s ago · %d run(s) · last outcome: %s\n",
+							"", humanSince(rec.LastFired), rec.Count, rec.LastOutcome)
+					}
+				}
+				fmt.Println()
+				printWrapped(fmt.Sprintf("To have sessions started here graded as well, run `%s install --hooks` here.", r.name()))
+				return
+			} else {
+				printWrapped(fmt.Sprintf("Sessions started in %s get that folder's enola hooks, which point "+
+					"the agent at enola's tools here too but grade nothing. `%s install` run in %s adds the "+
+					"hooks that grade each repository a Claude Code session edits.", displayPath(dir), r.name(), displayPath(dir)))
+			}
 		}
 		fmt.Printf("  Run `%s install --hooks` to have the loop run itself: a baseline pinned\n", r.name())
 		fmt.Println("  at session start, and the change graded when the session ends.")
@@ -203,7 +228,6 @@ func (r *Runner) Doctor(args []string) {
 	fmt.Println()
 
 	if folder {
-		// Only the hooks that steer the agent are installed in a folder of repositories.
 		st := state.Get(hookstate.EventSessionStart)
 		fmt.Printf("  %-15s %s\n", "session-start", "tells the agent how to reach enola's tools")
 		if st == nil || st.Count == 0 {
@@ -212,15 +236,31 @@ func (r *Runner) Doctor(args []string) {
 			fmt.Printf("  %-15s last ran %s ago · %d run(s)\n", "", humanSince(st.LastFired), st.Count)
 		}
 		fmt.Printf("  %-15s %s\n", "pre-tool", "refuses a session's first searches until an enola tool is used")
+		grades := folderGrades(repoDir)
+		if grades {
+			fmt.Printf("  %-15s %s\n", "pre-edit", "pins a repository's baseline before the session's first edit in it")
+			fmt.Printf("  %-15s %s\n", "stop", "grades each repository the session edited")
+			if sp := state.Get(hookstate.EventStop); sp == nil || sp.Count == 0 {
+				fmt.Printf("  %-15s NEVER FIRED\n", "")
+			} else {
+				fmt.Printf("  %-15s last ran %s ago · %d run(s)\n", "", humanSince(sp.LastFired), sp.Count)
+			}
+		}
 		fmt.Println()
 		msg := ""
 		if st != nil && st.Count > 0 {
 			msg = "These hooks are working: they point the agent at enola's tools in whichever repository it works in. "
 		}
-		printWrapped(msg + "Grading a change (a baseline when the session starts, a report when it ends) needs a " +
-			"session started inside one repository, with `" + r.name() + " install --hooks` run there. From this " +
-			"folder, ask the agent to pin a baseline and diff against it, or run `" + r.name() + " baseline pin` " +
-			"and `" + r.name() + " check` in the repository.")
+		if grades {
+			printWrapped(msg + "A Claude Code session here is graded per repository: each repository's baseline is " +
+				"pinned before the session's first edit in it, and the change graded when the turn ends. " +
+				"`" + r.name() + " doctor` in a repository shows its own record. Edits made through a shell " +
+				"command rather than an edit tool do not pin a baseline, and other agents are not graded from here.")
+		} else {
+			printWrapped(msg + "They grade nothing: they were installed by a version that did not grade from a " +
+				"folder. `" + r.name() + " install` here adds the hooks that grade each repository a Claude Code " +
+				"session edits.")
+		}
 		return
 	}
 
@@ -257,10 +297,18 @@ func (r *Runner) Doctor(args []string) {
 		// defect that is a choice of where to start the agent.
 		fmt.Println("  NEVER RUN FROM A SESSION STARTED HERE.")
 		printWrapped(folderHooksRan(repoDir))
-		printWrapped("An agent runs the hooks of the folder its session starts in, so these run only for a " +
-			"session started inside this repository. Changes made here from that folder are not graded " +
-			"automatically: start the agent here, or pin and check yourself (`" + r.name() + " baseline pin`, " +
-			"then `" + r.name() + " check`).")
+		dir, _, _ := enclosingFolderHooks(repoDir)
+		if folderGrades(dir) {
+			printWrapped("An agent runs the hooks of the folder its session starts in. That folder's hooks grade " +
+				"this repository too, in Claude Code, from a session's first edit here; no session there has " +
+				"edited it yet.")
+		} else {
+			printWrapped("An agent runs the hooks of the folder its session starts in, so these run only for a " +
+				"session started inside this repository, and that folder's hooks grade nothing. `" + r.name() +
+				" install` run in " + displayPath(dir) + " adds the hooks that grade each repository a Claude " +
+				"Code session edits; until then, pin and check yourself (`" + r.name() + " baseline pin`, then `" +
+				r.name() + " check`).")
+		}
 	case !state.Fired(hookstate.EventStop) && !state.Fired(hookstate.EventSessionStart):
 		fmt.Println("  NEITHER HOOK HAS EVER RUN.")
 		fmt.Println("  The configuration exists but nothing is invoking it. Start a session in this")
@@ -595,4 +643,12 @@ func printWrapped(text string) {
 	for _, line := range wrap(text, 76) {
 		fmt.Println("  " + line)
 	}
+}
+
+// folderGrades reports whether the folder's Claude Code hooks include the pre-edit hook,
+// the one that makes a folder's sessions graded. Folder installs made before it existed
+// only steer.
+func folderGrades(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	return err == nil && strings.Contains(string(data), " hook pre-edit")
 }

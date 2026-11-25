@@ -104,7 +104,13 @@ When the tools are already loaded (registered with ` + "`alwaysLoad`" + `), call
 // claudeRule is the body of the Claude Code rule file. No `paths` frontmatter, so it
 // loads at launch with the same priority as a project CLAUDE.md.
 func claudeRule(o Options) string {
-	return header() + body(o) + ClaudeToolsNote + "\n"
+	b := body(o)
+	// In a folder of repositories Claude Code alone is graded, through its pre-edit
+	// hook, so its rule alone carries the hooks note there.
+	if o.Hooks && o.FolderOfRepos {
+		b = Instructions + HooksNote
+	}
+	return header() + b + ClaudeToolsNote + "\n"
 }
 
 // cursorRule carries Cursor's frontmatter. alwaysApply keeps it in context rather than

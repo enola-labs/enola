@@ -122,7 +122,10 @@ func (r *Runner) Hook(ctx context.Context, args []string) {
 			"                 agent\n"+
 			"  pre-tool       Claude Code only: refuse a session's first two file searches\n"+
 			"                 with a pointer to enola's tools, until one of them is used\n"+
-			"  post-tool      Claude Code only: record that an enola tool was used\n\n"+
+			"  post-tool      Claude Code only: record that an enola tool was used\n"+
+			"  pre-edit       Claude Code only, in a folder of repositories: before the\n"+
+			"                 session's first edit in one of them, pin its baseline so\n"+
+			"                 stop can grade it\n\n"+
 			"It never breaks, delays or clutters a session: every failure, and every\n"+
 			"event this build does not know, exits 0 and says nothing. Run\n"+
 			"`"+r.name()+" doctor` to see whether the hooks are firing.\n"+
@@ -143,6 +146,8 @@ func (r *Runner) Hook(ctx context.Context, args []string) {
 		r.runSessionStartHook(ctx, args[1:])
 	case "pre-tool":
 		r.runPreToolHook()
+	case "pre-edit":
+		r.runPreEditHook(ctx)
 	case "post-tool":
 		r.runPostToolHook()
 	case updateRefreshEvent:
@@ -164,7 +169,8 @@ func (r *Runner) runStopHook(ctx context.Context) {
 	if err != nil || in.CWD == "" {
 		return
 	}
-	if skipFolderOfRepos(r, in.CWD, hookstate.EventStop) {
+	if workspace.IsFolderOfRepos(in.CWD) {
+		r.runFolderStopHook(ctx, in)
 		return
 	}
 
@@ -184,10 +190,27 @@ func (r *Runner) runStopHook(ctx context.Context) {
 		return
 	}
 
+	context, notice := r.gradeForStop(ctx, in.CWD, in.SessionID)
+	if context == "" && notice == "" {
+		return
+	}
+	out := stopOutput(in, context, notice)
+
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	fmt.Println(string(encoded))
+}
+
+// gradeForStop grades repoDir's change against its pinned baseline and returns what to
+// say: context for the model, notice for the user, both empty when there is nothing, or
+// when this session was already told the same. It records the run in the repository.
+func (r *Runner) gradeForStop(ctx context.Context, repoDir, session string) (context, notice string) {
 	// Silence is the norm. The gate only has something to say when a baseline was pinned
 	// during this session AND the change either regressed the architecture or introduced
 	// a finding nothing enforced; every other path ends here, having printed nothing.
-	verdict, outDir, ok := r.gradeQuietly(ctx, in.CWD)
+	verdict, outDir, ok := r.gradeQuietly(ctx, repoDir)
 
 	// Findings the run measured exactly and did not fail, because no policy named them.
 	// The hook reports these: an agent that hears nothing after closing a layer violation
@@ -201,7 +224,7 @@ func (r *Runner) runStopHook(ctx context.Context) {
 	// there is something to say, which is what lets the once-per-report rule below cover
 	// every path rather than only the decline it started on. context goes to the model;
 	// notice goes to the user only.
-	var key, context, notice string
+	var key string
 	switch {
 	case ok && verdict.Status == check.StatusRegression:
 		key = verdict.ReportKey()
@@ -246,21 +269,14 @@ func (r *Runner) runStopHook(ctx context.Context) {
 	// ShouldReport is asked BEFORE recording, because recording is what makes the next
 	// identical report a repeat. Said once per distinct report per session, not once per
 	// Stop: the whole cost of repeating it is in hookstate.ShouldReport.
-	report := hookstate.Report{Key: key, Session: in.SessionID}
+	report := hookstate.Report{Key: key, Session: session}
 	say := hookstate.ShouldReport(outDir, hookstate.EventStop, report)
 	hookstate.RecordFiredWithReport(outDir, hookstate.EventStop,
 		stopOutcome(verdict, ok, len(unenforced) > 0), report)
 	if !say {
-		return
+		return "", ""
 	}
-
-	out := stopOutput(in, context, notice)
-
-	encoded, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	fmt.Println(string(encoded))
+	return context, notice
 }
 
 func hasKind(kinds []diff.WarningKind, k diff.WarningKind) bool {
@@ -373,7 +389,13 @@ func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string, ag
 	// separately locked, so running it on every session start costs at most one request
 	// per twelve hours per machine.
 	updatecheck.Refresh(ctx)
+	r.pinBaseline(ctx, repoDir, agent)
+}
 
+// pinBaseline pins repoDir's baseline unless one it must not replace is there: one
+// pinned deliberately, or one another running agent session grades against. It records
+// the run as the repository's session-start, whichever hook made it.
+func (r *Runner) pinBaseline(ctx context.Context, repoDir string, agent int) {
 	eng, cfg, err := r.newEngine(bootstrap.Options{ConfigPath: configForRepo(repoDir)})
 	if err != nil {
 		return

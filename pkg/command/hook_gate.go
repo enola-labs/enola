@@ -50,11 +50,13 @@ func gateReason(left int) string {
 		enolaToolsQuery + ". If this is a search for text and not for structure, run it again. " + more
 }
 
-// gateState is one session's record: whether it has used enola, and how many searches
-// the gate has refused.
+// gateState is one session's record: whether it has used enola, how many searches the
+// gate has refused, and, for a session in a folder of repositories, the repositories it
+// edited, whose baselines the pre-edit hook pinned and the stop hook grades.
 type gateState struct {
-	EnolaUsed bool `json:"enola_used"`
-	Refused   int  `json:"refused"`
+	EnolaUsed bool     `json:"enola_used"`
+	Refused   int      `json:"refused"`
+	Repos     []string `json:"repos,omitempty"`
 }
 
 // sessionIDPattern keeps a session id usable as a file name.

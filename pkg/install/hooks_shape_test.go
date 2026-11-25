@@ -111,18 +111,31 @@ func TestInstall_EveryEventIsMatcherGrouped(t *testing.T) {
 // matcher omits the key rather than writing an empty one, because a group keyed on
 // "" is not the same document as a group with no key.
 func TestInstall_MatcherPresentOnlyWhereTheSpecHasOne(t *testing.T) {
-	hooks := settingsAfter(t, opts(t, true), false)
+	o := opts(t, true)
+	o.FolderOfRepos = true // every hook enola has, PreToolUse's two included
+	hooks := settingsAfter(t, o, false)
 
+	want := map[string]map[string]bool{}
 	for _, h := range installedHooks {
-		list, _ := hooks[h.Event].([]any)
+		if want[h.Event] == nil {
+			want[h.Event] = map[string]bool{}
+		}
+		want[h.Event][h.Matcher] = true
+	}
+	for event, matchers := range want {
+		list, _ := hooks[event].([]any)
+		if len(list) != len(matchers) {
+			t.Errorf("%s has %d groups, want %d", event, len(list), len(matchers))
+		}
 		for _, g := range list {
 			group, _ := g.(map[string]any)
 			m, present := group["matcher"]
+			s, _ := m.(string)
 			switch {
-			case h.Matcher == "" && present:
-				t.Errorf("%s has no matcher in its spec but the group carries %#v", h.Event, m)
-			case h.Matcher != "" && m != h.Matcher:
-				t.Errorf("%s matcher = %#v, want %q", h.Event, m, h.Matcher)
+			case matchers[""] && len(matchers) == 1 && present:
+				t.Errorf("%s has no matcher in its spec but the group carries %#v", event, m)
+			case !matchers[s]:
+				t.Errorf("%s carries a group with matcher %#v no spec has", event, m)
 			}
 		}
 	}
