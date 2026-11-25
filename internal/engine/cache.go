@@ -4050,7 +4050,17 @@ import (
 // v724: C and C++: a bare name found by its unique short name binds to a member
 // (`Type::member`) only from inside a C++ member function. From C, where a bare
 // name is a parameter or local, and from a C++ free function, it binds nothing.
-const cacheVersion = "v724"
+// v725: not used on this branch: reserved for a change landing beside it.
+// v726: not used on this branch: reserved for a change landing beside it.
+// v727: not used on this branch: reserved for a change landing beside it.
+// v728: not used on this branch: reserved for a change landing beside it.
+// v729: C++: a member function template that news its type parameter, or passes it
+// to another factory through the object, a member (a smart pointer's pointee
+// included) or a typed receiver, constructs the type argument a call writes, and a
+// template body counts wherever the construction sits, not only in its return
+// statement. emplace_back, emplace_front and emplace on a standard container
+// declared by a parameter, local or member construct its element type.
+const cacheVersion = "v729"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

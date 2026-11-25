@@ -6,6 +6,7 @@ import (
 
 	sitter "github.com/enola-labs/enola/internal/treesitter"
 
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -17,6 +18,8 @@ import (
 //	new Holder(x)                                   // a new-expression
 //	std::make_unique<Holder>(x)                     // a standard factory
 //	make_uniq<Holder>(x)                            // a project factory template
+//	arena.Make<Holder>(x)  Make<Holder>(x)          // a member factory template
+//	rows.emplace_back(x)                            // a container of Holder
 //
 // Each constructs a Holder (and later destroys it), so each records an instantiates
 // edge, as Holder(x) does. The walker records the type as the source writes it
@@ -25,14 +28,21 @@ import (
 // that resolves to nothing, to an enum or to a template parameter is dropped:
 // there is no bare-name fallback.
 //
-// A project factory is a function template whose return statement holds `new P(…)`
-// for one of its own type parameters P, or calls another factory with P in that
-// factory's constructed position (a wrapper of std::make_unique, or of another
-// project factory). The definition records which position it constructs
-// (propFactoryNew, propFactoryForwards); a call `f<A, B>(…)` records its callee and
-// written type arguments (relFactoryCandidate). The project pass finds the factory
-// through the call edge the caller already resolved, then the type argument in the
-// constructed position.
+// A project factory is a function template whose body holds `new P(…)` for one of
+// its own type parameters P, or calls another factory with P in that factory's
+// constructed position (a wrapper of std::make_unique, or of another project
+// factory). The definition records which position it constructs (propFactoryNew,
+// propFactoryForwards); a call `f<A, B>(…)` records its callee, written type
+// arguments and receiver (relFactoryCandidate). The project pass finds the factory
+// through the call edge the caller already resolved, or for a member template
+// through the receiver's written type: the caller's own class for `Make<A>()` and
+// `this->Make<A>()`, a parameter or local's type, or the type a member of the
+// caller's class is declared with (propFieldTemplates), a smart pointer's pointee
+// included. Then it takes the type argument in the constructed position.
+//
+// emplace_back, emplace_front and emplace construct the element type of a standard
+// container (std::vector<Row> rows; rows.emplace_back(…) builds a Row), declared by
+// a parameter, a local or a member of the caller's class.
 
 const (
 	// relConstructCandidate is a provisional edge naming a constructed type as
@@ -48,7 +58,139 @@ const (
 	// for each factory call in its return statement whose type argument at argPos
 	// is its own parameter ownParam. It does not leave the extractor.
 	propFactoryForwards = "factory_forwards"
+	// propFieldTemplates holds, on a class, "kind|written type" by member name
+	// for the members a factory call or an emplace may go through: "obj" for a
+	// class-typed member (or a pointer or reference to one), "ptr" for a smart
+	// pointer's pointee, "elem" for a container's element. It does not leave the
+	// extractor.
+	propFieldTemplates = "factory_field_types"
+	// relFieldElementCandidate is a provisional edge naming a member of the
+	// caller's class an emplace was called on. It does not leave the extractor.
+	relFieldElementCandidate = "field_element_candidate"
 )
+
+// smartPointers reach their first type argument through ->, whatever qualifies
+// them (a project may wrap the standard ones under the same name).
+var smartPointers = map[string]bool{"unique_ptr": true, "shared_ptr": true}
+
+// elementContainers hold values of their first type argument, which emplaceMethods
+// construct in place.
+var elementContainers = map[string]bool{
+	"vector": true, "deque": true, "list": true, "forward_list": true,
+	"set": true, "multiset": true, "unordered_set": true, "unordered_multiset": true,
+	"queue": true, "priority_queue": true, "stack": true,
+}
+
+var emplaceMethods = map[string]bool{"emplace_back": true, "emplace_front": true, "emplace": true}
+
+// templateArgument returns a template type's leaf name and its first type
+// argument as written ("vector", "Row" for std::vector<Row>), or "" for anything
+// else. An argument with a declarator (Row *) is "".
+func templateArgument(kinds *tsutil.KindTable, t *sitter.Node, src []byte) (leaf, arg string) {
+	for t != nil && kindOf(kinds, t) == "qualified_identifier" {
+		t = t.ChildByFieldName("name")
+	}
+	if t == nil || kindOf(kinds, t) != "template_type" {
+		return "", ""
+	}
+	leaf = nodeText(t.ChildByFieldName("name"), src)
+	args := t.ChildByFieldName("arguments")
+	if args == nil {
+		return leaf, ""
+	}
+	for i := uint(0); i < args.ChildCount(); i++ {
+		a := args.Child(i)
+		if !a.IsNamed() {
+			continue
+		}
+		if kindOf(kinds, a) == "type_descriptor" && a.ChildByFieldName("declarator") == nil {
+			arg = strings.Join(strings.Fields(nodeText(a.ChildByFieldName("type"), src)), "")
+		}
+		break
+	}
+	return leaf, arg
+}
+
+// recordFieldTemplates records, on the class, the members a member factory call or
+// an emplace may go through (propFieldTemplates).
+func (w *astWalker) recordFieldTemplates(node *sitter.Node) {
+	idx := w.currentOwner()
+	if w.lang != langCpp || idx < 0 || hasStorageClass(w, node, "static") {
+		return
+	}
+	t := node.ChildByFieldName("type")
+	entry := ""
+	if typ := w.writtenType(t); typ != "" && kindOf(w.kinds, t) != "template_type" {
+		entry = "obj|" + typ
+	} else if leaf, arg := templateArgument(w.kinds, t, w.src); arg != "" {
+		if typ := w.writtenTypeText(arg); typ != "" && smartPointers[leaf] {
+			entry = "ptr|" + typ
+		} else if typ != "" && elementContainers[leaf] {
+			entry = "elem|" + typ
+		}
+	}
+	if entry == "" {
+		return
+	}
+	for i := uint(0); i < node.ChildCount(); i++ {
+		if node.FieldNameForChild(uint32(i)) != "declarator" {
+			continue
+		}
+		if leaf := declaratorLeafName(w.kinds, node.Child(i), w.src); leaf != "" {
+			m, _ := w.out[idx].PropAny(propFieldTemplates).(map[string]string)
+			if m == nil {
+				m = map[string]string{}
+				w.out[idx].SetProp(propFieldTemplates, m)
+			}
+			m[leaf] = entry
+		}
+	}
+}
+
+// emitEmplaceConstruction records the element type an emplace on root constructs:
+// a parameter or local container's directly, a member's for the project pass.
+func (w *astWalker) emitEmplaceConstruction(root string) {
+	if w.lang != langCpp {
+		return
+	}
+	if v, ok := w.receiverTemplates[root]; ok {
+		if leaf, arg, _ := strings.Cut(v, "|"); elementContainers[leaf] {
+			if typ := w.writtenTypeText(arg); typ != "" {
+				w.addOwnerEdge(relConstructCandidate, typ)
+			}
+		}
+		return
+	}
+	if field := fieldRoot(root); field != "" && w.enclosingTypeReceiver() != "" && (field != root || !w.valueLocal(field)) {
+		w.addOwnerEdge(relFieldElementCandidate, field)
+	}
+}
+
+// factoryReceiver says how the project pass finds the member template a call
+// root.f<A>(…) reaches: "this" through the caller's class, "t:Type" through a
+// parameter or local's type or a smart pointer local's pointee, "f:member" through
+// a member of the caller's class. ok is false for a receiver none of these reach.
+func (w *astWalker) factoryReceiver(root string) (recv string, ok bool) {
+	if root == "this" {
+		return "this", true
+	}
+	if typ := w.receiverTypes[root]; typ != "" {
+		return "t:" + typ, !strings.HasSuffix(typ, callMark)
+	}
+	if v, local := w.receiverTemplates[root]; local {
+		if leaf, arg, _ := strings.Cut(v, "|"); smartPointers[leaf] {
+			if typ := w.writtenTypeText(arg); typ != "" {
+				return "t:" + typ, true
+			}
+		}
+		return "", false
+	}
+	field := fieldRoot(root)
+	if field == "" || w.enclosingTypeReceiver() == "" || field == root && w.valueLocal(field) {
+		return "", false
+	}
+	return "f:" + field, true
+}
 
 // stdFactories construct their first type argument, whatever qualifies them: the
 // standard ones, brought in by a using-directive or reached through a namespace
@@ -200,8 +342,8 @@ func hasStorageClass(w *astWalker, node *sitter.Node, class string) bool {
 	return false
 }
 
-// emitNewConstruction records `new T(…)`. In a function template's return
-// statement, `new P(…)` of its own type parameter makes the template a factory.
+// emitNewConstruction records `new T(…)`. In a function template's body, `new P(…)`
+// of its own type parameter makes the template a factory.
 func (w *astWalker) emitNewConstruction(node *sitter.Node) {
 	if w.lang != langCpp {
 		return
@@ -211,7 +353,7 @@ func (w *astWalker) emitNewConstruction(node *sitter.Node) {
 		w.addOwnerEdge(relConstructCandidate, typ)
 		return
 	}
-	if w.returnDepth == 0 || kindOf(w.kinds, t) != "type_identifier" {
+	if kindOf(w.kinds, t) != "type_identifier" {
 		return
 	}
 	if pos := paramPosition(w.factoryParams, nodeText(t, w.src)); pos >= 0 {
@@ -236,21 +378,37 @@ func paramPosition(params []string, name string) int {
 	return -1
 }
 
-// handleFactoryCall reads a call with explicit type arguments, f<A, B>(…). A
-// standard factory constructs its first argument. Any other records a candidate
-// the project pass checks against the factories; in a function template's return
-// statement, passing its own parameter on records a forward.
+// handleFactoryCall reads a call with explicit type arguments, f<A, B>(…) or
+// root.f<A, B>(…). A standard factory constructs its first argument. Any other
+// records a candidate the project pass checks against the factories; in a function
+// template's body, passing its own parameter on records a forward.
 func (w *astWalker) handleFactoryCall(callee *sitter.Node, name string, kind calleeKind, root string) {
-	if w.lang != langCpp || name == "" || kind == calleeField {
+	if w.lang != langCpp || name == "" {
 		return
 	}
 	fn := callee
-	if kindOf(w.kinds, fn) == "qualified_identifier" {
+	recv := ""
+	switch kindOf(w.kinds, fn) {
+	case "qualified_identifier":
 		for fn != nil && kindOf(w.kinds, fn) == "qualified_identifier" {
 			fn = fn.ChildByFieldName("name")
 		}
+	case "field_expression":
+		if fn = fn.ChildByFieldName("field"); kindOf(w.kinds, fn) != "template_method" {
+			return
+		}
+		var ok bool
+		if recv, ok = w.factoryReceiver(root); !ok {
+			return
+		}
+	case "template_function":
+		if w.enclosingTypeReceiver() != "" {
+			recv = "this" // a member template of the caller's class, or a call edge
+		}
 	}
-	if kindOf(w.kinds, fn) != "template_function" {
+	switch kindOf(w.kinds, fn) {
+	case "template_function", "template_method":
+	default:
 		return
 	}
 	args := fn.ChildByFieldName("arguments")
@@ -269,8 +427,8 @@ func (w *astWalker) handleFactoryCall(callee *sitter.Node, name string, kind cal
 		}
 		written = append(written, strings.Join(strings.Fields(typ), ""))
 	}
-	std := stdFactories[name]
-	if w.returnDepth > 0 && len(w.factoryParams) > 0 {
+	std := stdFactories[name] && kind != calleeField
+	if len(w.factoryParams) > 0 {
 		for pos, a := range written {
 			own := paramPosition(w.factoryParams, a)
 			if own < 0 {
@@ -280,7 +438,7 @@ func (w *astWalker) handleFactoryCall(callee *sitter.Node, name string, kind cal
 				w.markFactory(own)
 			} else if !std {
 				if idx := w.currentOwner(); idx >= 0 {
-					w.out[idx].AddPropStrings(propFactoryForwards, name+"|"+strconv.Itoa(pos)+"|"+strconv.Itoa(own))
+					w.out[idx].AddPropStrings(propFactoryForwards, name+"|"+strconv.Itoa(pos)+"|"+strconv.Itoa(own)+"|"+recv)
 				}
 			}
 		}
@@ -299,7 +457,7 @@ func (w *astWalker) handleFactoryCall(callee *sitter.Node, name string, kind cal
 	for i, a := range written {
 		written[i] = w.writtenTypeText(a)
 	}
-	w.addOwnerEdge(relFactoryCandidate, name+"|"+strings.Join(written, ";"))
+	w.addOwnerEdge(relFactoryCandidate, name+"|"+strings.Join(written, ";")+"|"+recv)
 }
 
 // writtenTypeText applies writtenType's rules to a type argument's text.
@@ -381,6 +539,7 @@ func collectFileTypeNames(w *astWalker, nv sitter.Node) {
 func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *includeVisibility) {
 	kinds := map[string]string{}
 	aliases := newTypeIndex()
+	members := map[string]memberTypes{}
 	for i := range allFacts {
 		if allFacts[i].Kind == facts.KindSymbol {
 			sk := allFacts[i].PropString("symbol_kind")
@@ -388,36 +547,97 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 			if sk == facts.SymbolType {
 				aliases.add(lastScopeComponent(allFacts[i].Name), factpath.Dir(allFacts[i].File), allFacts[i].Name)
 			}
+			if m := fieldTemplates(&allFacts[i]); m != nil {
+				members[allFacts[i].Name] = memberTypes{fields: m, source: sourceDir(&allFacts[i])}
+			}
 		}
 	}
-	factories := factoryPositions(allFacts)
+	resolveClass := func(written, source string) string {
+		class := resolveWrittenType(written, source, types, aliases, visibility)
+		if k := kinds[class]; k != facts.SymbolClass && k != facts.SymbolStruct {
+			return ""
+		}
+		return class
+	}
+	// ownClass is the class a method belongs to, found from the receiver its
+	// definition writes, as any written type is.
+	ownClass := func(f *facts.Fact) string {
+		receiver, _, _ := strings.Cut(f.PropString("receiver"), "<")
+		if receiver == "" || f.PropString("symbol_kind") != facts.SymbolMethod {
+			return ""
+		}
+		return resolveClass(receiver, sourceDir(f))
+	}
+	// member returns what a member of the caller's class is declared with.
+	member := func(f *facts.Fact, field string) (kind, written, source string) {
+		m, ok := members[ownClass(f)]
+		if !ok {
+			return "", "", ""
+		}
+		kind, written, _ = strings.Cut(m.fields[field], "|")
+		return kind, written, m.source
+	}
+	// callees lists the factory a call `callee<…>` on recv may reach, most specific
+	// first (factoryReceiver says what recv holds).
+	callees := func(f *facts.Fact, callee, recv string) []string {
+		var class string
+		switch {
+		case recv == "":
+			return []string{calledTarget(f.Relations, callee)}
+		case recv == "this":
+			if class = ownClass(f); class == "" {
+				return []string{calledTarget(f.Relations, callee)}
+			}
+			return []string{class + "::" + callee, calledTarget(f.Relations, callee)}
+		case strings.HasPrefix(recv, "t:"):
+			class = resolveClass(recv[2:], sourceDir(f))
+		case strings.HasPrefix(recv, "f:"):
+			if kind, written, source := member(f, recv[2:]); kind == "obj" || kind == "ptr" {
+				class = resolveClass(written, source)
+			}
+		}
+		if class == "" {
+			return nil
+		}
+		return []string{class + "::" + callee}
+	}
+	factories := factoryPositions(allFacts, callees)
+	type builtType struct{ written, source string }
 	for i := range allFacts {
 		f := &allFacts[i]
-		f.DelProp(propFactoryNew)
-		f.DelProp(propFactoryForwards)
 		rels := f.Relations
-		var built []string
+		var built []builtType
 		kept := rels[:0]
+		source := sourceDir(f)
 		for _, r := range rels {
 			switch r.Kind {
 			case relConstructCandidate:
-				built = append(built, r.Target)
+				built = append(built, builtType{r.Target, source})
 			case relFactoryCandidate:
-				callee, args, _ := strings.Cut(r.Target, "|")
-				target := calledTarget(rels, callee)
-				pos, ok := factories[target]
-				written := strings.Split(args, ";")
-				if ok && pos < len(written) && written[pos] != "" {
-					built = append(built, written[pos])
+				parts := strings.SplitN(r.Target, "|", 3)
+				if len(parts) != 3 {
+					continue
+				}
+				written := strings.Split(parts[1], ";")
+				for _, target := range callees(f, parts[0], parts[2]) {
+					if pos, ok := factories[target]; ok {
+						if pos < len(written) && written[pos] != "" {
+							built = append(built, builtType{written[pos], source})
+						}
+						break
+					}
+				}
+			case relFieldElementCandidate:
+				if kind, written, from := member(f, r.Target); kind == "elem" {
+					built = append(built, builtType{written, from})
 				}
 			default:
 				kept = append(kept, r)
 			}
 		}
-		source := sourceDir(f)
 		for _, typ := range built {
-			class := resolveWrittenType(typ, source, types, aliases, visibility)
-			if k := kinds[class]; k != facts.SymbolClass && k != facts.SymbolStruct {
+			class := resolveClass(typ.written, typ.source)
+			if class == "" {
 				continue
 			}
 			r := facts.Relation{Kind: facts.RelInstantiates, Target: class}
@@ -427,6 +647,36 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 		}
 		f.Relations = kept
 	}
+	for i := range allFacts {
+		allFacts[i].DelProp(propFactoryNew)
+		allFacts[i].DelProp(propFactoryForwards)
+		allFacts[i].DelProp(propFieldTemplates)
+	}
+}
+
+// memberTypes is a class's propFieldTemplates and the directory its written types
+// resolve from.
+type memberTypes struct {
+	fields map[string]string
+	source string
+}
+
+// fieldTemplates reads propFieldTemplates as the walker wrote it or as the
+// extractor cache decoded it.
+func fieldTemplates(f *facts.Fact) map[string]string {
+	switch m := f.PropAny(propFieldTemplates).(type) {
+	case map[string]string:
+		return m
+	case map[string]any:
+		out := make(map[string]string, len(m))
+		for k, v := range m {
+			if s, ok := v.(string); ok {
+				out[k] = s
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // resolveWrittenType finds the declaration a written type names: its simple name
@@ -471,31 +721,44 @@ func calledTarget(rels []facts.Relation, callee string) string {
 
 // factoryPositions maps each factory template to the type parameter position it
 // constructs: its own `new P`, or a forward to a factory, followed to a fixpoint.
-func factoryPositions(allFacts []facts.Fact) map[string]int {
+// callees lists the factories a forward's call may reach.
+func factoryPositions(allFacts []facts.Fact, callees func(f *facts.Fact, callee, recv string) []string) map[string]int {
 	out := map[string]int{}
+	var forwarding []int
 	for i := range allFacts {
 		if pos, err := strconv.Atoi(allFacts[i].PropString(propFactoryNew)); err == nil {
 			out[allFacts[i].Name] = pos
+		} else if len(allFacts[i].PropStrings(propFactoryForwards)) > 0 {
+			forwarding = append(forwarding, i)
 		}
 	}
 	for changed := true; changed; {
 		changed = false
-		for i := range allFacts {
+		for _, i := range forwarding {
 			f := &allFacts[i]
 			if _, done := out[f.Name]; done {
 				continue
 			}
 			for _, fwd := range f.PropStrings(propFactoryForwards) {
 				parts := strings.Split(fwd, "|")
-				if len(parts) != 3 {
+				if len(parts) != 4 {
 					continue
 				}
 				argPos, err1 := strconv.Atoi(parts[1])
 				own, err2 := strconv.Atoi(parts[2])
-				callee := calledTarget(f.Relations, parts[0])
-				if pos, ok := out[callee]; err1 == nil && err2 == nil && ok && pos == argPos {
-					out[f.Name] = own
-					changed = true
+				if err1 != nil || err2 != nil {
+					continue
+				}
+				for _, callee := range callees(f, parts[0], parts[3]) {
+					if pos, ok := out[callee]; ok {
+						if pos == argPos {
+							out[f.Name] = own
+							changed = true
+						}
+						break
+					}
+				}
+				if _, done := out[f.Name]; done {
 					break
 				}
 			}

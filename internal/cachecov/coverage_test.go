@@ -317,6 +317,11 @@ var versionCoverage = map[int][]string{
 	722: {"TestKotlinTestRefsRecordRepositoryAnnotations", "TestKotlinExtractTestRefsResolvesAnnotationsAgainstProductionSources", "TestGolden"},
 	723: {"TestCppTestGlobsScopeToTestTrees", "TestCppExtractTestRefsEmitsOnlyTestRefFacts", "TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed", "TestCppTestRefsCreditLifecycleAndInheritedMembers", "TestCppTestRefsCreditAProductionHeaderOfTestHelpers", "TestTestAwareExtractorSeesTestsAndKeysTheCacheOnThem", "TestGolden"},
 	724: {"TestCBareNameDoesNotBindAStructMember", "TestCppFreeFunctionBareNameDoesNotBindAMember", "TestCppFreeFunctionBareNameStillConstructs"},
+	725: {"TestGolden"}, // not used on this branch; reserved for a change landing beside it
+	726: {"TestGolden"}, // not used on this branch; reserved for a change landing beside it
+	727: {"TestGolden"}, // not used on this branch; reserved for a change landing beside it
+	728: {"TestGolden"}, // not used on this branch; reserved for a change landing beside it
+	729: {"TestCppMemberFactoryTemplatesInstantiate", "TestCppEmplaceInstantiatesElementType", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
