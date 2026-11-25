@@ -57,6 +57,55 @@ func (w *walker) fileCallableValues(root *sitter.Node) map[string]string {
 	return values
 }
 
+func (w *walker) fileGetterNames(root *sitter.Node) map[string]bool {
+	getters := map[string]bool{}
+	for _, n := range namedChildren(root) {
+		if kindOf(n) == "getter_signature" {
+			if name := signatureName(n, w.src); name != "" {
+				getters[name] = true
+			}
+		}
+	}
+	return getters
+}
+
+// topLevelGetter reports whether an unshadowed identifier reads this file's
+// top-level getter. A same-named class member hides it inside its class.
+func (w *walker) topLevelGetter(n *sitter.Node, name string, b *bodyWalk) bool {
+	if !w.fileGetters[name] || b.shadows[name] {
+		return false
+	}
+	if _, member := w.memberFunctions[name]; member {
+		return false
+	}
+	switch parent := kindOf(n.Parent()); parent {
+	case "label", "cascade_section", "cascade_selector":
+		return false
+	default:
+		return !strings.HasSuffix(parent, "assignable_selector")
+	}
+}
+
+// dartParameterDefaults returns the default value expressions of a signature's
+// own parameters. They sit beside the formal_parameter nodes, not inside them.
+func dartParameterDefaults(signature *sitter.Node) []*sitter.Node {
+	params := firstOfKind(signature, "formal_parameter_list")
+	var out []*sitter.Node
+	for _, group := range namedChildren(params) {
+		if kindOf(group) != "optional_formal_parameters" {
+			continue
+		}
+		for _, c := range namedChildren(group) {
+			switch kindOf(c) {
+			case "formal_parameter", "annotation", "comment", "documentation_comment":
+			default:
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
 func (w *walker) memberCallableValues(body *sitter.Node, typeName string) map[string]string {
 	values := map[string]string{}
 	for _, n := range namedChildren(body) {
@@ -105,7 +154,8 @@ func dartValuePosition(n *sitter.Node) bool {
 	}
 	switch kindOf(p) {
 	case "argument", "named_argument", "return_statement", "function_body", "function_expression_body",
-		"list_literal", "set_or_map_literal", "switch_expression_case", "conditional_expression":
+		"list_literal", "set_or_map_literal", "switch_expression_case", "conditional_expression",
+		"if_null_expression", "optional_formal_parameters":
 		return true
 	case "pair", "initialized_variable_definition":
 		value := p.ChildByFieldName("value")

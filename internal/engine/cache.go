@@ -4050,7 +4050,9 @@ import (
 // v724: C and C++: a bare name found by its unique short name binds to a member
 // (`Type::member`) only from inside a C++ member function. From C, where a bare
 // name is a parameter or local, and from a C++ free function, it binds nothing.
-const cacheVersion = "v724"
+// v725: Dart: a parameter default and either side of `??` record the callables
+// they name, and a read of a file's top-level getter is a call to it.
+const cacheVersion = "v725"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
