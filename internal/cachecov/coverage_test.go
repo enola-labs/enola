@@ -317,6 +317,7 @@ var versionCoverage = map[int][]string{
 	722: {"TestKotlinTestRefsRecordRepositoryAnnotations", "TestKotlinExtractTestRefsResolvesAnnotationsAgainstProductionSources", "TestGolden"},
 	723: {"TestCppTestGlobsScopeToTestTrees", "TestCppExtractTestRefsEmitsOnlyTestRefFacts", "TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed", "TestCppTestRefsCreditLifecycleAndInheritedMembers", "TestCppTestRefsCreditAProductionHeaderOfTestHelpers", "TestTestAwareExtractorSeesTestsAndKeysTheCacheOnThem", "TestGolden"},
 	724: {"TestCBareNameDoesNotBindAStructMember", "TestCppFreeFunctionBareNameDoesNotBindAMember", "TestCppFreeFunctionBareNameStillConstructs"},
+	725: {"TestDartParameterDefaultReferences", "TestDartIfNullValueReference", "TestDartTopLevelGetterReads"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

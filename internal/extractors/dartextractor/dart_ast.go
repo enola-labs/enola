@@ -51,11 +51,14 @@ type walker struct {
 	stringConsts map[string]string
 	// valueFunctions contains callable declarations visible in this lexical scope.
 	// A bare data read must never bind to an unrelated project-wide method.
-	valueFunctions    map[string]string
-	memberFunctions   map[string]string
-	fieldTypes        map[string]string
-	callOwner         string
-	getterNames       map[string]bool
+	valueFunctions  map[string]string
+	memberFunctions map[string]string
+	fieldTypes      map[string]string
+	callOwner       string
+	getterNames     map[string]bool
+	// fileGetters holds this file's top-level getters. A read of one runs it,
+	// so it is a call even where a function name would be no value position.
+	fileGetters       map[string]bool
 	valueDeclarations []dartValueDeclaration
 }
 
@@ -118,6 +121,7 @@ func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImport
 		w.out = append(w.out, facts.Fact{Kind: facts.KindFileRef, Name: w.relFile, File: w.relFile, Props: props})
 	}
 	w.valueFunctions = w.fileCallableValues(root)
+	w.fileGetters = w.fileGetterNames(root)
 	w.walkDeclarations(root)
 	w.moduleValueReferences(root)
 	w.emitValueDeclarations()
@@ -619,6 +623,8 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 				bw := w.walkBody(init, full, c)
 				rels = append(rels, bw.relations...)
 				bw.applyTo(props)
+			} else if len(dartParameterDefaults(c)) > 0 {
+				rels = append(rels, w.walkBody(nil, full, c).relations...)
 			}
 			w.out = append(w.out, facts.Fact{
 				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c), EndLine: tsutil.EndLine(c),
@@ -761,6 +767,10 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 		bw := w.walkBody(body, full, inner, init)
 		rels = append(rels, bw.relations...)
 		bw.applyTo(props)
+	} else if len(dartParameterDefaults(inner)) > 0 {
+		// A body-less member still names what its defaults name, but has no
+		// body metrics to report.
+		rels = append(rels, w.walkBody(nil, full, inner).relations...)
 	}
 
 	w.out = append(w.out, facts.Fact{
@@ -805,6 +815,8 @@ func (w *walker) functionDecl(sig, body *sitter.Node, dir, _ string, annos []str
 		bw := w.walkBody(body, full, sig)
 		rels = append(rels, bw.relations...)
 		bw.applyTo(props)
+	} else if len(dartParameterDefaults(sig)) > 0 {
+		rels = append(rels, w.walkBody(nil, full, sig).relations...)
 	}
 	w.out = append(w.out, facts.Fact{
 		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig), EndLine: max(tsutil.EndLine(sig), tsutil.EndLine(body)),
