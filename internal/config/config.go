@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/enola-labs/enola/internal/clientspec"
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/intent"
 	"github.com/enola-labs/enola/internal/linkers/vocab"
 	"github.com/enola-labs/enola/internal/providerspec"
@@ -299,7 +300,7 @@ func Default() *Config {
 		Repo: ".",
 		// enola's own installed files close the list, so Normalize adds nothing to a
 		// default config and its ignore-glob hash is the same before and after.
-		Ignore: append([]string{
+		Ignore: append(append([]string{
 			// Any-depth forms, deliberately: a monorepo's sub-app carries its own
 			// node_modules/dist, and the root-anchored globs these replace let a
 			// nested tree straight into the graph — on one production monolith the
@@ -556,23 +557,6 @@ func Default() *Config {
 			"**/testing/**/*.hh",
 			"**/testing/**/*.[ch]pp",
 			"**/testing/**/*.[ch]xx",
-			// Dart code generation output. This is not tidiness: build_runner output is
-			// the MAJORITY of files in a real Flutter project, and none of it is code a
-			// human navigates. One @freezed model yields a .freezed.dart of hundreds of
-			// generated lines plus a .g.dart of serialization; indexing them inflates
-			// symbol counts and manufactures god-class and complexity findings about
-			// machine output. Kept in sync with generatedSuffixes in the dart extractor,
-			// which applies the same list when the walker hands it a file directly.
-			"**/*.g.dart",
-			"**/*.freezed.dart",
-			"**/*.mocks.dart",
-			"**/*.gr.dart",
-			"**/*.config.dart",
-			"**/*.pb.dart",
-			"**/*.pbenum.dart",
-			"**/*.pbjson.dart",
-			"**/*.pbserver.dart",
-			"**/*.pbgrpc.dart",
 			// Dart/Flutter build and package caches.
 			"**/.dart_tool/**",
 			"**/.pub-cache/**",
@@ -654,7 +638,7 @@ func Default() *Config {
 			// the bundled mcp-arch.yaml ignore list.
 			"**/*.min.js",
 			"**/*.bundle.js",
-		}, installedFileGlobs()...),
+		}, dartGeneratedGlobs()...), installedFileGlobs()...),
 		// TestGlobs identify test/spec files. They stay ignored for normal indexing
 		// (still listed in Ignore above) — production architecture facts must not
 		// include test symbols — but the engine collects them separately for
@@ -965,6 +949,23 @@ var InstalledSkillDirs = []string{".claude/skills", ".agents/skills"}
 // installedFileGlobs is InstalledFiles as ignore globs. `**/<dir>/**/<file>` rather
 // than `**/<dir>/<file>`: pathglob matches the second at most one directory deep, and
 // a monorepo service can carry its own install.
+// dartGeneratedGlobs ignores Dart code generation output. This is not tidiness:
+// build_runner output is the MAJORITY of files in a real Flutter project, and none
+// of it is code a human navigates. One @freezed model yields a .freezed.dart of
+// hundreds of generated lines plus a .g.dart of serialization; indexing them
+// inflates symbol counts and manufactures god-class and complexity findings about
+// machine output. The globs come from facts.DartGeneratedSuffixes, the list the
+// Dart extractor applies when the walker hands it a file directly, so the walker
+// prunes exactly what the extractor would drop and no generated file reaches the
+// shared cache partition.
+func dartGeneratedGlobs() []string {
+	out := make([]string, 0, len(facts.DartGeneratedSuffixes))
+	for _, suf := range facts.DartGeneratedSuffixes {
+		out = append(out, "**/*"+suf)
+	}
+	return out
+}
+
 func installedFileGlobs() []string {
 	out := make([]string, 0, len(InstalledFiles)+2*len(InstalledSkillDirs))
 	for _, f := range InstalledFiles {

@@ -4052,7 +4052,11 @@ import (
 // name is a parameter or local, and from a C++ free function, it binds nothing.
 // v725: Dart: a parameter default and either side of `??` record the callables
 // they name, and a read of a file's top-level getter is a call to it.
-const cacheVersion = "v725"
+// v726: Dart: a class-body field initializer records the callables it names as
+// tear-offs on the file's reference fact, as file-scope initializers do; and
+// `.steps.dart` (drift_dev's migration steps, banner after the imports) and
+// `.gform.dart` are generated, from one suffix list the default ignore globs share.
+const cacheVersion = "v726"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
