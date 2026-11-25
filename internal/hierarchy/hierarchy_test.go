@@ -88,6 +88,30 @@ func TestBuild_ABareBaseResolvesOnlyWhenOneTypeIsNearest(t *testing.T) {
 	}
 }
 
+// Nearness counts whole path segments: a type whose path only begins with the same
+// characters (tools/ against test/, src/main against src/mainline) is no nearer, so
+// candidates that share no more segments than each other tie and bind nothing.
+func TestResolveType_NearnessCountsWholeSegments(t *testing.T) {
+	ix := Build([]facts.Fact{
+		typ("src/include/duckdb/main.duckdb::Connection", facts.SymbolClass),
+		typ("tools/cpp.duckdb::cxx::Connection", facts.SymbolClass),
+		typ("test/common.duckdb::Runner", facts.SymbolClass),
+		typ("src/main.Base", facts.SymbolClass),
+		typ("src/other.Base", facts.SymbolClass),
+		typ("src/mainline.Sub", facts.SymbolClass, "Base"),
+		typ("src/main/deep.Sub", facts.SymbolClass, "Base"),
+	})
+	if got := ix.ResolveType("r", "test/common.duckdb::Runner", "Connection"); got != "" {
+		t.Errorf("Connection from test/common = %q, want none: tools/ is no nearer than src/", got)
+	}
+	if got := ix.Ancestors("r", "src/mainline.Sub"); got != nil {
+		t.Errorf("src/mainline.Sub's base = %v, want none: src/main and src/other are equally near", got)
+	}
+	if got := ix.Ancestors("r", "src/main/deep.Sub"); !reflect.DeepEqual(got, []string{"src/main.Base"}) {
+		t.Errorf("src/main/deep.Sub's base = %v, want the Base two segments away", got)
+	}
+}
+
 // The overriders of a member are the first declaration down each branch.
 func TestOverriders_TopmostOnEachBranch(t *testing.T) {
 	ix := Build([]facts.Fact{

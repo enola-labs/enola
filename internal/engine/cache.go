@@ -4050,7 +4050,16 @@ import (
 // v724: C and C++: a bare name found by its unique short name binds to a member
 // (`Type::member`) only from inside a C++ member function. From C, where a bare
 // name is a parameter or local, and from a C++ free function, it binds nothing.
-const cacheVersion = "v724"
+// v725: not used on this branch: reserved for a change landing beside it.
+// v726: not used on this branch: reserved for a change landing beside it.
+// v727: not used on this branch: reserved for a change landing beside it.
+// v728: not used on this branch: reserved for a change landing beside it.
+// v729: not used on this branch: reserved for a change landing beside it.
+// v730: a bare base or field type name with several candidates resolves to the
+// one sharing the most whole path segments with the type that writes it, not the
+// most characters; candidates sharing as many tie and bind nothing. The C and C++
+// test refs bind inherited members through it inside the extractor.
+const cacheVersion = "v730"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
