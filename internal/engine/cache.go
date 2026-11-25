@@ -4067,7 +4067,11 @@ import (
 // template body counts wherever the construction sits, not only in its return
 // statement. emplace_back, emplace_front and emplace on a standard container
 // declared by a parameter, local or member construct its element type.
-const cacheVersion = "v729"
+// v730: a bare base or field type name with several candidates resolves to the
+// one sharing the most whole path segments with the type that writes it, not the
+// most characters; candidates sharing as many tie and bind nothing. The C and C++
+// test refs bind inherited members through it inside the extractor.
+const cacheVersion = "v730"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

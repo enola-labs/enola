@@ -286,14 +286,15 @@ func (ix *Index) resolveName(repo, sub, raw string, notSelf bool) string {
 		}
 		return ""
 	}
-	// A bare name: the candidate sharing the longest prefix with the subclass, so a
-	// type of the subclass's own package wins over a namesake elsewhere.
+	// A bare name: the candidate sharing the most leading path segments with the
+	// subclass, so a type of the subclass's own package wins over a namesake
+	// elsewhere. Candidates sharing as many tie and bind nothing.
 	best, bestLen, tied := "", -1, false
 	for _, c := range cands {
 		if notSelf && c == sub {
 			continue
 		}
-		n := commonPrefix(c, sub)
+		n := commonSegments(c, sub)
 		switch {
 		case n > bestLen:
 			best, bestLen, tied = c, n, false
@@ -349,13 +350,33 @@ func hasQualifiedSuffix(name, suffix string) bool {
 	return false
 }
 
-func commonPrefix(a, b string) int {
+// commonSegments counts the equal leading segments of two names, split at any of
+// the separators a name's path and qualifiers use ('/', '.', ':', '#', '\\'): only
+// whole segments count, so tools/ and test/ share none.
+func commonSegments(a, b string) int {
 	n := 0
-	for n < len(a) && n < len(b) && a[n] == b[n] {
+	for {
+		sa, ra := nextSegment(a)
+		sb, rb := nextSegment(b)
+		if sa == "" || sa != sb {
+			return n
+		}
 		n++
+		a, b = ra, rb
 	}
-	return n
 }
+
+// nextSegment returns the first segment of s and the rest after it, skipping the
+// separators before it.
+func nextSegment(s string) (seg, rest string) {
+	s = strings.TrimLeft(s, segmentSeparators)
+	if i := strings.IndexAny(s, segmentSeparators); i >= 0 {
+		return s[:i], s[i:]
+	}
+	return s, ""
+}
+
+const segmentSeparators = "/.:#\\"
 
 func appendUnique(list []string, s string) []string {
 	for _, x := range list {

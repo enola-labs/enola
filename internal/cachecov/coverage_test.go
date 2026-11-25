@@ -322,6 +322,7 @@ var versionCoverage = map[int][]string{
 	727: {"TestDartModuleInitializerInvocation", "TestDartModuleInitializerInvocationScope", "TestDartTypedFinalTearOff"},
 	728: {"TestPublishedPackageLibIsPublished"},
 	729: {"TestCppMemberFactoryTemplatesInstantiate", "TestCppEmplaceInstantiatesElementType", "TestGolden"},
+	730: {"TestResolveType_NearnessCountsWholeSegments", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
