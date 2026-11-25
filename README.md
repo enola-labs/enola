@@ -40,31 +40,24 @@
 </p>
 </div>
 
-## When to use enola
+## What it does for you
 
-- **Find out what a change will break.** Before you edit a function, a route, or a module, ask the graph what depends on it. The answer is a list of real places in the code, not a guess. [Quickstart](#quickstart).
-- **Keep your architecture the way you declared it.** Write down the layer order your code should follow, or which service may call which. Every change is then graded against that, and only what the change broke is reported. [Grade a change](#grade-a-change).
-- **Give your coding agent the structure of the system.** Over MCP, the agent asks the graph what depends on the code it is about to touch, and a hook grades its edit when it is done. [Connect your agent](#connect-your-agent).
-- **See several repositories as one system.** A frontend's call to `/api/orders` is linked to the Go handler that serves it. One service's Kafka producer is linked to the service that consumes the topic. [Across repositories](#across-repositories).
-- **Build your own tools on the graph.** A snapshot is a set of plain files with a documented format. Load them wherever you need them. [Build on the graph](#build-on-the-graph).
+Most of this you ask your coding agent in plain words, once enola is [connected](#connect-your-agent). The agent picks the tool or [skill](docs/SKILLS.md) and answers from the graph instead of from text searches.
 
-That difference shows up in ordinary work. Across 238 real Claude Code and OpenCode sessions, 4,375 enola calls put 4.1 million tokens into context. Opening only the files named in those answers was estimated at 5.4× to 7.7× as much; reading the full source represented by each session, 450× to 623×. In 205 of 210 sessions that took a snapshot, that source was larger than the agent's median active context. [Measured latency, token costs, method and limits](docs/BENCHMARKS.md#real-session-usage).
+| When you… | Ask or run | You get |
+| --- | --- | --- |
+| are about to change shared code | "What breaks if I change `X`?" | Every place that depends on it, directly or through other packages, and the endpoints it affects. [Impact](docs/CLI.md#the-twenty-four-tools) |
+| review a pull request | "Review this branch against main" | What the change did to the structure, and up to five places a reviewer should look, each with the reason. `--reviewers` adds who owns what it touched. [Review skill](docs/SKILLS.md#review) |
+| need to test a change | "What should be tested for this change?" | The tests that reach it, nearest first, the entry points to exercise, and the changed code no test reaches. [Test-plan skill](docs/SKILLS.md#test-plan) |
+| want the architecture to hold | "Set up architecture rules for this repository" | Rules the code already almost follows, proposed for you to accept, then checked on every change, by your agent and in CI. [Intent skill](docs/SKILLS.md#intent), [Grade a change](#grade-a-change) |
+| keep notes or agent memory about code | "Which of our notes still hold?" | Each note tied to the code it describes, and marked current, moved, changed or gone when that code moves on. [Memory skill](docs/SKILLS.md#memory) |
+| open a repository you do not know | `enola --explain --summary`, `enola flows` | What the repository is, its ways in, what is risky to change and where to start reading. [Quickstart](#quickstart) |
+| want to clean up | "What does nothing use?" | Dead code, backend routes no client calls, and database queries run once per loop iteration. [Explainers](docs/EXPLAINERS.md) |
+| wonder when something got in | `enola blame "pkg/a -> pkg/b"` | The commit where a dependency, a cycle or a symbol entered the architecture, and when it left. [History](docs/HISTORY.md) |
+| work across services | "Who calls `/api/orders`?" | The callers in the other repositories, and the screens behind them. [Across repositories](#across-repositories) |
+| build your own tooling | `enola --generate` | Plain files in a documented format, ready to load anywhere. [Build on the graph](#build-on-the-graph) |
 
-It also changes answers. Asked the same questions across a backend and its web and mobile clients, code the model had never seen, Opus 5.5 gave an exact final answer in 4 of 20 trials on its own and in 18 of 20 with enola, whose own analysis was right in all 20. On the three endpoint questions it also cut median cost by 29 to 52% and median time by more than half. Where a grep or a short script already answers the question, both were right. [The A/B, question by question](docs/BENCHMARKS.md#agent-ab-on-code-the-model-has-not-seen).
-
-## Choose your starting point
-
-| I want to… | Start here |
-| --- | --- |
-| See what enola finds in a repository I have | [Quickstart](#quickstart) |
-| Check whether a change broke the architecture | [Grade a change](#grade-a-change) |
-| Run that check on every pull request | [Use it in CI](#use-it-in-ci) |
-| Give my coding agent the graph | [Connect your agent](#connect-your-agent) |
-| Have my agent review a branch, plan tests, set up rules or keep notes on code | [Skills](docs/SKILLS.md) |
-| Link a backend and the apps that call it | [Across repositories](#across-repositories) |
-| Load the graph into my own tool | [Build on the graph](#build-on-the-graph) |
-| Know which languages it understands | [What it reads](#what-it-reads) |
-| Follow one worked example end to end | [Your first graded change](docs/FIRST-CHANGE.md) |
+New here? Start with the [Quickstart](#quickstart), or follow [one graded change end to end](docs/FIRST-CHANGE.md).
 
 ## Quickstart
 
@@ -237,6 +230,8 @@ What changes for the agent: before an edit, it asks the graph what depends on th
 
 `enola install` also gives the agent skills for whole tasks: reviewing a branch, planning what to test, setting up architecture rules, and keeping notes tied to the code they describe. Ask for the task ("review this branch against main") and the agent loads the skill, or call one by name. [docs/SKILLS.md](docs/SKILLS.md) covers each skill, the Claude Code plugin, and how to call them in every agent.
 
+On Claude Code you can use the plugin instead of `enola install`: `/plugin marketplace add enola-labs/enola`, then `/plugin install enola@enola`. It registers the MCP server, the hooks and the skills; use one route or the other, not both.
+
 `enola install` previews every file it changes and asks first; `enola uninstall` reverses all of it. `enola doctor` tells you whether the hooks are really firing. Per-client details, including Copilot's different config key: [docs/CLI.md](docs/CLI.md#connect-it-to-your-agent).
 
 ## Across repositories
@@ -296,6 +291,10 @@ Each example is a small repository plus a `run.sh` that reproduces the output sh
 - [Per-language configuration files](examples/) for Go, TypeScript, Python, Ruby, PHP, Kotlin, Swift and C++.
 
 ## Benchmarks
+
+In ordinary work, across 238 real Claude Code and OpenCode sessions, 4,375 enola calls put 4.1 million tokens into context. Opening only the files named in those answers was estimated at 5.4× to 7.7× as much; reading the full source represented by each session, 450× to 623×. In 205 of 210 sessions that took a snapshot, that source was larger than the agent's median active context. [Measured latency, token costs, method and limits](docs/BENCHMARKS.md#real-session-usage).
+
+It also changes answers. Asked the same questions across a backend and its web and mobile clients, code the model had never seen, Opus 5.5 gave an exact final answer in 4 of 20 trials on its own and in 18 of 20 with enola, whose own analysis was right in all 20. On the three endpoint questions it also cut median cost by 29 to 52% and median time by more than half. Where a grep or a short script already answers the question, both were right. [The A/B, question by question](docs/BENCHMARKS.md#agent-ab-on-code-the-model-has-not-seen).
 
 Every number below but the first is measured on public repositories with scripts you can rerun. The first is an A/B on code the model had never seen, run with [graph-bench](https://github.com/dejo1307/graph-bench), which you can point at your own. Method, corpus and limits: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
