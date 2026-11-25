@@ -10,8 +10,9 @@ Report whether enola's agent hooks are actually firing in this repository.
 success either way. This asks the only question that settles it: when did the
 hooks last run?
 
-It also lists enola's skills in each directory `install` writes them to, and
-any that differ from what this binary would write.
+It also lists the files `install` wrote that differ from what this binary
+would write, here and in your home directory, and enola's skills in each
+directory `install` writes them to.
 
 Flags:
   -json

@@ -474,3 +474,18 @@ func (r *Runner) installFatal(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, r.name()+" install: "+format+"\n", args...)
 	os.Exit(2)
 }
+
+// installDrift is what a plain `enola install` run from here would change in one scope,
+// with the options that run would use: this binary in the hooks, and a folder of
+// repositories treated as one. installed is false when nothing of enola's is there.
+func installDrift(scope install.Scope, repoDir, home string) (changed []install.Result, installed bool, err error) {
+	o := install.Options{Scope: scope, RepoDir: repoDir, HomeDir: home, HookCommand: hookBinary()}
+	if scope == install.ScopeGlobal {
+		if home == "" {
+			return nil, false, nil
+		}
+	} else {
+		o.FolderOfRepos = workspace.IsFolderOfRepos(repoDir)
+	}
+	return install.Drift(o)
+}

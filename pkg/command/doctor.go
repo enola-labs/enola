@@ -44,7 +44,7 @@ func (r *Runner) Doctor(args []string) {
 				"Report whether enola's agent hooks are actually firing in this repository.\n\n"+
 				"`install --hooks` can write a configuration the agent ignores — it reports\n"+
 				"success either way. This asks the only question that settles it: when did the\n"+
-				"hooks last run?\n\nIt also lists enola's skills in each directory `install` writes them to, and\nany that differ from what this binary would write.\n\nFlags:\n")
+				"hooks last run?\n\nIt also lists the files `install` wrote that differ from what this binary\nwould write, here and in your home directory, and enola's skills in each\ndirectory `install` writes them to.\n\nFlags:\n")
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "doctor")
 	}
@@ -82,8 +82,13 @@ func (r *Runner) Doctor(args []string) {
 		update = updatecheck.For(engine.ExtractorVersion())
 	}
 
+	home, _ := os.UserHomeDir()
+	local := installStatusFor(install.ScopeLocal, repoDir, home)
+	global := installStatusFor(install.ScopeGlobal, repoDir, home)
+
 	if *asJSON {
 		out := map[string]any{
+			"install":           map[string]installStatus{"local": local, "global": global},
 			"repo":              repoDir,
 			"hooks_configured":  installed,
 			"state":             state,
@@ -171,6 +176,7 @@ func (r *Runner) Doctor(args []string) {
 	}
 	fmt.Println()
 
+	r.printInstall(repoDir, home, local, global)
 	r.printSkills(repoDir)
 
 	fmt.Println("Session hooks")
@@ -448,4 +454,80 @@ func (r *Runner) printSkills(repoDir string) {
 func binderLine(preLink, postLink []string) string {
 	return fmt.Sprintf("binders: %d run on every snapshot (%d pre-link, %d post-link); a snapshot's receipt lists those that ran without error",
 		len(preLink)+len(postLink), len(preLink), len(postLink))
+}
+
+// installStatus is how one scope's install compares with what this binary writes.
+type installStatus struct {
+	Installed bool `json:"installed"`
+	// Changes are the files a plain `enola install` would change, as "<action> <path>".
+	Changes []string `json:"changes,omitempty"`
+	Error   string   `json:"error,omitempty"`
+}
+
+func installStatusFor(scope install.Scope, repoDir, home string) installStatus {
+	rs, installed, err := installDrift(scope, repoDir, home)
+	st := installStatus{Installed: installed}
+	if err != nil {
+		st.Error = err.Error()
+	}
+	base := repoDir
+	if scope == install.ScopeGlobal {
+		base = home
+	}
+	for _, r := range rs {
+		p := r.Path
+		if rel, err := filepath.Rel(base, p); err == nil && !strings.HasPrefix(rel, "..") {
+			p = rel
+			if scope == install.ScopeGlobal {
+				p = filepath.Join("~", rel)
+			}
+		}
+		st.Changes = append(st.Changes, string(r.Action)+" "+p)
+	}
+	return st
+}
+
+// printInstall reports whether the files `enola install` wrote are the ones this binary
+// would write: the instructions, the hooks and the extensions as well as the skills,
+// which an upgrade leaves as the old version wrote them. The home directory is listed
+// only when something of enola's is there, since most installs are per repository.
+func (r *Runner) printInstall(repoDir, home string, local, global installStatus) {
+	fmt.Println("Installed for your agents")
+	behind := false
+	row := func(label string, st installStatus) {
+		switch {
+		case st.Error != "":
+			fmt.Printf("  %-18s could not be read: %s\n", label, st.Error)
+		case !st.Installed:
+			fmt.Printf("  %-18s nothing installed. `%s install --hooks` wires your agents to enola.\n", label, r.name())
+		case len(st.Changes) == 0:
+			fmt.Printf("  %-18s current with this binary\n", label)
+		default:
+			behind = true
+			verb := "differ"
+			if len(st.Changes) == 1 {
+				verb = "differs"
+			}
+			fmt.Printf("  %-18s %s %s from what this binary writes\n", label, plural(len(st.Changes), "file"), verb)
+			for _, c := range st.Changes {
+				fmt.Printf("  %-18s   %s\n", "", c)
+			}
+		}
+	}
+	row("this repository", local)
+	if global.Installed || global.Error != "" {
+		row("~ (all projects)", global)
+	}
+	if behind {
+		var cmds []string
+		if len(local.Changes) > 0 {
+			cmds = append(cmds, "`"+r.name()+" install`")
+		}
+		if len(global.Changes) > 0 {
+			cmds = append(cmds, "`"+r.name()+" install --global`")
+		}
+		fmt.Printf("  Run %s to bring them in line. Hooks an earlier install wrote are\n", strings.Join(cmds, " and "))
+		fmt.Println("  kept; restart your agent session afterwards.")
+	}
+	fmt.Println()
 }

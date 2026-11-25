@@ -20,6 +20,9 @@ Baseline
       enola baseline pin
   or let the session-start hook pin it.
 
+Installed for your agents
+  this repository    current with this binary
+
 Skills
   .claude/skills     for Claude Code
                      current   enola-intent, enola-memory, enola-review, enola-test-plan

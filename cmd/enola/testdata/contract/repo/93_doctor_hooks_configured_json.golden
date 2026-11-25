@@ -5,6 +5,14 @@ exit: 0
   "baseline_state": "absent",
   "baseline_unusable": "no baseline pinned",
   "hooks_configured": true,
+  "install": {
+    "global": {
+      "installed": false
+    },
+    "local": {
+      "installed": true
+    }
+  },
   "memory_limit": "<MACHINE>",
   "memory_limit_from": "<MACHINE>",
   "repo": "<TMP>/go_sample",

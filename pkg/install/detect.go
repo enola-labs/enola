@@ -68,3 +68,54 @@ func jsonHasEnolaHook(path string) bool {
 	}
 	return walk(doc.Hooks)
 }
+
+// InstalledTargets returns the targets that have something enola wrote in o's scope, in
+// TargetNames order. Each is asked through its own uninstall, as a dry run, so this
+// agrees with what `enola uninstall` would remove. The shared .agents/skills directory
+// is left out: it belongs to no one target, and counting it would make every target
+// that reads it look installed.
+func InstalledTargets(o Options) ([]string, error) {
+	o.DryRun = true
+	var out []string
+	for _, name := range TargetNames {
+		rs, err := runTarget(name, o, true)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rs {
+			if r.Action == ActionRemoved {
+				out = append(out, name)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// Drift is what a plain `enola install` would change in o's scope, as a dry run: the
+// files that differ from what this binary writes, are missing, or were retired. It
+// covers only the targets already installed there, with the hooks when an earlier
+// install wrote them, so a narrowed install is not reported as behind for the targets
+// it left out. Nil, with installed false, when nothing of enola's is in this scope.
+//
+// o.HookCommand should be the running binary: a hook or extension that invokes another
+// path is drift too, since `enola install` would rewrite it.
+func Drift(o Options) (changed []Result, installed bool, err error) {
+	targets, err := InstalledTargets(o)
+	if err != nil || len(targets) == 0 {
+		return nil, false, err
+	}
+	o.Targets, o.DryRun = targets, true
+	o.Hooks = o.Hooks || HooksInstalled(o)
+	rs, err := run(o, false)
+	if err != nil {
+		return nil, true, err
+	}
+	for _, r := range rs {
+		switch r.Action {
+		case ActionCreated, ActionUpdated, ActionRemoved:
+			changed = append(changed, r)
+		}
+	}
+	return changed, true, nil
+}

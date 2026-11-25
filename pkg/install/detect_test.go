@@ -76,3 +76,64 @@ func TestDropHooks_RemovesHooksAndKeepsTheRest(t *testing.T) {
 		t.Errorf("Pi's extension went with the hooks, but it serves the tools: %v", err)
 	}
 }
+
+// TestDrift_ReportsOnlyWhatAPlainReinstallChanges: nothing installed is no install; a
+// fresh install is current; an edited rule and a moved binary are each drift; and a
+// narrowed install is not behind for the targets it left out.
+func TestDrift_ReportsOnlyWhatAPlainReinstallChanges(t *testing.T) {
+	o := opts(t, true)
+	o.HookCommand = "/opt/enola/bin/enola"
+	if rs, installed, err := Drift(o); err != nil || installed || rs != nil {
+		t.Fatalf("empty repository: drift=%v installed=%v err=%v", rs, installed, err)
+	}
+	if _, err := Install(o); err != nil {
+		t.Fatal(err)
+	}
+	check := func(o Options, want ...string) {
+		t.Helper()
+		o.Hooks = false // as doctor and upgrade call it
+		rs, installed, err := Drift(o)
+		if err != nil || !installed {
+			t.Fatalf("installed=%v err=%v", installed, err)
+		}
+		var got []string
+		for _, r := range rs {
+			got = append(got, string(r.Action)+" "+filepath.ToSlash(strings.TrimPrefix(r.Path, o.RepoDir+string(filepath.Separator))))
+		}
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("drift:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	}
+	check(o)
+
+	rule := filepath.Join(o.RepoDir, ".claude", "rules", "enola.md")
+	if err := os.WriteFile(rule, []byte(read(t, rule)+"\nedited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	check(o, "updated .claude/rules/enola.md")
+
+	moved := o
+	moved.HookCommand = "/usr/local/bin/enola"
+	if _, err := Install(o); err != nil {
+		t.Fatal(err)
+	}
+	rs, _, err := Drift(moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, r := range rs {
+		paths = append(paths, filepath.Base(r.Path))
+	}
+	if !strings.Contains(strings.Join(paths, " "), "settings.json") || !strings.Contains(strings.Join(paths, " "), "enola.js") {
+		t.Errorf("a moved binary is not drift in the hooks and Pi's extension: %v", paths)
+	}
+
+	narrow := opts(t, false)
+	narrow.Targets = []string{"cursor"}
+	if _, err := Install(narrow); err != nil {
+		t.Fatal(err)
+	}
+	narrow.Targets = nil
+	check(narrow)
+}
