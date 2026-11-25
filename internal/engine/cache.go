@@ -4050,7 +4050,12 @@ import (
 // v724: C and C++: a bare name found by its unique short name binds to a member
 // (`Type::member`) only from inside a C++ member function. From C, where a bare
 // name is a parameter or local, and from a C++ free function, it binds nothing.
-const cacheVersion = "v724"
+// v725: not used on this branch: reserved for a change landing beside it.
+// v726: Dart: a class-body field initializer records the callables it names as
+// tear-offs on the file's reference fact, as file-scope initializers do; and
+// `.steps.dart` (drift_dev's migration steps, banner after the imports) and
+// `.gform.dart` are generated, from one suffix list the default ignore globs share.
+const cacheVersion = "v726"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

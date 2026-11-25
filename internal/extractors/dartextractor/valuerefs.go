@@ -210,6 +210,30 @@ func (w *walker) moduleValueReferences(root *sitter.Node) {
 	}
 }
 
+// Class-body field initializers are the third initializer region, beside
+// constructor initializer lists (walked with the constructor) and file-scope
+// variables (moduleValueReferences). A schema generator's `late final T t =
+// T(columns: [_column_0])` names its top-level column builders only here. The
+// walk runs while the class's member overlay is in force, so a field's own name
+// and a sibling field still shadow a same-named function, and a method tear-off
+// resolves to the member. Private fields have no symbol to carry the edge, so all
+// of them go to the file's reference-only fact, as file-scope initializers do.
+func (w *walker) fieldInitializerReferences(list *sitter.Node) {
+	if w.fieldValues == nil {
+		w.fieldValues = &bodyWalk{seenRel: map[string]bool{}}
+	}
+	shadows := map[string]bool{}
+	dartBoundNames(list, w.src, shadows)
+	w.valueReferences(list, shadows, w.fieldValues)
+}
+
+func (w *walker) emitFieldInitializerReferences() {
+	if w.fieldValues != nil && len(w.fieldValues.relations) > 0 {
+		w.mergeFileReference(nil, w.fieldValues.relations)
+	}
+	w.fieldValues = nil
+}
+
 // Blocks, closures and loop/catch bindings have their own visibility region.
 func dartLexicalScope(n *sitter.Node) bool {
 	switch kindOf(n) {

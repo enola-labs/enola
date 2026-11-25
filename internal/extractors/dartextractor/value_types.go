@@ -1,6 +1,7 @@
 package dartextractor
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -236,7 +237,13 @@ func (w *walker) mergeFileReference(props map[string]any, relations []facts.Rela
 			for k, v := range props {
 				f.Props[k] = v
 			}
-			f.Relations = append(f.Relations, relations...)
+			// Several initializer regions feed this one fact; a callable named in
+			// two of them is still one reference.
+			for _, r := range relations {
+				if !slices.Contains(f.Relations, r) {
+					f.Relations = append(f.Relations, r)
+				}
+			}
 			return
 		}
 	}

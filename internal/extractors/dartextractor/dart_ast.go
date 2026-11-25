@@ -57,6 +57,9 @@ type walker struct {
 	callOwner         string
 	getterNames       map[string]bool
 	valueDeclarations []dartValueDeclaration
+	// fieldValues collects what class-body field initializers name, for the
+	// file's reference-only fact.
+	fieldValues *bodyWalk
 }
 
 // extractFile parses one Dart file and returns its facts.
@@ -119,6 +122,7 @@ func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImport
 	}
 	w.valueFunctions = w.fileCallableValues(root)
 	w.walkDeclarations(root)
+	w.emitFieldInitializerReferences()
 	w.moduleValueReferences(root)
 	w.emitValueDeclarations()
 	w.extractFrameworkSurface(root)
@@ -665,6 +669,7 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 			// reference instead of dropping the route.
 			w.recordStringConstants(c, typeName)
 			w.recordValueDeclaration(n, w.qualify(typeName))
+			w.fieldInitializerReferences(c)
 			for _, fieldName := range identifierNames(c, w.src) {
 				full := w.qualify(typeName + "." + fieldName)
 				// Only PUBLIC fields become symbols, for the reason C# gives: private
