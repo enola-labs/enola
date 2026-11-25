@@ -41,20 +41,6 @@
 </p>
 </div>
 
-## Indexing versus compiling
-
-Code-graph tools such as Graphify, CodeGraph and codebase-memory-mcp index code for retrieval: they store symbols and source, joined by name, and hand them to your agent to work out the answer. enola treats the code as a program to resolve, the way a compiler does, and computes the answer itself.
-
-The difference shows on a single endpoint. A web app calls `GET /api/v2/orders/{id}`. The API never writes that string: `/api/v2` is a prefix set in `main()`, and `/orders/{id}` is registered in another function. An index finds `/orders/{id}` and stops. enola follows the prefix the way a compiler follows a call, and links the web app's request to the handler that serves it.
-
-| | Indexing tools | enola |
-| --- | --- | --- |
-| Reads code as | text and syntax trees, matched by name | a program: imports, calls and routes resolved to what they point at |
-| A route is | the string written in one file | the address it answers on, prefix and method included |
-| Across repositories | joined where names or paths match as written | linked where one side calls the other |
-| Your agent gets | source to read and reason over | the answer: what breaks, what is unused, what a change did |
-| The graph is | a store kept current as files change | a snapshot with an ID: the same code gives the same graph, so a change can be graded against a baseline |
-
 ## What it does for you
 
 Most of this you ask your coding agent in plain words, once enola is [connected](#connect-your-agent). The agent picks the tool or [skill](docs/SKILLS.md) and answers from the graph instead of from text searches.
@@ -74,6 +60,20 @@ Most of this you ask your coding agent in plain words, once enola is [connected]
 | build your own tooling | `enola --generate` | Plain files in a documented format, ready to load anywhere. [Build on the graph](#build-on-the-graph) |
 
 New here? Start with the [Quickstart](#quickstart), or follow [one graded change end to end](docs/FIRST-CHANGE.md).
+
+## Indexing versus compiling
+
+Code-graph tools such as Graphify, CodeGraph and codebase-memory-mcp index code for retrieval: they store symbols and source, joined by name, and hand them to your agent to work out the answer. enola treats the code as a program to resolve, the way a compiler does, and computes the answer itself.
+
+The difference shows on a single endpoint. A web app calls `GET /api/v2/orders/{id}`. The API never writes that string: `/api/v2` is a prefix set in `main()`, and `/orders/{id}` is registered in another function. An index finds `/orders/{id}` and stops. enola follows the prefix the way a compiler follows a call, and links the web app's request to the handler that serves it.
+
+| | Indexing tools | enola |
+| --- | --- | --- |
+| Reads code as | text and syntax trees, matched by name | a program: imports, calls and routes resolved to what they point at |
+| A route is | the string written in one file | the address it answers on, prefix and method included |
+| Across repositories | joined where names or paths match as written | linked where one side calls the other |
+| Your agent gets | source to read and reason over | the answer: what breaks, what is unused, what a change did |
+| The graph is | a store kept current as files change | a snapshot with an ID: the same code gives the same graph, so a change can be graded against a baseline |
 
 ## Quickstart
 
