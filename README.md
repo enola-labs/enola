@@ -30,15 +30,30 @@
   <a href="https://mcptoplist.com/server/glama%2Fenola-labs%2Fenola"><img src="https://mcptoplist.com/badge/glama%2Fenola-labs%2Fenola.svg" alt="MCP Toplist"></a>
   </p>
 
-  <p>enola reads your source code and writes down what is in it: the modules, the functions, the API routes, the database tables it touches, the message topics it publishes. Then it records how each of those pieces connects to the others, inside one repository and across several. That record is a <em>graph</em>: a list of things, and a list of links between them. You can ask the graph questions, hand it to your coding agent, or build your own tools on it.</p>
+  <p><strong>Other code-graph tools index your code. enola compiles it.</strong><br />
+  It resolves every import, call, route and database table to what it really refers to, links your services where one calls another, and checks the result: what a change breaks, what nothing uses, where the architecture drifts. Your coding agent gets answers, not source to reason over.</p>
 
-  <p><strong>Runs locally as one binary. No AI model, no language server, no account, no upload.</strong><br />
-  The graph comes from parsing your code. The same code always produces the same graph.</p>
+  <p><strong>One binary. No AI model, no account, no upload.</strong><br />
+  Kubernetes indexes in 14 seconds, 6.5 once cached. 100 repositories link into one graph in under 5 minutes.</p>
 
 <p align="center">
   <img src="docs/images/layers-gate.gif" alt="enola check on the layers-gate example: a helper added to storage imports the delivery layer, the default run reports it and exits 0, --fail-on=layers fails the same change, and after the fix the re-run passes" width="80%" />
 </p>
 </div>
+
+## Indexing versus compiling
+
+Code-graph tools such as Graphify, CodeGraph and codebase-memory-mcp index code for retrieval: they store symbols and source, joined by name, and hand them to your agent to work out the answer. enola treats the code as a program to resolve, the way a compiler does, and computes the answer itself.
+
+The difference shows on a single endpoint. A web app calls `GET /api/v2/orders/{id}`. The API never writes that string: `/api/v2` is a prefix set in `main()`, and `/orders/{id}` is registered in another function. An index finds `/orders/{id}` and stops. enola follows the prefix the way a compiler follows a call, and links the web app's request to the handler that serves it.
+
+| | Indexing tools | enola |
+| --- | --- | --- |
+| Reads code as | text and syntax trees, matched by name | a program: imports, calls and routes resolved to what they point at |
+| A route is | the string written in one file | the address it answers on, prefix and method included |
+| Across repositories | joined where names or paths match as written | linked where one side calls the other |
+| Your agent gets | source to read and reason over | the answer: what breaks, what is unused, what a change did |
+| The graph is | a store kept current as files change | a snapshot with an ID: the same code gives the same graph, so a change can be graded against a baseline |
 
 ## What it does for you
 
