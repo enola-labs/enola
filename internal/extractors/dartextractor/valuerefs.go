@@ -26,7 +26,15 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 		shadows = local
 	}
 	if kindOf(root) == "identifier" {
-		w.recordValueReference(root, root.Utf8Text(w.src), shadows, b)
+		name := root.Utf8Text(w.src)
+		if dartInvocationTarget(root) {
+			// File scope has no call scan, so the invocation is recorded here.
+			if target := w.callableValue(name); target != "" && !shadows[name] {
+				b.addRelation(facts.RelCalls, target)
+			}
+		} else {
+			w.recordValueReference(root, name, shadows, b)
+		}
 	}
 	kids := namedChildren(root)
 	for i, c := range kids {
@@ -98,8 +106,9 @@ func dartValuePosition(n *sitter.Node) bool {
 	if p == nil {
 		return false
 	}
-	// A selector's base is a receiver, not a bare callback value. Invocations
-	// already have calls edges from scanCallChain.
+	// A selector's base is a receiver, not a bare callback value. Invocations in
+	// function bodies have calls edges from scanCallChain; file-scope ones are
+	// recorded by valueReferences.
 	if next := n.NextNamedSibling(); kindOf(next) == "selector" {
 		return false
 	}
@@ -110,11 +119,19 @@ func dartValuePosition(n *sitter.Node) bool {
 	case "pair", "initialized_variable_definition":
 		value := p.ChildByFieldName("value")
 		return value != nil && value.StartByte() == n.StartByte()
-	case "initialized_identifier":
+	case "initialized_identifier", "static_final_declaration":
 		first := childOfKind(p, "identifier")
 		return first != nil && first.StartByte() != n.StartByte()
 	}
 	return false
+}
+
+// dartInvocationTarget reports a bare name invoked directly: `name(...)` or
+// `name<T>(...)`. The grammar has no call node, only the name followed by an
+// argument selector.
+func dartInvocationTarget(n *sitter.Node) bool {
+	next := n.NextNamedSibling()
+	return kindOf(next) == "selector" && childOfKind(next, "argument_part") != nil
 }
 
 // Collect bindings belonging to one lexical scope. Nested scopes are entered by

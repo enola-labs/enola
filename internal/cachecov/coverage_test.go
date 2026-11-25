@@ -317,6 +317,9 @@ var versionCoverage = map[int][]string{
 	722: {"TestKotlinTestRefsRecordRepositoryAnnotations", "TestKotlinExtractTestRefsResolvesAnnotationsAgainstProductionSources", "TestGolden"},
 	723: {"TestCppTestGlobsScopeToTestTrees", "TestCppExtractTestRefsEmitsOnlyTestRefFacts", "TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed", "TestCppTestRefsCreditLifecycleAndInheritedMembers", "TestCppTestRefsCreditAProductionHeaderOfTestHelpers", "TestTestAwareExtractorSeesTestsAndKeysTheCacheOnThem", "TestGolden"},
 	724: {"TestCBareNameDoesNotBindAStructMember", "TestCppFreeFunctionBareNameDoesNotBindAMember", "TestCppFreeFunctionBareNameStillConstructs"},
+	725: {"TestGolden"}, // not used; the goldens pin that extraction is as at v724
+	726: {"TestGolden"}, // not used; the goldens pin that extraction is as at v724
+	727: {"TestDartModuleInitializerInvocation", "TestDartModuleInitializerInvocationScope", "TestDartTypedFinalTearOff"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
