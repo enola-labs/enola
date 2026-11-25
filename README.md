@@ -55,6 +55,7 @@ Most of this you ask your coding agent in plain words, once enola is [connected]
 | want to clean up | "What does nothing use?" | Dead code, backend routes no client calls, and database queries run once per loop iteration. [Explainers](docs/EXPLAINERS.md) |
 | wonder when something got in | `enola blame "pkg/a -> pkg/b"` | The commit where a dependency, a cycle or a symbol entered the architecture, and when it left. [History](docs/HISTORY.md) |
 | work across services | "Who calls `/api/orders`?" | The callers in the other repositories, and the screens behind them. [Across repositories](#across-repositories) |
+| want one graph for the whole company | `enola serve` | Every repository linked into one graph, served over HTTP to your agents, portal or review bot, with tokens, confined roots and an audit log. [Serving](docs/SERVING.md) |
 | build your own tooling | `enola --generate` | Plain files in a documented format, ready to load anywhere. [Build on the graph](#build-on-the-graph) |
 
 New here? Start with the [Quickstart](#quickstart), or follow [one graded change end to end](docs/FIRST-CHANGE.md).
