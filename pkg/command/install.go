@@ -25,6 +25,7 @@ func (r *Runner) Install(args []string, remove bool) {
 	var (
 		global  = fs.Bool("global", false, "configure this user (all projects) instead of this repository")
 		hooks   = fs.Bool("hooks", false, "also install the session-start and stop hooks (install only)")
+		noHooks = fs.Bool("no-hooks", false, "remove the hooks an earlier install wrote (install only)")
 		dryRun  = fs.Bool("dry-run", false, "show what would change, write nothing")
 		targets = fs.String("targets", "", "comma-separated subset of: "+strings.Join(install.TargetNames, ", "))
 		yes     = fs.Bool("yes", false, "skip the confirmation prompt")
@@ -42,7 +43,9 @@ func (r *Runner) Install(args []string, remove bool) {
 					"agent the tools exist and how to use them. Pass --hooks to also run the loop\n"+
 					"automatically: a baseline pinned at session start, and the architectural delta\n"+
 					"reported at the end if the change introduced a regression. Hooks run commands,\n"+
-					"so they are opt-in.\n\n")
+					"so they are opt-in.\n\n"+
+					"Re-run it after `enola upgrade`, with no flags: hooks an earlier install wrote\n"+
+					"are kept and updated without --hooks. --no-hooks removes them.\n\n")
 		}
 		fmt.Fprint(os.Stderr, "Flags:\n")
 		fs.PrintDefaults()
@@ -77,6 +80,21 @@ func (r *Runner) Install(args []string, remove bool) {
 	}
 	if *global {
 		opts.Scope = install.ScopeGlobal
+	}
+	// A re-run keeps what the first run set up, so `enola install` alone is the whole
+	// instruction after an upgrade. Without this a plain re-run over a --hooks install
+	// rewrote the instructions without the hooks note and switched Pi's hooks off, while
+	// Claude Code's entries stayed behind, never updated again.
+	keptHooks := false
+	if !remove {
+		switch {
+		case *hooks && *noHooks:
+			r.installFatal("--hooks and --no-hooks contradict each other")
+		case *noHooks:
+			opts.DropHooks = true
+		case !*hooks && install.HooksInstalled(opts):
+			opts.Hooks, keptHooks = true, true
+		}
 	}
 	// A baseline and its grading snapshot the directory they run in as one repository,
 	// so in a folder of repositories those hooks could only ever skip, and installing
@@ -136,6 +154,9 @@ func (r *Runner) Install(args []string, remove bool) {
 			} else {
 				fmt.Println("Hooks:      yes")
 			}
+			if keptHooks {
+				fmt.Println("            Kept: an earlier install wrote them. --no-hooks removes them.")
+			}
 			for _, d := range install.HookSummary(opts) {
 				for i, line := range wrap(d, 66) {
 					prefix := "            · "
@@ -148,6 +169,8 @@ func (r *Runner) Install(args []string, remove bool) {
 			if install.InstallsSessionHooks(opts) {
 				fmt.Println("            Never blocks, and never interrupts on failure.")
 			}
+		} else if opts.DropHooks {
+			fmt.Println("Hooks:      removed (--no-hooks); instructions and skills only.")
 		} else if install.InstallsOpencodePlugin(opts) && !install.InstallsSessionHooks(opts) {
 			// opencode's --hooks is a plugin, not the grading loop. Offering "the loop"
 			// here would name a mechanism this run cannot install however it is re-run.
@@ -199,7 +222,7 @@ func (r *Runner) Install(args []string, remove bool) {
 	if opts.Scope == install.ScopeLocal {
 		if outDir := hookOutputDir(repoDir); outDir != "" {
 			switch {
-			case remove:
+			case remove, opts.DropHooks:
 				clearHookHeartbeat(repoDir, outDir)
 			case install.InstallsSessionHooks(opts):
 				// Only the session hooks, not every --hooks run. The heartbeat is what

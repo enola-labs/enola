@@ -128,10 +128,10 @@ or call the skill by name: `/enola-review` in Claude Code (`/enola:review` with 
 
 ```bash
 enola upgrade
-enola install --hooks
+enola install
 ```
 
-`enola upgrade` replaces the binary in place. Run `enola install` again afterwards, with the same flags as the first time: a new release can add hooks or skills, and only `install` writes them. Then restart your agent session so its MCP server runs the new binary. `enola doctor` lists any skill an older version wrote. [Upgrading in detail](docs/CLI.md#upgrade).
+`enola upgrade` replaces the binary in place. Run `enola install` again afterwards in each repository you set up: a new release can change hooks or skills, and only `install` writes them. No flags are needed: hooks an earlier install wrote are kept, and `--no-hooks` removes them. Then restart your agent session so its MCP server runs the new binary. `enola doctor` lists any skill an older version wrote. [Upgrading in detail](docs/CLI.md#upgrade).
 
 To keep the graph and browse it, `enola --generate .` saves it under `.enola/` and `enola dashboard --open` shows it in a local web page. [Dashboard guide](docs/DASHBOARD.md).
 

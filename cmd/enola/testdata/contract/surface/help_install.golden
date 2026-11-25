@@ -14,6 +14,9 @@ automatically: a baseline pinned at session start, and the architectural delta
 reported at the end if the change introduced a regression. Hooks run commands,
 so they are opt-in.
 
+Re-run it after `enola upgrade`, with no flags: hooks an earlier install wrote
+are kept and updated without --hooks. --no-hooks removes them.
+
 Flags:
   -dry-run
     	show what would change, write nothing
@@ -21,6 +24,8 @@ Flags:
     	configure this user (all projects) instead of this repository
   -hooks
     	also install the session-start and stop hooks (install only)
+  -no-hooks
+    	remove the hooks an earlier install wrote (install only)
   -targets string
     	comma-separated subset of: claude, cursor, agents, codex, copilot, pi, opencode
   -yes

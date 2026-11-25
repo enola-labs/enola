@@ -639,6 +639,7 @@ enola install --global        # this user, every project
 enola install --dry-run       # show what would change, write nothing
 enola install --yes           # skip the confirmation prompt (for scripts)
 enola install --targets=claude,cursor   # a subset instead of every detected agent
+enola install --no-hooks      # remove the hooks an earlier --hooks install wrote
 enola uninstall               # remove it all again
 ```
 
@@ -688,6 +689,8 @@ narrowed run never leaves an agent with a registration and no instructions.
 ```bash
 enola install --hooks
 ```
+
+`--hooks` is asked for once. A later `enola install` without it, such as the one after `enola upgrade`, finds the hooks an earlier install wrote and keeps them, updating them with everything else. `--no-hooks` is how they go: it removes them and the hooks note from the instructions, and leaves the instructions, the skills and Pi's extension installed.
 
 Without it you get instructions and nothing else: a paragraph telling the agent the graph
 exists, which it is free to read and then ignore. That is the honest description of the

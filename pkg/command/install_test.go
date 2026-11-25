@@ -187,3 +187,33 @@ func TestCountChanged_IgnoresSkippedAndUnchanged(t *testing.T) {
 		t.Errorf("countChanged = %d, want 3", got)
 	}
 }
+
+// The re-run an upgrade asks for is `enola install` with no flags. Over a --hooks install
+// it has to keep the hooks, not quietly rewrite every file as if they were never asked
+// for; --no-hooks is how they go.
+func TestInstall_ReRunKeepsHooksUntilNoHooks(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+	o := install.Options{Scope: install.ScopeLocal, RepoDir: repo, HomeDir: home}
+
+	runInstallCapturing(t, false, "--yes", "--hooks", repo)
+	if !install.HooksInstalled(o) {
+		t.Fatal("--hooks did not install hooks")
+	}
+
+	out := runInstallCapturing(t, false, "--yes", repo)
+	if !install.HooksInstalled(o) {
+		t.Fatalf("a plain re-run dropped the hooks:\n%s", out)
+	}
+	if !strings.Contains(out, "Kept: an earlier install wrote them") {
+		t.Errorf("the re-run did not say it kept the hooks:\n%s", out)
+	}
+	if !strings.Contains(out, "Nothing to do.") {
+		t.Errorf("a plain re-run over a current --hooks install planned changes:\n%s", out)
+	}
+
+	runInstallCapturing(t, false, "--yes", "--no-hooks", repo)
+	if install.HooksInstalled(o) {
+		t.Error("--no-hooks left hooks installed")
+	}
+}
