@@ -285,7 +285,8 @@ func (e *DartExtractor) Extract(ctx context.Context, repoPath string, files []st
 }
 
 // moduleFacts emits one module per directory holding Dart, carrying the pub package it
-// compiles into.
+// compiles into, and marking the lib/ directories of a published package as
+// facts.PropPublished.
 //
 // The `pub_package` prop is registered in facts.CompilationUnitProps, and that
 // registration is what makes the cycles explainer word a Dart cycle correctly. Dart is
@@ -297,6 +298,7 @@ func (e *DartExtractor) Extract(ctx context.Context, repoPath string, files []st
 // build-unit table exists to prevent.
 func moduleFacts(dartFiles []string, pkgs *packageIndex) []facts.Fact {
 	dirs := make(map[string]string, len(dartFiles))
+	published := map[string]bool{}
 	for _, relFile := range dartFiles {
 		dir := factpath.Dir(relFile)
 		if _, seen := dirs[dir]; seen {
@@ -305,6 +307,7 @@ func moduleFacts(dartFiles []string, pkgs *packageIndex) []facts.Fact {
 		name := ""
 		if p := pkgs.ownerOf(relFile); p != nil {
 			name = p.Name
+			published[dir] = p.publishedAPIDir(dir)
 		}
 		dirs[dir] = name
 	}
@@ -323,6 +326,9 @@ func moduleFacts(dartFiles []string, pkgs *packageIndex) []facts.Fact {
 		props := map[string]any{"language": "dart"}
 		if pkg := dirs[dir]; pkg != "" {
 			props["pub_package"] = pkg
+		}
+		if published[dir] {
+			props[facts.PropPublished] = true
 		}
 		out = append(out, facts.Fact{
 			Kind:  facts.KindModule,

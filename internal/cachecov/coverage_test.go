@@ -317,6 +317,10 @@ var versionCoverage = map[int][]string{
 	722: {"TestKotlinTestRefsRecordRepositoryAnnotations", "TestKotlinExtractTestRefsResolvesAnnotationsAgainstProductionSources", "TestGolden"},
 	723: {"TestCppTestGlobsScopeToTestTrees", "TestCppExtractTestRefsEmitsOnlyTestRefFacts", "TestCppTestRefsMatchTheEdgesTestsHadWhenIndexed", "TestCppTestRefsCreditLifecycleAndInheritedMembers", "TestCppTestRefsCreditAProductionHeaderOfTestHelpers", "TestTestAwareExtractorSeesTestsAndKeysTheCacheOnThem", "TestGolden"},
 	724: {"TestCBareNameDoesNotBindAStructMember", "TestCppFreeFunctionBareNameDoesNotBindAMember", "TestCppFreeFunctionBareNameStillConstructs"},
+	725: {"TestGolden"}, // not used on this branch
+	726: {"TestGolden"}, // not used on this branch
+	727: {"TestGolden"}, // not used on this branch
+	728: {"TestPublishedPackageLibIsPublished"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

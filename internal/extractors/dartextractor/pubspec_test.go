@@ -129,3 +129,80 @@ func TestModulesCarryPubPackage(t *testing.T) {
 		t.Fatal("no module facts emitted")
 	}
 }
+
+// TestPublishedPackageLibIsPublished pins which modules carry facts.PropPublished.
+// The orphans analyzer reads it to keep a library's exported API, whose callers
+// are the projects that install it, out of the test-only dead-code list. Only a
+// package pub would publish counts (a version, a license file, no `publish_to:
+// none`), and only its lib/, the one directory a `package:` URI reaches. An
+// application must stay unpublished, or its real dead code would be hidden.
+func TestPublishedPackageLibIsPublished(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		// A workspace root that opts out, around packages that do not.
+		"pubspec.yaml":                      "name: ws\npublish_to: none\n",
+		"lib/ws.dart":                       "class Ws {}\n",
+		"packages/core/pubspec.yaml":        "name: core\nversion: 1.2.0\n",
+		"packages/core/LICENSE":             "MIT\n",
+		"packages/core/lib/core.dart":       "export 'src/impl.dart';\n",
+		"packages/core/lib/src/impl.dart":   "void sqlCos() {}\n",
+		"packages/core/test/core_test.dart": "void main() {}\n",
+		"packages/core/bin/tool.dart":       "void main() {}\n",
+		// A private repository is still a repository other projects install from.
+		"packages/priv/pubspec.yaml":  "name: priv\nversion: 0.1.0\npublish_to: https://pub.example.com\n",
+		"packages/priv/LICENSE.md":    "MIT\n",
+		"packages/priv/lib/priv.dart": "class Priv {}\n",
+		// `flutter create`'s app: versioned, but opted out.
+		"apps/made/pubspec.yaml":  "name: made\nversion: 1.0.0+1\npublish_to: 'none'\n",
+		"apps/made/LICENSE":       "MIT\n",
+		"apps/made/lib/main.dart": "void main() {}\n",
+		// A hand-written app: versioned, no opt-out, but no license pub would demand.
+		"apps/hand/pubspec.yaml":  "name: hand\nversion: 1.0.0\n",
+		"apps/hand/lib/main.dart": "void main() {}\n",
+		// A package with no version cannot be published.
+		"packages/nover/pubspec.yaml": "name: nover\n",
+		"packages/nover/LICENSE":      "MIT\n",
+		"packages/nover/lib/n.dart":   "class N {}\n",
+	})
+	files := []string{
+		"lib/ws.dart",
+		"packages/core/lib/core.dart", "packages/core/lib/src/impl.dart",
+		"packages/core/test/core_test.dart", "packages/core/bin/tool.dart",
+		"packages/priv/lib/priv.dart",
+		"apps/made/lib/main.dart", "apps/hand/lib/main.dart",
+		"packages/nover/lib/n.dart",
+	}
+	got, err := New().Extract(context.Background(), root, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"lib":                   false,
+		"packages/core/lib":     true,
+		"packages/core/lib/src": true,
+		"packages/core/test":    false,
+		"packages/core/bin":     false,
+		"packages/priv/lib":     true,
+		"apps/made/lib":         false,
+		"apps/hand/lib":         false,
+		"packages/nover/lib":    false,
+	}
+	seen := map[string]bool{}
+	for _, f := range got {
+		if f.Kind != facts.KindModule {
+			continue
+		}
+		w, ok := want[f.Name]
+		if !ok {
+			continue
+		}
+		seen[f.Name] = true
+		if g := f.PropBool(facts.PropPublished); g != w {
+			t.Errorf("module %q: published = %v, want %v", f.Name, g, w)
+		}
+	}
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("no module fact for %q", name)
+		}
+	}
+}

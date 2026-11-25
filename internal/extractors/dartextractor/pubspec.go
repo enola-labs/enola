@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -26,6 +27,13 @@ type pubPackage struct {
 	Deps map[string]bool
 	// IsFlutter is true when the package depends on the flutter SDK.
 	IsFlutter bool
+	// Published is true when the package ships to a pub repository for other
+	// projects to depend on: see isPublished.
+	Published bool
+
+	// version and publishNone are what parsePubspec read for isPublished.
+	version     string
+	publishNone bool
 }
 
 // packageIndex resolves a repo's pub packages: which one owns a given file, and which
@@ -96,6 +104,7 @@ func buildPackageIndex(repoPath string, pubspecs []string) *packageIndex {
 		if p.Dir == "." {
 			p.Dir = ""
 		}
+		p.Published = p.isPublished(filepath.Dir(filepath.Join(repoPath, rel))) //factpath:host
 		// A duplicate package name across a repo is real (a package and its example
 		// app, or two vendored copies). The shallower one wins, which keeps the
 		// canonical package ahead of a nested example.
@@ -185,6 +194,12 @@ func parsePubspec(path string) *pubPackage {
 			case "name":
 				p.Name = strings.Trim(strings.TrimSpace(val), `"'`)
 				section = ""
+			case "version":
+				p.version = strings.Trim(strings.TrimSpace(val), `"'`)
+				section = ""
+			case "publish_to":
+				p.publishNone = strings.Trim(strings.TrimSpace(val), `"'`) == "none"
+				section = ""
 			case "dependencies", "dev_dependencies", "dependency_overrides":
 				section = "deps"
 			default:
@@ -212,4 +227,49 @@ func parsePubspec(path string) *pubPackage {
 		log.Printf("[dart-extractor] error reading %s: %v", path, err)
 	}
 	return p
+}
+
+// licenseFileRe is the file name `dart pub publish` accepts as the package's
+// license, matched case-insensitively.
+var licenseFileRe = regexp.MustCompile(`(?i)^(([a-z0-9]+[-_])?(license|copying)|unlicense)(\..*)?$`)
+
+// isPublished reports whether the package is one other projects install from a
+// pub repository. `publish_to: none` is the manifest's own opt-out, which
+// `flutter create` writes into every application. It is not enough alone: an
+// application written by hand often leaves it out, and pub would accept it. What
+// pub will not take is a package without a version or without a license file
+// beside the pubspec, and an application has no reason to carry either (checked
+// on the corpus: every pubspec with a version and no opt-out that lacked a
+// license was an app, a sample or a test fixture). A `publish_to` naming a
+// private repository is still published.
+func (p *pubPackage) isPublished(dir string) bool {
+	if p.publishNone || p.version == "" {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && licenseFileRe.MatchString(e.Name()) {
+			return true
+		}
+	}
+	return false
+}
+
+// publishedAPIDir reports whether a directory holding Dart is part of its
+// package's published API: lib/ and below. A `package:` URI resolves only into
+// lib/, so bin/, test/, tool/ and example/ code is never imported by a project
+// that installs the package. lib/src/ counts too: by convention it is private,
+// but packages re-export from it, and another package may still import it.
+func (p *pubPackage) publishedAPIDir(dir string) bool {
+	if p == nil || !p.Published {
+		return false
+	}
+	lib := "lib"
+	if p.Dir != "" {
+		lib = p.Dir + "/lib"
+	}
+	return dir == lib || strings.HasPrefix(dir, lib+"/")
 }
