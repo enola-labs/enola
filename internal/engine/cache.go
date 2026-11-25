@@ -4059,7 +4059,9 @@ import (
 // v727: Dart: a same-file function invoked in a module initializer, directly or
 // inside a closure there, is a calls edge on the file reference (file scope has no
 // call scan), and a typed top-level final or const tear-off is a names edge.
-const cacheVersion = "v727"
+// v728: Dart: the modules under lib/ of a package pub would publish (a version, a
+// license file beside the pubspec, no `publish_to: none`) carry `published`.
+const cacheVersion = "v728"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
