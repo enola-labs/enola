@@ -85,69 +85,46 @@ curl -fsSL https://raw.githubusercontent.com/enola-labs/enola/main/install.sh | 
 
 This puts `enola` in `~/.local/bin`. The same binary is on PyPI (`pip install enola-cli`) and RubyGems. Every install route is in [docs/CLI.md](docs/CLI.md#install).
 
-**2. Point it at a repository you have checked out.**
+**2. Read a repository you have checked out.** No config file, no account, nothing written to disk:
 
 ```bash
-enola --explain /path/to/your/repo
+enola --explain --summary /path/to/your/repo
 ```
 
-No config file, no account, nothing written to disk. It reads the code and prints what it found. If you have nothing at hand, run it on enola itself:
-
-```bash
-git clone https://github.com/enola-labs/enola
-enola --explain enola
-```
-
-Part of what that prints (the numbers move as the code does):
+It says what the repository is, whether its structure holds, where to start reading and what is risky to change, and marks each statement with how sure enola is. Part of what it prints for enola itself (the numbers move as the code does):
 
 ```
-Overview
-  Languages:           go, typescript, c, ruby, python
-  Total facts:         10814
+Structure: healthy
+  No circular dependencies, and no layer rule broken.
 
-Architecture
-  cyclic dependencies         0
-  layer violations            0
-
-Impact analysis (hotspots)
-  Top hotspots (by coupling):
-    module                            fan-in  fan-out crit     blast radius
-    internal/facts                       253        1 high     96
-    pkg/command                            1       94 high     1
-    pkg/bootstrap                         15       69 high     4
+Careful when changing
+  github.com/enola-labs/enola/internal/facts
+    A change here can reach 127 other folders of code within three import
+    steps. Have tests in place before changing it.
 ```
 
-How to read it:
+Drop `--summary` for the full report with every check's numbers; the terms it uses are in the [glossary](docs/GLOSSARY.md).
 
-- A **fact** is one thing enola recorded: "this function exists", "this function calls that one", "this route is served here". `Total facts` is how many it found.
-- A **cyclic dependency** is two or more modules that each need the other, so neither can be changed or tested alone.
-- A **layer violation** is a module reaching into a layer it is not allowed to use, under a layer order the repository declared. enola declares its own in [`enola-intent.yaml`](enola-intent.yaml); 0 means nothing in the code crosses it.
-- A **hotspot** is a module many other modules depend on. `fan-in` is how many modules use it; `fan-out` is how many it uses; `blast radius` is how many modules a change to it can reach. Read the first row as: `internal/facts` is used from 253 places, and a change to it can reach 96 modules.
-
-If that is more vocabulary than you need, ask for the plain-language summary instead. It says what the repository is, whether its structure holds, where to start reading, what is risky to change and what is worth a look, and marks each statement with how sure enola is:
-
-```bash
-enola --explain --summary enola
-```
-
-**3. Keep the graph and look at it.** `--explain` only prints. To save the graph, build it with `--generate`. It is written under `.enola/` in the repository, and that saved graph is what the local dashboard shows:
-
-```bash
-enola --generate .
-enola dashboard --open
-```
-
-The dashboard is a local web page; nothing is sent anywhere. [Dashboard guide](docs/DASHBOARD.md).
-
-**4. Connect your coding agent.** Run this in the repository:
+**3. Connect your coding agent.** In the repository:
 
 ```bash
 enola install --hooks
+claude mcp add-json enola '{"command":"enola","alwaysLoad":true}'
 ```
 
-It tells Claude Code, Codex, Cursor, Copilot, opencode and Pi that enola exists, adds skills for reviewing a branch, planning tests, setting up architecture rules and keeping notes on code, and with `--hooks` grades each agent session. It previews every file it changes and asks first. Then register the MCP server for your client: [Connect your agent](#connect-your-agent).
+The first line tells Claude Code, Codex, Cursor, Copilot, opencode and Pi that enola exists, adds its [skills](docs/SKILLS.md), and with `--hooks` grades each agent session. It previews every file it changes and asks first. The second registers the MCP server for Claude Code; other clients are one line each in [Connect your agent](#connect-your-agent). Then ask the agent something only the graph answers well:
 
-**5. Stay current.**
+> What breaks if I change `OrderService.cancel`?
+
+**4. Change code with your agent, then review it.** The hooks grade every turn: if the agent's edit adds a dependency cycle or crosses a layer, it is told before it says it is done. When the work is finished, ask for a review:
+
+> Review my changes against main.
+
+or call the skill by name: `/enola-review` in Claude Code (`/enola:review` with the plugin, `$enola-review` in Codex). You get what the change did to the structure and where a reviewer should look. Without an agent, the same check is `enola baseline pin`, then your edit, then `enola check`; see [Grade a change](#grade-a-change) and [Use it in CI](#use-it-in-ci).
+
+**5. If your agent keeps memory, stamp it once.** Run `/enola-memory` with no task. It ties each note about code to the code it describes, and lists the notes whose code was renamed or deleted since. To keep new notes stamped, add one line to the agent's instructions: "stamp notes about code with enola-memory". [Memory skill](docs/SKILLS.md#memory).
+
+**6. Stay current.**
 
 ```bash
 enola upgrade
@@ -155,6 +132,8 @@ enola install --hooks
 ```
 
 `enola upgrade` replaces the binary in place. Run `enola install` again afterwards, with the same flags as the first time: a new release can add hooks or skills, and only `install` writes them. Then restart your agent session so its MCP server runs the new binary. `enola doctor` lists any skill an older version wrote. [Upgrading in detail](docs/CLI.md#upgrade).
+
+To keep the graph and browse it, `enola --generate .` saves it under `.enola/` and `enola dashboard --open` shows it in a local web page. [Dashboard guide](docs/DASHBOARD.md).
 
 ## How enola works
 
