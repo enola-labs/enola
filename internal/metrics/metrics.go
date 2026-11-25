@@ -492,9 +492,10 @@ func boolProp(f facts.Fact, key string) bool {
 //     ModuleRoleForPath predates: Mocks/, __tests__/, testdata/, fixtures/, and the
 //     Kotlin-Multiplatform trees (commonTest/jvmTest/iosTest/nativeTest).
 //
-// This matters most for the five languages that emit no module_role at all (Go,
-// Python, TypeScript, PHP, C/C++), for which this fallback is the ONLY thing keeping
-// test packages out of the metrics.
+// This matters most for the languages that emit no module_role at all (every one but
+// java, kotlin, scala, csharp, swift and ruby: Go, Python, TypeScript, PHP, C/C++,
+// Dart, Rust and the rest), for which this fallback is the ONLY thing keeping test
+// packages out of the metrics.
 func looksNonProduction(pkgPath string) bool {
 	return nonProductionRoles[facts.ModuleRoleForPath(pkgPath)] || facts.IsTestPath(pkgPath)
 }
