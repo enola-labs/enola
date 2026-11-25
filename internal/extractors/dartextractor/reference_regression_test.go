@@ -147,3 +147,94 @@ func TestDartTearOffScopeRestoration(t *testing.T) {
 		}
 	}
 }
+
+func fileRefRelation(ff []facts.Fact, file, kind, target string) bool {
+	for _, f := range ff {
+		if f.Kind != facts.KindFileRef || f.Name != file {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind == kind && r.Target == target {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// File-scope code has no enclosing symbol, so no call scan runs there. An
+// invocation in a module initializer is recorded on the file reference.
+func TestDartModuleInitializerInvocation(t *testing.T) {
+	for _, use := range []string{
+		`final Event a = Event(handler: (s) => _handle(s, 1));`,
+		`final Event a = Event(handler: (s) { return _handle(s, 1); });`,
+		`final a = _handle(null, 1);`,
+		`final Object a = _handle<int>(null, 1);`,
+		`final List<Event> a = [Event(handler: (s) => _handle(s, 2))];`,
+		`var a = 0, b = _handle(null, 1);`,
+	} {
+		t.Run(use, func(t *testing.T) {
+			ff := walkSource(t, "lib/commands.dart", "Object _handle<T>(Object? s, int v) => v;\n"+use)
+			if !fileRefRelation(ff, "lib/commands.dart", facts.RelCalls, "lib._handle") {
+				t.Fatalf("module initializer invocation lost its calls edge")
+			}
+			store := facts.NewStore()
+			store.Add(ff...)
+			insights, err := orphans.NewExplainer().Explain(context.Background(), store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, in := range insights {
+				if strings.HasSuffix(in.Title, " lib._handle") {
+					t.Errorf("handler invoked from a module initializer reported as dead: %s", in.Title)
+				}
+			}
+		})
+	}
+}
+
+func TestDartModuleInitializerInvocationScope(t *testing.T) {
+	for _, use := range []string{
+		`final a = Event(handler: (_handle) => _handle(1));`,
+		`final a = Event(handler: (s) { final _handle = s; return _handle(1); });`,
+		`final a = external(1);`,
+		`final a = _handle.call(1);`,
+		`final a = other._handle(1);`,
+	} {
+		t.Run(use, func(t *testing.T) {
+			ff := walkSource(t, "lib/commands.dart", "Object _handle(Object? s) => s;\n"+use)
+			for _, f := range ff {
+				for _, r := range f.Relations {
+					if r.Kind == facts.RelCalls && f.Kind == facts.KindFileRef {
+						t.Errorf("shadowed, unresolved or member invocation bound at file scope: %s -> %s", f.Name, r.Target)
+					}
+				}
+			}
+		})
+	}
+	// Function bodies keep their own call scan; the value pass adds nothing there.
+	ff := walkSource(t, "lib/commands.dart", "Object _handle(Object? s) => s;\nObject run() => _handle(1);")
+	if f := findFact(ff, facts.KindFileRef, "lib/commands.dart"); f != nil && len(f.Relations) > 0 {
+		t.Errorf("function-body invocation leaked onto the file reference: %v", f.Relations)
+	}
+}
+
+// A typed top-level final or const parses as a static_final_declaration, not an
+// initialized_variable_definition.
+func TestDartTypedFinalTearOff(t *testing.T) {
+	for _, use := range []string{
+		`final Callback a = _handle;`,
+		`const Callback a = _handle;`,
+	} {
+		t.Run(use, func(t *testing.T) {
+			ff := walkSource(t, "lib/commands.dart", "Object _handle(Object? s) => s;\n"+use)
+			if !fileRefRelation(ff, "lib/commands.dart", facts.RelNames, "lib._handle") {
+				t.Fatal("typed module tear-off lost its names edge")
+			}
+		})
+	}
+	ff := walkSource(t, "lib/commands.dart", "Object _handle(Object? s) => s;\nfinal Callback _handle2 = other;")
+	if fileRefRelation(ff, "lib/commands.dart", facts.RelNames, "lib._handle") {
+		t.Fatal("declared name bound as a tear-off")
+	}
+}

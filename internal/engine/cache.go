@@ -4056,7 +4056,10 @@ import (
 // tear-offs on the file's reference fact, as file-scope initializers do; and
 // `.steps.dart` (drift_dev's migration steps, banner after the imports) and
 // `.gform.dart` are generated, from one suffix list the default ignore globs share.
-const cacheVersion = "v726"
+// v727: Dart: a same-file function invoked in a module initializer, directly or
+// inside a closure there, is a calls edge on the file reference (file scope has no
+// call scan), and a typed top-level final or const tear-off is a names edge.
+const cacheVersion = "v727"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
