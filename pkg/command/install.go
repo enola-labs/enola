@@ -29,6 +29,7 @@ func (r *Runner) Install(args []string, remove bool) {
 		dryRun  = fs.Bool("dry-run", false, "show what would change, write nothing")
 		targets = fs.String("targets", "", "comma-separated subset of: "+strings.Join(install.TargetNames, ", "))
 		yes     = fs.Bool("yes", false, "skip the confirmation prompt")
+		check   = fs.Bool("check", false, "say whether what an earlier install wrote is current with this binary; writes nothing, exits 1 when it is not (install only)")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s %s [flags] [repo_path]\n\n", r.name(), name)
@@ -68,6 +69,10 @@ func (r *Runner) Install(args []string, remove bool) {
 	home, err := os.UserHomeDir()
 	if err != nil && *global {
 		r.installFatal("cannot determine the home directory: %v", err)
+	}
+
+	if *check && !remove {
+		os.Exit(r.installCheck(repoDir, home))
 	}
 
 	opts := install.Options{
@@ -488,4 +493,28 @@ func installDrift(scope install.Scope, repoDir, home string) (changed []install.
 		o.FolderOfRepos = workspace.IsFolderOfRepos(repoDir)
 	}
 	return install.Drift(o)
+}
+
+// installCheck is `install --check`: whether this repository's and this user's install
+// are what a plain `enola install` from this binary would leave, which `enola upgrade`
+// asks the new binary right after replacing the old one. It returns the exit code: 1
+// when something is behind, so a script can act on it.
+func (r *Runner) installCheck(repoDir, home string) int {
+	if abs, err := filepath.Abs(repoDir); err == nil {
+		repoDir = abs
+	}
+	local := installStatusFor(install.ScopeLocal, repoDir, home)
+	global := installStatusFor(install.ScopeGlobal, repoDir, home)
+	if !local.Installed && !global.Installed && local.Error == "" && global.Error == "" {
+		fmt.Printf("Nothing of enola's is installed for your agents in %s or your home directory.\n", repoDir)
+		fmt.Printf("In each repository you work in, `%s install --hooks` wires your agents to enola.\n", r.name())
+		return 0
+	}
+	r.printInstall(repoDir, home, local, global)
+	fmt.Printf("Each other repository you ran `%s install` in is checked the same way by\n", r.name())
+	fmt.Printf("`%s doctor` or `%s install --check` there.\n", r.name(), r.name())
+	if len(local.Changes) > 0 || len(global.Changes) > 0 || local.Error != "" || global.Error != "" {
+		return 1
+	}
+	return 0
 }

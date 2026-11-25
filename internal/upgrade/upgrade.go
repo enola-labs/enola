@@ -45,6 +45,28 @@ var fetchLibrary = func(ctx context.Context, exe string) error {
 	return cmd.Run()
 }
 
+// checkArgs asks the installed binary whether the files `enola install` wrote here are
+// the ones it would write.
+var checkArgs = []string{"install", "--check"}
+
+// checkInstall runs checkArgs in the installed binary. Like fetchLibrary it must be the
+// new binary: only it knows what the new release writes. Exit 0 or 1 is its answer,
+// current or behind, and either is printed; behind is the user's to act on, not an
+// error here. Any other status is a release from before the flag, whose usage error
+// would only confuse, so the plain advice stands in for it. Tests replace it, since the
+// running binary under test is the test binary.
+var checkInstall = func(ctx context.Context, exe string) {
+	cmd := exec.CommandContext(ctx, exe, checkArgs...)
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if err == nil || (errors.As(err, &exit) && exit.ExitCode() == 1) {
+		fmt.Fprint(os.Stderr, "\n"+string(out))
+		return
+	}
+	fmt.Fprintln(os.Stderr, "\nRun `enola install` again in each repository you set up, so your agents get this")
+	fmt.Fprintln(os.Stderr, "version's instructions, hooks and skills. Hooks an earlier install wrote are kept.")
+}
+
 // Overridable base URLs (production defaults). Tests point these at an
 // httptest server to exercise Run without touching the network.
 var (
@@ -97,6 +119,7 @@ func Run(ctx context.Context, current string) error {
 				exe = resolved
 			}
 			provisionLibrary(ctx, exe)
+			checkInstall(ctx, exe)
 		}
 		return nil
 	}
@@ -137,6 +160,10 @@ func Run(ctx context.Context, current string) error {
 
 	fmt.Fprintf(os.Stderr, "Upgraded enola v%s -> v%s\n", current, latest)
 	provisionLibrary(ctx, exe)
+	// The upgrade replaced the binary, not what `enola install` wrote for the agents:
+	// the instructions, hooks and skills stay as the old version left them until
+	// install runs again. Saying so here is the one moment the user is listening.
+	checkInstall(ctx, exe)
 	return nil
 }
 

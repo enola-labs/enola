@@ -45,6 +45,8 @@ enola upgrade
 
 This downloads the newest build for your platform, verifies its checksum, and replaces the running binary. It then runs the new binary's `providers fetch rubydex`, so the Rubydex library that release pins is in place; a failed fetch is reported and the upgrade still succeeds, and any non-empty `ENOLA_NO_RUBYDEX_FETCH` skips it (`0` included). An upgrade that finds the binary already current still fetches the library when it is missing. A binary from `go install`, pip or a source build has no such step: run `enola providers fetch rubydex` once. If enola is installed somewhere your user can't write, re-run with elevated permissions or re-run the install script above.
 
+An upgrade replaces the binary, not what `enola install` wrote for your agents: the instructions, hooks and skills stay as the old version left them. So the last thing `enola upgrade` does is run the new binary's `enola install --check` in the current directory, which lists any file a re-install would change, there and in your home directory. Run `enola install` (no flags: hooks an earlier install wrote are kept) in each repository you set up, and `enola install --global` if you installed for your user. `enola doctor` or `enola install --check` in any repository says whether it is still behind.
+
 Because your agent launches enola as a long-lived MCP server process, an upgrade only takes effect once that process restarts - reconnect the MCP server so it picks up the new binary:
 
 - **Claude Code** - restart the session, or re-register with `claude mcp remove enola` and the `add-json` command below.
@@ -640,6 +642,7 @@ enola install --dry-run       # show what would change, write nothing
 enola install --yes           # skip the confirmation prompt (for scripts)
 enola install --targets=claude,cursor   # a subset instead of every detected agent
 enola install --no-hooks      # remove the hooks an earlier --hooks install wrote
+enola install --check         # is what install wrote current with this binary? exits 1 if not
 enola uninstall               # remove it all again
 ```
 

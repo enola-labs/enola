@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -285,6 +287,13 @@ func TestRunOnAPipInstallNeverReachesTheNetwork(t *testing.T) {
 	}
 }
 
+func stubCheck(t *testing.T, fn func(ctx context.Context, exe string)) {
+	t.Helper()
+	prev := checkInstall
+	checkInstall = fn
+	t.Cleanup(func() { checkInstall = prev })
+}
+
 func stubFetch(t *testing.T, fn func(ctx context.Context, exe string) error) {
 	t.Helper()
 	prev := fetchLibrary
@@ -359,17 +368,23 @@ func TestRunWhenAlreadyCurrentStillProvisionsTheLibrary(t *testing.T) {
 	prevMethod := version.InstallMethod
 	version.InstallMethod = "source"
 	t.Cleanup(func() { version.InstallMethod = prevMethod })
-	fetched := false
+	fetched, checked := false, false
 	stubFetch(t, func(context.Context, string) error {
 		fetched = true
 		return nil
 	})
+	stubCheck(t, func(context.Context, string) { checked = true })
 
 	if err := Run(context.Background(), "0.4.12"); err != nil {
 		t.Fatal(err)
 	}
 	if !fetched {
 		t.Error("an up-to-date upgrade never asked for the library")
+	}
+	// Files an older version wrote can be behind an up-to-date binary, for one when
+	// the upgrade happened through the install script.
+	if !checked {
+		t.Error("an up-to-date upgrade never checked what install wrote")
 	}
 }
 
@@ -389,4 +404,32 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	return string(out)
+}
+
+// TestCheckInstallShowsOnlyAnAnswer pins what reaches the user from the new binary's
+// install --check: its report for exit 0 or 1, and for anything else (a release from
+// before the flag, which fails with a usage error) the plain advice instead.
+func TestCheckInstallShowsOnlyAnAnswer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub binaries are shell scripts")
+	}
+	stub := func(body string) string {
+		path := filepath.Join(t.TempDir(), "enola")
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	for _, c := range []struct{ name, body, want, not string }{
+		{"current", "echo current-report; exit 0", "current-report", "Run `enola install` again"},
+		{"behind", "echo behind-report; exit 1", "behind-report", "Run `enola install` again"},
+		{"old release", "echo 'flag provided but not defined: -check' >&2; echo usage; exit 2", "Run `enola install` again", "flag provided"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := captureStderr(t, func() { checkInstall(context.Background(), stub(c.body)) })
+			if !strings.Contains(got, c.want) || strings.Contains(got, c.not) {
+				t.Errorf("got:\n%s\nwant %q and not %q", got, c.want, c.not)
+			}
+		})
+	}
 }

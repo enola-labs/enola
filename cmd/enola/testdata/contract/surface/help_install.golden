@@ -18,6 +18,8 @@ Re-run it after `enola upgrade`, with no flags: hooks an earlier install wrote
 are kept and updated without --hooks. --no-hooks removes them.
 
 Flags:
+  -check
+    	say whether what an earlier install wrote is current with this binary; writes nothing, exits 1 when it is not (install only)
   -dry-run
     	show what would change, write nothing
   -global

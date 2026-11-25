@@ -71,6 +71,10 @@ func main() {
 				"is reported and the upgrade still succeeds. Any non-empty value of\n"+
 				"ENOLA_NO_RUBYDEX_FETCH skips it, 0 included. An up-to-date binary\n"+
 				"still fetches the library when it is missing.\n\n"+
+				"Last, the new binary runs `install --check` in the current directory: the\n"+
+				"instructions, hooks and skills `enola install` wrote stay as the old\n"+
+				"version left them until install runs again, and this says whether they\n"+
+				"differ from what the new one writes.\n\n"+
 				"Exit codes:\n"+
 				"  0  upgraded, already current, or left to the package manager\n"+
 				"  1  the upgrade failed\n"+

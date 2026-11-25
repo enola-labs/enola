@@ -7,6 +7,8 @@ Usage: enola uninstall [flags] [repo_path]
 Remove everything `enola install` wrote, leaving the rest of each file untouched.
 
 Flags:
+  -check
+    	say whether what an earlier install wrote is current with this binary; writes nothing, exits 1 when it is not (install only)
   -dry-run
     	show what would change, write nothing
   -global
