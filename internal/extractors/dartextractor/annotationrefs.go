@@ -57,8 +57,10 @@ func (w *walker) constructionReferences(n *sitter.Node, shadows map[string]bool,
 
 // dartCreatedType is the class a `const`/`new` expression builds. The grammar
 // spells an import prefix as a type: `const i0.Value()` is two type_identifiers,
-// and `new p.Foo()` a type_identifier and an identifier, which is also how
-// `new Foo.named()` reads, so the capitalised name decides.
+// so the last one is the class, and `new p.Foo()` is a type_identifier and an
+// identifier, which is also how `new Foo.named()` and `const bool.fromEnvironment()`
+// read, so the identifier is the class only when it is capitalised and the first
+// name is not.
 func dartCreatedType(n *sitter.Node, src []byte) string {
 	name := ""
 	for _, c := range namedChildren(n) {
@@ -68,15 +70,12 @@ func dartCreatedType(n *sitter.Node, src []byte) string {
 			continue
 		case "identifier":
 			if text := c.Utf8Text(src); name != "" && !namesAType(name) && namesAType(text) {
-				name = text
+				return text
 			}
 		}
 		if name != "" {
 			break
 		}
-	}
-	if !namesAType(name) {
-		return ""
 	}
 	return name
 }

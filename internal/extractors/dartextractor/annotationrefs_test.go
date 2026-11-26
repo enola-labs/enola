@@ -46,9 +46,13 @@ class Opt {
 class Gadget {
   const Gadget();
 }
+class $Gen {
+  const $Gen();
+}
 class Host {
   void run({Object o = const Opt(1)}) {}
   void prefixed({Object o = const i0.Gadget(), Object n = new i0.Opt()}) {}
+  void builtin({bool b = const bool.fromEnvironment('x'), Object g = const $Gen()}) {}
 }
 abstract class Api {
   void fetch({Object g = const Gadget(), Object cb = _cb});
@@ -61,6 +65,8 @@ void _cb() {}
 		"symbol lib.Api.fetch -> lib.Gadget",
 		"symbol lib.Host.prefixed -> lib.Gadget",
 		"symbol lib.Host.prefixed -> lib.Opt",
+		"symbol lib.Host.builtin -> sdk/lib/core.bool",
+		"symbol lib.Host.builtin -> lib.$Gen",
 	} {
 		if !inst[want] {
 			t.Errorf("missing instantiates %q; got %v", want, inst)
