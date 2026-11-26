@@ -86,3 +86,54 @@ export default {
 	}
 	t.Errorf("the options object's validator is not named by the file")
 }
+
+// An enum the file declares and reads only as `Enum.Member` is used: the member
+// access names the enum, in a variable's value, a function body and file scope. A
+// type annotation is not a value read, and a parameter of the same name shadows it.
+func TestValueRefs_LocalEnumMemberAccess(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/kinds.ts": `export enum PlainKind { Single = "single", Double = "double" }
+enum BodyKind { X = 1 }
+export const enum ConstKind { Y = 2 }
+enum TypeOnly { Z = 3 }
+export const KIND_LABELS = new Map<PlainKind, string>([[PlainKind.Single, "One"]])
+export function bodyUse(): number { return BodyKind.X + ConstKind.Y }
+export function annotated(k: TypeOnly): number { return 0 }
+export function shadow(BodyKind: { X: number }): number { return BodyKind.X }
+if (PlainKind.Double) { console.log("x") }`,
+	}, false)
+
+	for name, want := range map[string]string{
+		"src.KIND_LABELS": "src.PlainKind",
+		"src.bodyUse":     "src.BodyKind",
+	} {
+		f, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("no symbol %s", name)
+		}
+		if !hasRelation(f, facts.RelNames, want) {
+			t.Errorf("%s does not name the enum %s it reads a member of: %v", name, want, f.Relations)
+		}
+	}
+	body, _ := findFact(ff, "src.bodyUse")
+	if !hasRelation(body, facts.RelNames, "src.ConstKind") {
+		t.Errorf("bodyUse does not name the const enum ConstKind: %v", body.Relations)
+	}
+	annotated, _ := findFact(ff, "src.annotated")
+	if hasRelation(annotated, facts.RelNames, "src.TypeOnly") {
+		t.Errorf("a type annotation names the enum: %v", annotated.Relations)
+	}
+	shadow, _ := findFact(ff, "src.shadow")
+	if hasRelation(shadow, facts.RelNames, "src.BodyKind") {
+		t.Errorf("a parameter shadowing the enum names it: %v", shadow.Relations)
+	}
+	var fileNames bool
+	for _, f := range ff {
+		if f.Kind == facts.KindFileRef && f.File == "src/kinds.ts" && hasRelation(f, facts.RelNames, "src.PlainKind") {
+			fileNames = true
+		}
+	}
+	if !fileNames {
+		t.Errorf("a file-scope member read does not name the enum")
+	}
+}

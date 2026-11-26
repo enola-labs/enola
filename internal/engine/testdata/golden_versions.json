@@ -1,5 +1,5 @@
 {
-  "cache_version": "v735",
+  "cache_version": "v737",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -167,19 +167,19 @@
     },
     "ts_custom_client_configured": {
       "input": "98ff702a08188d562df2c36a0c7be073e4435c043cabe9f8f2df721fa9179134",
-      "facts": "6088e0cac839af5e2884cf09dca6604085dc1004f682e852c2942242715db353"
+      "facts": "869eb196d715f69fbf6a6ae744bf2c312a095357227ffa70338a972741a08e9f"
     },
     "ts_custom_client_default": {
       "input": "2bd732379a76401d7ecf3e91726d75eb226b326570a2b94492bd1f6fccb07f53",
-      "facts": "0ecde7cb4debf11e2b2a46c82964da4fdd9b0a19cec937dd7b8f3b37d7dd33c2"
+      "facts": "9c24aa2ebc2a9698fc37e88d4684f289eafd72decf66e081775857fb08d5ffc8"
     },
     "ts_custom_client_no_alias": {
       "input": "9126efd96b0f3c98f19264d28ad25d85e71934160adf78ad6b28ac54636b8b95",
-      "facts": "3cffd64e2c7df2322e0aeaa5c154204f351b00436c13ed57377c8e8b65666e74"
+      "facts": "5b9a72030138ff63f480e96a429fd85ae1fcd59cab4311b764c194e7832756f8"
     },
     "ts_custom_client_param_match": {
       "input": "0664696bc42ac8dd5ee838a0893db3b7c933633b714d3dd4139b76101ebdc9d5",
-      "facts": "3dbc9063e512114df7917a7adc865a66c71c358c0d644444a942aaaa3474aa1f"
+      "facts": "d4b167abf7cf56c6adf084f70ab704998b3af5bdb459f87d7a2ebfc24b213cf8"
     },
     "ts_ember_sample": {
       "input": "7782a0110102c070a2b05cffef18d5a06f5c29faa2a99cbe3b49c4311f30f826",

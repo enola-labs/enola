@@ -62,6 +62,12 @@ func addScopeValues(kinds *tsutil.KindTable, scope *sitter.Node, src []byte, dir
 			if name := stmt.ChildByFieldName("name"); name != nil {
 				out[nodeText(name, src)] = dir + "." + nodeText(name, src)
 			}
+		case "enum_declaration":
+			// An enum is read as `Kind.Member`, a value read of the enum. A wrapper's
+			// enum is not a symbol, so only the module's counts.
+			if name := stmt.ChildByFieldName("name"); name != nil && !inWrapper {
+				out[nodeText(name, src)] = dir + "." + nodeText(name, src)
+			}
 		case "expression_statement":
 			if body := wrapperBody(kinds, stmt); body != nil && wrappers > 0 {
 				addScopeValues(kinds, body, src, dir, out, wrappers-1, true)

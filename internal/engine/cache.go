@@ -4098,7 +4098,9 @@ import (
 // read. An annotation's arguments record what they name: a type that binds in the
 // library (`@DriftDatabase(tables: [Users])`) as a names edge, a tear-off, and a
 // construction, on the annotated type, or on the file's reference fact otherwise.
-const cacheVersion = "v735"
+// v737: TypeScript: a module-scope enum read as `Enum.Member` in the file that
+// declares it is a names edge to the enum.
+const cacheVersion = "v737"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
