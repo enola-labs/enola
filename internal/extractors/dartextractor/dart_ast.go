@@ -502,20 +502,18 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 }
 
 // unnamedExtensionName names `extension on T { ... }`, which Dart leaves unnamed:
-// `_on_<T>@<file>`, with `#2`, `#3` for further unnamed extensions on T in the file,
+// `_on_<T>@<file>`, with `@2`, `@3` for further unnamed extensions on T in the file,
 // in source order. The leading `_` keeps it library-private, as Dart makes an unnamed
 // extension. T is the type's own name without type arguments or an import prefix
 // (`List<int>` is List, `p.Foo` is Foo); a function type is Function and a record type
-// Record.
-//
-// It returns "" (the extension stays unextracted) when the file's base name has a
-// dot, as `user.repository.dart` does: the name would read as a member `repository`
-// of `_on_T@user`, since `.` separates a qualified name.
+// Record. A dot in the file's base name becomes `_` (`user.repository.dart` gives
+// `@user_repository`), since `.` separates a qualified name.
 func (w *walker) unnamedExtensionName(n *sitter.Node) string {
 	file := strings.TrimSuffix(w.relFile[strings.LastIndexByte(w.relFile, '/')+1:], ".dart")
-	if file == "" || strings.Contains(file, ".") {
+	if file == "" {
 		return ""
 	}
+	file = strings.ReplaceAll(file, ".", "_")
 	typ := ""
 	for _, c := range namedChildren(n) {
 		switch kindOf(c) {
@@ -536,7 +534,7 @@ func (w *walker) unnamedExtensionName(n *sitter.Node) string {
 	w.unnamedExtensions[typ]++
 	name := "_on_" + typ + "@" + file
 	if k := w.unnamedExtensions[typ]; k > 1 {
-		name += "#" + strconv.Itoa(k)
+		name += "@" + strconv.Itoa(k)
 	}
 	return name
 }

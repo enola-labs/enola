@@ -36,8 +36,8 @@ void run(T t) { t.a(); }`,
 }
 
 // TestDartUnnamedExtensionNames pins the synthetic names: the type's own name without
-// type arguments or prefix, `#2` for a second one on the same type in source order, and
-// nothing for a file whose base name has a dot, where the name would read as a member.
+// type arguments or prefix, and `@2`, `@3` for further ones on the same type in source
+// order. No name carries `#`.
 func TestDartUnnamedExtensionNames(t *testing.T) {
 	all := dartReviewFacts(t, map[string]string{
 		"lib/c.dart": `import 'p.dart' as p;
@@ -49,19 +49,18 @@ extension on p.Bar {}
 extension on void Function() {}
 extension on (int, String) {}
 extension on T? {}`,
-		"lib/user.repository.dart": `extension on T { void z() {} }`,
 	})
 	for _, name := range []string{
-		"lib._on_T@c", "lib._on_T@c.x", "lib._on_List@c", "lib._on_T@c#2", "lib._on_T@c#2.y",
-		"lib._on_Foo@c", "lib._on_Bar@c", "lib._on_Function@c", "lib._on_Record@c", "lib._on_T@c#3",
+		"lib._on_T@c", "lib._on_T@c.x", "lib._on_List@c", "lib._on_T@c@2", "lib._on_T@c@2.y",
+		"lib._on_Foo@c", "lib._on_Bar@c", "lib._on_Function@c", "lib._on_Record@c", "lib._on_T@c@3",
 	} {
 		if findFact(all, facts.KindSymbol, name) == nil {
 			t.Errorf("missing %s", name)
 		}
 	}
 	for _, f := range all {
-		if f.Kind == facts.KindSymbol && strings.Contains(f.File, "user.repository") {
-			t.Errorf("dotted file base name produced %s", f.Name)
+		if strings.Contains(f.Name, "#") {
+			t.Errorf("name carries #: %s", f.Name)
 		}
 	}
 }
@@ -75,5 +74,29 @@ func TestDartUnnamedExtensionIsLibraryPrivate(t *testing.T) {
 	})
 	if run := findFact(all, facts.KindSymbol, "lib.run"); hasRelation(run, facts.RelCalls, "lib._on_T@b.a") {
 		t.Fatalf("unnamed extension applied outside its library: %+v", run.Relations)
+	}
+}
+
+// TestDartUnnamedExtensionInDottedFile: a dot in the file's base name becomes `_`, so
+// the synthetic name stays one segment, and the extension is extracted and dispatched.
+func TestDartUnnamedExtensionInDottedFile(t *testing.T) {
+	all := dartReviewFacts(t, map[string]string{
+		"lib/user.repository.dart": `class T {}
+extension on T { void z() {} }
+extension on T { void w() {} }
+void run(T t) { t.z(); }`,
+		"lib/foo.g.dart": `class U {} extension on U { void v() {} }`,
+	})
+	for _, name := range []string{
+		"lib._on_T@user_repository", "lib._on_T@user_repository.z",
+		"lib._on_T@user_repository@2", "lib._on_T@user_repository@2.w",
+		"lib._on_U@foo_g", "lib._on_U@foo_g.v",
+	} {
+		if findFact(all, facts.KindSymbol, name) == nil {
+			t.Errorf("missing %s", name)
+		}
+	}
+	if run := findFact(all, facts.KindSymbol, "lib.run"); !hasRelation(run, facts.RelCalls, "lib._on_T@user_repository.z") {
+		t.Fatalf("t.z() did not bind in a dotted file: %+v", run)
 	}
 }
