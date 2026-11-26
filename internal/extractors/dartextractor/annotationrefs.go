@@ -15,11 +15,18 @@ import (
 // a call: a use that keeps the type out of the dead-code report and out of coupling.
 const relDartTypeRef = "dart_type_ref"
 
+// relDartCtorRef carries a `Foo.named(...)` spelled outside a function body, from the
+// walk to resolveCallTargets. The walker cannot tell a named constructor from a static
+// method or a getter-returned callable, so the relation keeps the spelling until the
+// library's members are indexed: one that binds to a constructor Foo declares becomes
+// a call of it, and so a construction of Foo, and any other spelling is dropped.
+const relDartCtorRef = "dart_ctor_ref"
+
 // constructionReferences records the classes an expression outside a function body
 // builds: a parameter default, a class-body field initializer, an annotation argument.
 // Function bodies record the same constructions in scanCallChain, with the same
-// constructor rule. Named constructors (`Foo.named()`) need the body walk's receiver
-// scope to bind and are left to it.
+// constructor rule. A named constructor (`Foo.named()`) is kept as a relDartCtorRef,
+// bound after indexing, as a body's `Foo.named()` call is.
 func (w *walker) constructionReferences(n *sitter.Node, shadows map[string]bool, b *bodyWalk) {
 	if n == nil {
 		return
@@ -48,11 +55,43 @@ func (w *walker) constructionReferences(n *sitter.Node, shadows map[string]bool,
 		}
 		if name, receiver, baseIsType := w.calleeOf(kids, i); name != "" && w.constructorInvocation(kids, i, name, receiver, baseIsType, shadows) {
 			b.addRelation(facts.RelInstantiates, name)
+		} else if typ := w.namedConstructorType(n, kids, i, receiver, baseIsType, shadows); typ != "" {
+			b.addRelation(relDartCtorRef, typ+"."+name)
 		}
 	}
 	for _, c := range kids {
 		w.constructionReferences(c, shadows, b)
 	}
+}
+
+// namedConstructorType is the class X when kids[i] invokes `X.name(...)` with X a
+// capitalised identifier that is the chain's direct base and names no value or import
+// prefix in scope, or `p.X` for `p.X.name(...)` with p an import prefix. Whether X
+// declares a constructor `name` is decided after indexing.
+func (w *walker) namedConstructorType(n *sitter.Node, kids []*sitter.Node, i int, receiver string, baseIsType bool, shadows map[string]bool) string {
+	previous := i - 1
+	if previous >= 0 && kindOf(kids[previous]) == "type_arguments" {
+		previous--
+	}
+	if previous < 1 || kindOf(kids[previous]) != "selector" {
+		return ""
+	}
+	base := previous - 1
+	if !baseIsType {
+		// `p.Foo.named()`: an import prefix, then the class.
+		class := identifierChild(childOfKind(kids[base], "unconditional_assignable_selector"), w.src)
+		if base < 1 || kindOf(kids[base-1]) != "identifier" || kids[base-1].Utf8Text(w.src) != receiver || !namesAType(class) || shadows[receiver] || !w.importPrefix(n, receiver) {
+			return ""
+		}
+		return receiver + "." + class
+	}
+	if kindOf(kids[base]) != "identifier" || kids[base].Utf8Text(w.src) != receiver || shadows[receiver] || w.callableValue(receiver) != "" || w.getterNames[receiver] || w.importPrefix(n, receiver) {
+		return ""
+	}
+	if _, field := w.fieldTypes[receiver]; field {
+		return ""
+	}
+	return receiver
 }
 
 // createdType is the class a `const`/`new` expression builds. The grammar spells

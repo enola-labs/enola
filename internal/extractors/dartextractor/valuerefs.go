@@ -371,7 +371,8 @@ func dartBoundNames(root *sitter.Node, src []byte, out map[string]bool, receiver
 	}
 }
 
-// Module initializers have no enclosing function, but still use callback values.
+// Module initializers have no enclosing function, but still use callback values
+// and build classes.
 func (w *walker) moduleValueReferences(root *sitter.Node) {
 	b := &bodyWalk{seenRel: map[string]bool{}}
 	for _, n := range namedChildren(root) {
@@ -380,6 +381,9 @@ func (w *walker) moduleValueReferences(root *sitter.Node) {
 			shadows := map[string]bool{}
 			dartBoundNames(n, w.src, shadows)
 			w.valueReferences(n, shadows, b)
+			// `final router = Router();` builds the class at file scope, with the
+			// construction rule field initializers use.
+			w.constructionReferences(n, shadows, b)
 		}
 	}
 	w.emitInitializerWalk(b)

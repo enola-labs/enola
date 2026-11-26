@@ -4107,7 +4107,11 @@ import (
 // cls without a call (`return self.test_func`) is a names edge to the class's own
 // method, and one the class inherits is left to the inherited-calls binder
 // (member_names), which binds it only through the class's bases.
-const cacheVersion = "v737"
+// v738: Dart: a file-scope initializer records the classes it builds; a named
+// constructor (`Foo.named()`, `p.Foo.named()`) is a construction of Foo wherever it
+// is written, once it binds to a constructor Foo declares; a redirecting factory
+// (`factory A() = _A;`) is a constructor symbol that builds its target.
+const cacheVersion = "v738"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

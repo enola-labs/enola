@@ -22,12 +22,17 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 	disambiguateDartGetters(all)
 	all, count := withSDKIndex(all)
 	r := newDartMemberResolver(all)
+	repoFiles := map[string]bool{}
+	for i := 0; i < count; i++ {
+		repoFiles[all[i].File] = true
+	}
 	for i := 0; i < count; i++ {
 		f := &all[i]
 		r.currentValues, _ = f.Props["_dart_value_bindings"].(map[string]dartLocalValue)
 		implicit := dartCallSet(f.Props["_dart_implicit_calls"])
 		instances := dartCallSet(f.Props["_dart_instance_calls"])
 		constructed := map[string]*facts.Fact{}
+		var builds []string
 		if names, ok := f.Props["_dart_constructed_types"].([]string); ok {
 			for _, name := range names {
 				if typ := r.typeNamed(name, f.File); typ != nil {
@@ -48,6 +53,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			if ctor := r.members[target].fact; ctor != nil && ctor.PropBool("constructor") {
 				if typ := r.lexicalOwner(ctor); typ != nil {
 					constructed[rel.Target+"()"] = typ
+					if built := r.namedConstruction(rel.Target, typ, repoFiles); built != "" {
+						builds = append(builds, built)
+					}
 				}
 			}
 		}
@@ -60,6 +68,18 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 					rel.Target = typ.Name
 				} else if len(r.canonicalTypes[rel.Target]) > 0 {
 					rel.Target = "(" + rel.Target + ")"
+				}
+			case relDartCtorRef:
+				// Bound constructors become calls of them; the rest stay this kind and
+				// are dropped below.
+				target := r.call(rel.Target, f, false, false, nil)
+				if ctor := r.members[target].fact; ctor != nil && ctor.PropBool("constructor") {
+					if typ := r.lexicalOwner(ctor); typ != nil {
+						if built := r.namedConstruction(rel.Target, typ, repoFiles); built != "" {
+							rel.Kind, rel.Target = facts.RelCalls, target
+							builds = append(builds, built)
+						}
+					}
 				}
 			case relDartTypeRef:
 				// Bound names become uses; the rest stay this kind and are dropped below.
@@ -84,6 +104,11 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			}
 		}
 		rewriteDartCallMetrics(f, replacements)
+		for _, built := range builds {
+			if rel := (facts.Relation{Kind: facts.RelInstantiates, Target: built}); !slices.Contains(f.Relations, rel) {
+				f.Relations = append(f.Relations, rel)
+			}
+		}
 		if reads, ok := f.Props["_dart_getter_reads"].(map[string]dartGetterRead); ok {
 			candidates := make([]string, 0, len(reads))
 			for candidate := range reads {
@@ -143,7 +168,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		seen := map[facts.Relation]bool{}
 		relations := f.Relations[:0]
 		for _, rel := range f.Relations {
-			if rel.Kind == relDartTypeRef {
+			if rel.Kind == relDartTypeRef || rel.Kind == relDartCtorRef {
 				continue
 			}
 			if rel.Kind == facts.RelCalls {
@@ -163,6 +188,25 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		}
 	}
 	return all[:count]
+}
+
+// namedConstruction is the class a call spelled `Foo.named` builds once it bound to a
+// constructor of typ: typ's name when the receiver spells the class itself (or the
+// class behind an import prefix), so `super.named()` and `this.named()` in an
+// initializer list, which run a constructor without building a new object, are not
+// constructions. A class from the bundled SDK index is not in the graph and records
+// nothing, as with no index.
+func (r *dartMemberResolver) namedConstruction(spelled string, typ *facts.Fact, repoFiles map[string]bool) string {
+	dot := strings.LastIndexByte(spelled, '.')
+	if dot < 0 {
+		return ""
+	}
+	receiver := spelled[:dot]
+	receiver = receiver[strings.LastIndexByte(receiver, '.')+1:]
+	if receiver != typ.Name[strings.LastIndexByte(typ.Name, '.')+1:] || !repoFiles[typ.File] {
+		return ""
+	}
+	return typ.Name
 }
 
 func recordInheritedCall(r *dartMemberResolver, f *facts.Fact, spelled, target string) {
