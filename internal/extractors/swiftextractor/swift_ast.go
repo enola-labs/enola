@@ -1332,6 +1332,11 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "property_declaration" && w.localTypes != nil {
 		w.bindLocal(node)
 	}
+	if (kind == "if_statement" || kind == "guard_statement") && w.localTypes != nil {
+		if restore := w.bindConditions(node); kind == "if_statement" {
+			defer restore()
+		}
+	}
 	switch kind {
 	case "navigation_expression":
 		w.noteMetatype(node)

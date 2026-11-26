@@ -104,6 +104,46 @@ func (w *astWalker) bindLocal(prop *sitter.Node) {
 	}
 }
 
+// bindConditions records the names an if or guard condition binds: the type a
+// cast states (`if let cell = cell as? ExpandableCell`), else none, so the name
+// no longer has the type it had (a parameter's it shadows). `if let cell` keeps
+// it. It returns what restores the names as they were, for the end of an if.
+func (w *astWalker) bindConditions(stmt *sitter.Node) func() {
+	saved := map[string]*string{}
+	for i := uint(0); i+2 < stmt.ChildCount(); i++ {
+		// bound_identifier, then `=` and the value, all condition children.
+		if stmt.FieldNameForChild(uint32(i)) != "bound_identifier" || kindOf(stmt.Child(i+1)) != "=" ||
+			stmt.FieldNameForChild(uint32(i+2)) != "condition" {
+			continue
+		}
+		name := nodeText(stmt.Child(i), w.src)
+		value := stmt.Child(i + 2)
+		t := ""
+		if kindOf(value) == "as_expression" {
+			if op := findChildByKind(value, "as_operator"); op != nil && nodeText(op, w.src) != "as" {
+				t = statedType(value.ChildByFieldName("name"), w.src)
+			}
+		}
+		if _, ok := saved[name]; !ok {
+			if prev, had := w.localTypes[name]; had {
+				saved[name] = &prev
+			} else {
+				saved[name] = nil
+			}
+		}
+		w.localTypes[name] = t
+	}
+	return func() {
+		for name, prev := range saved {
+			if prev == nil {
+				delete(w.localTypes, name)
+			} else {
+				w.localTypes[name] = *prev
+			}
+		}
+	}
+}
+
 // memberTypesOf maps the stored properties a type body declares to the types they
 // state, for calls the type's methods make on them: `useCase.execute()`, or
 // `self.useCase.execute()`, inside a closure as anywhere else.

@@ -4164,7 +4164,8 @@ import (
 // type the repository declares nowhere (an imported type, not a generic parameter,
 // an associated type, Any or AnyObject) gets no edge when only classes and structs
 // of the repository declare a method of its name; an init's parameters are typed
-// receivers as a method's are.
+// receivers as a method's are; a name an if or guard condition binds by a cast
+// (`if let cell = cell as? T`) has the cast's type, any other binding none.
 const cacheVersion = "v748"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

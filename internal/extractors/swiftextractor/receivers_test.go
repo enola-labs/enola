@@ -221,7 +221,8 @@ final class Loader {
 // adds to the type or a protocol still binds; where an extension of another type
 // declares the name too, the call keeps its bare name. A receiver typed by a generic
 // parameter, an associated type, AnyObject or a type the repository declares
-// binds by name as before.
+// binds by name as before. A name an if or guard condition binds by a cast has the
+// cast's type, not the type of the parameter it shadows.
 func TestSwiftCallOnAnExternalTypedReceiverDoesNotBindByName(t *testing.T) {
 	ff := extractRepo(t, map[string]string{
 		"Sources/App/Strategy.swift": `
@@ -270,6 +271,27 @@ struct Address {
     func any(_ target: AnyObject) {
         target.show()
     }
+    func display(cell: UITableViewCell, other: UITableViewCell) {
+        if let cell = cell as? ExpandCell {
+            cell.willDisplay()
+        } else if let cell = cell as? SelectCell {
+            cell.willDisplay()
+        }
+        guard let row = other as? RowCell else { return }
+        row.willDisplay()
+    }
+}
+
+class ExpandCell {
+    func willDisplay() {}
+}
+
+class SelectCell {
+    func willDisplay() {}
+}
+
+class RowCell {
+    func willDisplay() {}
 }
 
 extension Keyed {
@@ -301,6 +323,12 @@ extension Keyed {
 	} {
 		if got := swCalls(t, ff, fn); !slices.Contains(got, want) {
 			t.Errorf("%s calls %v, want %s", fn, got, want)
+		}
+	}
+	// A name an if or guard condition casts is a value of the cast's type.
+	for _, want := range []string{"Sources/App.ExpandCell.willDisplay", "Sources/App.SelectCell.willDisplay", "Sources/App.RowCell.willDisplay"} {
+		if got := swCalls(t, ff, "Sources/App.Address.display"); !slices.Contains(got, want) {
+			t.Errorf("Address.display calls %v, want %s", got, want)
 		}
 	}
 }
