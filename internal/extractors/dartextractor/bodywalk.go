@@ -23,8 +23,10 @@ type bodyWalk struct {
 	instanceCalls    map[string]bool
 	constructedTypes map[string]bool
 	getterReads      map[string]dartGetterRead
-	// valueNames are value-position names this file does not bind; the
-	// resolution pass keeps those naming an imported or part-file function.
+	// valueNames are uses of names this file does not bind, keyed
+	// "<relation>:<name>": a tear-off (names) anywhere, an invocation (calls) at
+	// file scope. The resolution pass keeps those reaching an imported or
+	// part-file function.
 	valueNames    map[string]bool
 	valueBindings map[string]dartLocalValue
 

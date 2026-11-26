@@ -36,6 +36,8 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 			// read its directory as a receiver and lose it.
 			if target := w.callableValue(name); target != "" && !shadows[name] {
 				b.addRelation(facts.RelCalls, "@lexical:"+target)
+			} else if !shadows[name] && w.unboundName(name) && dartInvocationTarget(root) {
+				b.addValueName(facts.RelCalls, name)
 			}
 		} else {
 			w.recordValueReference(root, name, shadows, b)
@@ -100,11 +102,15 @@ func (w *walker) recordUnboundValue(n *sitter.Node, name string, shadows map[str
 		w.recordGetterRead(name, n, b, loop, scaling)
 	}
 	if unbound && !dartInvocationTarget(n) && dartValuePosition(n) {
-		if b.valueNames == nil {
-			b.valueNames = map[string]bool{}
-		}
-		b.valueNames[name] = true
+		b.addValueName(facts.RelNames, name)
 	}
+}
+
+func (b *bodyWalk) addValueName(kind, name string) {
+	if b.valueNames == nil {
+		b.valueNames = map[string]bool{}
+	}
+	b.valueNames[kind+":"+name] = true
 }
 
 // unboundName reports a name this file declares nowhere it can see: not a

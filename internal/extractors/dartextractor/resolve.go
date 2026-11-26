@@ -107,12 +107,13 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			}
 		}
 		if names, ok := f.Props["_dart_value_names"].([]string); ok {
-			for _, name := range names {
+			for _, use := range names {
+				kind, name, _ := strings.Cut(use, ":")
 				fn := r.members[r.call(name, f, false, true, nil)].fact
 				if fn == nil || fn.PropString("symbol_kind") != facts.SymbolFunc || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
 					continue
 				}
-				if rel := (facts.Relation{Kind: facts.RelNames, Target: fn.Name}); !slices.Contains(f.Relations, rel) {
+				if rel := (facts.Relation{Kind: kind, Target: fn.Name}); !slices.Contains(f.Relations, rel) {
 					f.Relations = append(f.Relations, rel)
 				}
 			}

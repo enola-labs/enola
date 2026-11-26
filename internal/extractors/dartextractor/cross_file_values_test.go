@@ -19,6 +19,7 @@ func TestDartImportedTearOffsAndGetterReads(t *testing.T) {
 class Item { const Item({Object? builder}); }
 final item = Item(builder: nameBuilder);
 final hasWorker = supportsWorkers;
+final named = Item(builder: () => nameBuilder('x'));
 Object pick() => nameBuilder;
 void probe(List<int> rows) { for (final r in rows) { consume(supportsWorkers); } }
 `,
@@ -33,6 +34,9 @@ bool get partFlag => true;
 	})
 	if !fileRefRelation(all, "lib/use.dart", facts.RelNames, "lib/src.nameBuilder") {
 		t.Error("module initializer tear-off of an imported function recorded no use")
+	}
+	if !fileRefRelation(all, "lib/use.dart", facts.RelCalls, "lib/src.nameBuilder") {
+		t.Error("module initializer invocation of an imported function recorded no use")
 	}
 	if !fileRefRelation(all, "lib/use.dart", facts.RelCalls, "lib/src.supportsWorkers") {
 		t.Error("module initializer read of an imported getter recorded no use")
@@ -67,6 +71,7 @@ func TestDartImportedValueScope(t *testing.T) {
 		`final nameBuilder = 1; bool supportsWorkers = false; Object run() => [nameBuilder, supportsWorkers];`,
 		`class C { final Object nameBuilder = 1; bool get supportsWorkers => false; Object run() => [nameBuilder, supportsWorkers]; }`,
 		`Object run(Object o) => [o.nameBuilder, o.supportsWorkers, Item(nameBuilder: 1)];`,
+		`final a = Item(nameBuilder: 1); final b = (Object nameBuilder) => nameBuilder(1); final c = o.nameBuilder(1);`,
 	} {
 		t.Run(use, func(t *testing.T) {
 			all := dartReviewFacts(t, map[string]string{
@@ -77,6 +82,9 @@ func TestDartImportedValueScope(t *testing.T) {
 				for _, r := range all[i].Relations {
 					if r.Target == "lib/src.nameBuilder" || r.Target == "lib/src.supportsWorkers" {
 						t.Errorf("shadowed or member name bound to the import: %s -%s-> %s", all[i].Name, r.Kind, r.Target)
+					}
+					if all[i].Kind == facts.KindFileRef && r.Kind == facts.RelCalls && r.Target == "lib.Item.Item" {
+						t.Errorf("a file-scope construction became a call: %+v", r)
 					}
 				}
 			}
