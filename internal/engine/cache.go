@@ -4115,6 +4115,11 @@ import (
 // invoked, binds through that prefix's imports as a prefixed call does (a part
 // uses its library's prefixes): a top-level getter read or setter write is a
 // call, a function in a value position is a names edge; SDK targets are skipped.
+// v740: TypeScript and JavaScript files under a tests/ directory are ignored and
+// listed as test globs by default, whatever their name, and read for test refs, as
+// under test/. A test ref resolves its imports against the indexed files, so an
+// import of a folder names the folder's index module, and a name a folder's index
+// re-exports names the module that declares it.
 // v741: Swift: a declaration in an extension of a qualified type is named through
 // the path the extension writes (`extension A.B { struct C }` declares A.B.C, its
 // members A.B.m, its conformance A.B+P), less a leading module (imported or the

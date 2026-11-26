@@ -378,6 +378,17 @@ func Default() *Config {
 			"**/test/**/*.jsx",
 			"**/test/**/*.ts",
 			"**/test/**/*.tsx",
+			// The same languages under a tests/ directory, which Playwright, Vitest and
+			// Deno suites name that way: their helpers, fixtures, page objects and
+			// *_test.ts files carry no reserved suffix. Across the corpus no file there
+			// is imported by shipped code (callers are setup files, stories and e2e
+			// apps), and facts.IsTestPath already called them tests.
+			"**/tests/**/*.js",
+			"**/tests/**/*.mjs",
+			"**/tests/**/*.cjs",
+			"**/tests/**/*.jsx",
+			"**/tests/**/*.ts",
+			"**/tests/**/*.tsx",
 			// Ruby, unlike Go and TS, has no co-located test convention: RSpec
 			// requires spec/, Minitest defaults to test/. Demand the directory as
 			// well as the filename — a bare "**/*_test.rb" also swallows production
@@ -668,6 +679,8 @@ func Default() *Config {
 			"**/tests/**/*-test.gjs", "**/tests/**/*-test.gts",
 			"**/test/**/*.js", "**/test/**/*.mjs", "**/test/**/*.cjs",
 			"**/test/**/*.jsx", "**/test/**/*.ts", "**/test/**/*.tsx",
+			"**/tests/**/*.js", "**/tests/**/*.mjs", "**/tests/**/*.cjs",
+			"**/tests/**/*.jsx", "**/tests/**/*.ts", "**/tests/**/*.tsx",
 			"**/spec/**/*_spec.rb", "**/test/**/*_test.rb",
 			// Python has no TestRefExtractor yet, so these four are a deliberate
 			// no-op today: runTestRefExtractors skips non-implementers. They are

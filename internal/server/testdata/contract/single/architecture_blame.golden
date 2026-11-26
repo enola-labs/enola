@@ -1,6 +1,6 @@
-First appeared in revision 7d21fd4 (<TIME>).
+First appeared in revision 5521153 (<TIME>).
 
-7d21fd4  <TIME>  
+5521153  <TIME>  
   + dependency  example.com/gosample -> pkg/a  (main.go:4)
   + dependency  pkg/a -> pkg/b  (pkg/a/a.go:3)
   + dependency  pkg/b -> pkg/a  (pkg/b/b.go:3)

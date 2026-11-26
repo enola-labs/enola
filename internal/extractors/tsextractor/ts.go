@@ -21,6 +21,7 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
 	"github.com/enola-labs/enola/internal/workspace"
+	"github.com/enola-labs/enola/pkg/plugin"
 
 	"github.com/enola-labs/enola/internal/factpath"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
@@ -2826,8 +2827,9 @@ var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx",
 var emberTestSuffixes = []string{"-test.ts", "-test.js", "-test.gts", "-test.gjs"}
 
 // testDirExts are the extensions config.Default().TestGlobs' "**/test/**/*.<ext>"
-// entries name: Mocha's default spec, test/*.{js,cjs,mjs}, and the suffix-less
-// TypeScript and JSX helpers, fixtures and suites kept under a test/ directory.
+// and "**/tests/**/*.<ext>" entries name: Mocha's default spec, test/*.{js,cjs,mjs},
+// and the suffix-less TypeScript and JSX helpers, fixtures and suites kept under a
+// test/ or tests/ directory.
 var testDirExts = []string{".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"}
 
 // isTSTestFile reports whether a repo-relative path is a TypeScript test/spec file.
@@ -2835,7 +2837,8 @@ var testDirExts = []string{".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"}
 // *_test.go — no production file can legally collide; the Ember convention is
 // reserved only inside tests/, so the directory is demanded there. Jest runs
 // every script under __tests__/, so that directory reserves any name, and test/
-// holds Mocha's specs and the suffix-less helpers and fixtures of other runners.
+// and tests/ hold Mocha's specs and the suffix-less helpers, fixtures and suites
+// of other runners.
 func isTSTestFile(relFile string) bool {
 	for _, suffix := range tsTestSuffixes {
 		if strings.HasSuffix(relFile, suffix) {
@@ -2847,7 +2850,7 @@ func isTSTestFile(relFile string) bool {
 		if seg == "__tests__" {
 			return true
 		}
-		if seg == "test" && slices.Contains(testDirExts, filepath.Ext(relFile)) {
+		if (seg == "test" || seg == "tests") && slices.Contains(testDirExts, filepath.Ext(relFile)) {
 			return true
 		}
 	}
@@ -2876,16 +2879,16 @@ func isTSTestFile(relFile string) bool {
 // goextractor and rubyextractor do.
 //
 // Targets are resolved with the SAME production resolvers the file-ref pass uses
-// (collectTSFileRefs → resolveImportPath / resolveLocalOrImport / resolveJSXTag), so
-// every target is fully qualified ("<dir>.<name>") and orphans' lastSeg folding
-// stays a safety net rather than the primary match — emitting bare names instead
-// would rescue unrelated same-named symbols. knownFiles is left nil: the resolver
-// then degrades to short-name matching (its documented conservative bias — only
-// ever ADDS references), which is exactly how the dead-code detector matches. Path
-// aliases ARE reconstructed so "@/…"-imported helpers still resolve.
-// prodFiles is unused: knownFiles is deliberately left nil (see above), so this
-// pass has nothing to check a production file set against.
-func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, files, _ []string) ([]facts.Fact, error) {
+// (collectTSFileRefs → resolveImportPath / resolveLocalOrImport / resolveJSXTag),
+// against the same indexed files: the production TS/JS files plus the tests. So an
+// import of a folder reads its index (`src/schema` names `src/schema.DB`, not
+// `src.DB`), and a name a folder's index re-exports from elsewhere is rewritten to
+// the module that declares it, as the production pass does (resolveBarrelCalls).
+// Every target is then fully qualified ("<dir>.<name>") and orphans' lastSeg folding
+// stays a safety net rather than the primary match: emitting bare names instead
+// would rescue unrelated same-named symbols. Path aliases ARE reconstructed so
+// "@/…"-imported helpers still resolve.
+func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, files, prodFiles []string) ([]facts.Fact, error) {
 	var testFiles []string
 	for _, relFile := range files {
 		if isTSTestFile(relFile) {
@@ -2896,7 +2899,16 @@ func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, file
 		return nil, nil
 	}
 
+	prodTS, _, known := partitionTSFiles(prodFiles, false)
+	for _, relFile := range testFiles {
+		known[filepath.ToSlash(relFile)] = true
+	}
 	aliasRoots := withWorkspacePackages(repoPath, collectTSAliasRoots(repoPath))
+	bindAliasFiles(aliasRoots, known)
+	index := newTSFileIndex(known)
+	index.root = repoPath
+	index.probe = plugin.DiskProber(ctx)
+	barrels := barrelExports(prodTS, readTSSources(ctx, repoPath, folderIndexFiles(prodTS)), known)
 
 	perFile := parallel.MapFiles(ctx, testFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
@@ -2907,21 +2919,54 @@ func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, file
 		if isMinifiedSource(src) {
 			return nil
 		}
-		return e.testRefsFromFile(src, relFile, aliasesForDir(aliasRoots, factpath.Dir(relFile)))
+		return e.testRefsFromFile(src, relFile, aliasesForDir(aliasRoots, factpath.Dir(relFile)), known, index)
 	})
 
 	var out []facts.Fact
 	for _, ff := range perFile {
 		out = append(out, ff...)
 	}
+	resolveTestRefBarrels(out, barrels)
 	return out, nil
+}
+
+// folderIndexFiles returns the index files among tsFiles, the only ones
+// barrelExports reads.
+func folderIndexFiles(tsFiles []string) []string {
+	var out []string
+	for _, f := range tsFiles {
+		if strings.TrimSuffix(path.Base(f), path.Ext(f)) == "index" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// resolveTestRefBarrels rewrites a test reference to a name a folder's index
+// re-exports to the symbol it re-exports. resolveBarrelCalls also demands that the
+// target exists, which this pass cannot see; a name a barrel re-exports is not
+// declared by the barrel, so the rewrite moves only a reference that named nothing.
+func resolveTestRefBarrels(all []facts.Fact, barrels map[string]string) {
+	if len(barrels) == 0 {
+		return
+	}
+	for i := range all {
+		for j := range all[i].Relations {
+			r := &all[i].Relations[j]
+			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
+				continue
+			}
+			if t := barrels[r.Target]; t != "" {
+				r.Target = t
+			}
+		}
+	}
 }
 
 // testRefsFromFile parses one TS test file and returns its single KindTestRef fact
 // (or nil when it references nothing), reusing collectTSFileRefs' walk. Only the
-// fields collectTSFileRefs reads are populated on the ctx; knownFiles is left nil
-// (see ExtractTestRefs).
-func (e *TSExtractor) testRefsFromFile(src []byte, relFile string, aliases map[string]tsAlias) []facts.Fact {
+// fields collectTSFileRefs reads are populated on the ctx.
+func (e *TSExtractor) testRefsFromFile(src []byte, relFile string, aliases map[string]tsAlias, known map[string]bool, index *tsFileIndex) []facts.Fact {
 	isTSX := strings.HasSuffix(relFile, ".tsx") || strings.HasSuffix(relFile, ".jsx")
 	kinds := tsKindsFor(isTSX)
 
@@ -2939,10 +2984,12 @@ func (e *TSExtractor) testRefsFromFile(src []byte, relFile string, aliases map[s
 	defer tree.Close()
 
 	ctx := &extractCtx{
-		src:     src,
-		relFile: relFile,
-		dir:     factpath.Dir(relFile),
-		isTSX:   isTSX,
+		src:        src,
+		relFile:    relFile,
+		dir:        factpath.Dir(relFile),
+		isTSX:      isTSX,
+		knownFiles: known,
+		files:      index,
 	}
 	out := e.collectTSFileRefs(kinds, tree.RootNode(), ctx, aliases, facts.KindTestRef)
 	return applyTestCalls(out, relFile, collectTestCalls(kinds, tree.RootNode(), src))
