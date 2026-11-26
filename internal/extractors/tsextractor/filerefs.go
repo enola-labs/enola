@@ -16,9 +16,13 @@ type fileRefs struct {
 	ctx     *extractCtx
 	aliases map[string]tsAlias
 	fileDir string
+	root    *sitter.Node
 
 	internal    map[string]string // local name -> canonical target (internal modules only)
 	namespaces  map[string]string // `import * as ns` local -> module dir
+	nsFiles     map[string]string // `import * as ns` local -> module file, when indexed
+	nsDynamic   []string          // module files indexed by a key the code does not pin down
+	nsAll       []string          // module files indexed by `keyof typeof ns`
 	reexports   []string          // canonical targets re-exported via `export { x } from './y'`
 	defaultRefs []string          // default-export targets of default-imported modules
 	named       []facts.Relation  // values handed on at file scope (fileScopeValueRefs)
@@ -55,8 +59,10 @@ func (e *TSExtractor) collectTSFileRefs(kinds *tsutil.KindTable, root *sitter.No
 		ctx:        ctx,
 		aliases:    aliases,
 		fileDir:    factpath.Dir(ctx.relFile),
+		root:       root,
 		internal:   make(map[string]string),
 		namespaces: make(map[string]string),
+		nsFiles:    make(map[string]string),
 		seen:       make(map[string]bool),
 	}
 	// Pass 1: parse the bindings — static imports, `export … from` re-exports, and
@@ -78,7 +84,10 @@ func (e *TSExtractor) collectTSFileRefs(kinds *tsutil.KindTable, root *sitter.No
 }
 
 func (r *fileRefs) fact(kind string) []facts.Fact {
-	if len(r.targets) == 0 && len(r.named) == 0 {
+	// Lookups on a namespace are settled by bindNamespaceLookups, which runs in the
+	// production pass only: the test-ref pass has no symbols to mark.
+	lookups := kind == facts.KindFileRef && (len(r.nsDynamic) > 0 || len(r.nsAll) > 0)
+	if len(r.targets) == 0 && len(r.named) == 0 && !lookups {
 		return nil
 	}
 	rels := make([]facts.Relation, 0, len(r.targets)+len(r.named))
@@ -86,12 +95,21 @@ func (r *fileRefs) fact(kind string) []facts.Fact {
 		rels = append(rels, facts.Relation{Kind: facts.RelCalls, Target: t})
 	}
 	rels = append(rels, r.named...)
+	props := map[string]any{"language": "typescript"}
+	if lookups {
+		if len(r.nsDynamic) > 0 {
+			props[propNamespaceDynamic] = r.nsDynamic
+		}
+		if len(r.nsAll) > 0 {
+			props[propNamespaceAll] = r.nsAll
+		}
+	}
 	return []facts.Fact{{
 		Kind:      kind,
 		Name:      r.ctx.relFile,
 		File:      r.ctx.relFile,
 		Line:      1,
-		Props:     map[string]any{"language": "typescript"},
+		Props:     props,
 		Relations: rels,
 	}}
 }
@@ -174,6 +192,9 @@ func (r *fileRefs) bindImport(child *sitter.Node) {
 		case "namespace_import": // `import * as ns from './x'`
 			if id := findChildByKind(r.kinds, c, "identifier"); id != nil {
 				r.namespaces[nodeText(id, r.src)] = moduleDir
+				if indexPath != "" {
+					r.nsFiles[nodeText(id, r.src)] = indexPath
+				}
 			}
 		case "named_imports":
 			r.bindNamedImports(c, moduleDir)
@@ -288,6 +309,8 @@ func (r *fileRefs) walk(n *sitter.Node) {
 		if r.memberRef(n) {
 			return
 		}
+	case "subscript_expression":
+		r.namespaceLookup(n)
 	case "jsx_opening_element", "jsx_self_closing_element":
 		if nameNode := n.ChildByFieldName("name"); nameNode != nil {
 			r.add(resolveJSXTag(r.kinds, nameNode, r.src, r.ctx.dir, r.internal, r.namespaces))

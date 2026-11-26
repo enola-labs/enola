@@ -126,6 +126,11 @@ const (
 	// dispatch symbols (`:"report_#{type}"` → "report_"). Methods with these prefixes
 	// are invoked by computed name (public_send/send) and have no call edge.
 	propDynamicSendPrefixes = "dynamic_send_prefixes"
+	// propReachedDynamicallyFrom: symbol fact (TS/JS) → the files where a computed
+	// lookup on a namespace import of its module (`ns[key]`, a key the code does not
+	// pin down) may read it. No edge is drawn, so it can still be reported, but only
+	// as a weak lead.
+	propReachedDynamicallyFrom = "reached_dynamically_from"
 )
 
 // Orphan classes.
@@ -224,6 +229,9 @@ type symInput struct {
 	// last segment alone would credit every same-named nested type (each Codable
 	// type's CodingKeys, each feature's State).
 	QualifiedOnly bool
+	// ReachedDynamically: the files of the computed namespace lookups that may read
+	// this export (propReachedDynamicallyFrom).
+	ReachedDynamically []string
 }
 
 // Orphan is a single reported orphan symbol.
@@ -969,7 +977,7 @@ var pyFrameworkHookNames = map[string]bool{
 // either, so every other kind is low.
 func confidenceFor(sym symInput) string {
 	name, kind := sym.Name, sym.Kind
-	if sym.CompileTime {
+	if sym.CompileTime || len(sym.ReachedDynamically) > 0 {
 		return confLow
 	}
 	// Operator overloads (Swift `func +`, `func <-`; Ruby `def +`) are invoked via
@@ -1166,6 +1174,8 @@ func classify(syms []symInput, refSources refIndex, opts options) []Orphan {
 			Exported:   sym.Exported,
 		}
 		switch {
+		case len(sym.ReachedDynamically) > 0:
+			o.Note = dynamicLookupNote(sym.ReachedDynamically)
 		case class == classTestOnly:
 			o.Note = "referenced only by test code — remove it together with the tests that call it, or find the production caller they stand in for"
 		case sym.Exported:
@@ -1174,6 +1184,18 @@ func classify(syms []symInput, refSources refIndex, opts options) []Orphan {
 		out = append(out, o)
 	}
 	return out
+}
+
+// dynamicLookupNote says where a computed namespace lookup may read the symbol.
+func dynamicLookupNote(from []string) string {
+	note := "may be reached through ns[...] in " + from[0]
+	switch n := len(from) - 1; {
+	case n == 1:
+		note += " and 1 more file"
+	case n > 1:
+		note += fmt.Sprintf(" and %d more files", n)
+	}
+	return note + ", a computed lookup on a namespace import whose key is not known statically; verify before removal"
 }
 
 // sortOrphans orders orphans by package then name for deterministic output.
@@ -1329,6 +1351,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 		if om, ok := f.PropAny(propObjectMember).(bool); ok && om {
 			si.ObjectMember = true
+		}
+		if from := f.PropStrings(propReachedDynamicallyFrom); len(from) > 0 && len(si.ReachedDynamically) == 0 {
+			si.ReachedDynamically = from
 		}
 		if g, ok := f.PropAny(propGenerated).(bool); ok && g {
 			si.Generated = true
