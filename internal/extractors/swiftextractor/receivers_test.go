@@ -271,23 +271,31 @@ struct Address {
     func any(_ target: AnyObject) {
         target.show()
     }
-    func display(cell: UITableViewCell, other: UITableViewCell) {
+    func display(cell: UITableViewCell, other: UITableViewCell, expand: ExpandCell?) {
+        if let expand = expand {
+            expand.collapse()
+        }
         if let cell = cell as? ExpandCell {
             cell.willDisplay()
         } else if let cell = cell as? SelectCell {
             cell.willDisplay()
         }
-        guard let row = other as? RowCell else { return }
+        guard let row = other as? RowCell, let expand = expand?.sibling() else { return }
         row.willDisplay()
+        expand.collapse()
     }
 }
 
 class ExpandCell {
     func willDisplay() {}
+    func collapse() {}
+    func sibling() -> SelectCell? { nil }
 }
 
 class SelectCell {
     func willDisplay() {}
+    func collapse() {}
+    func sibling() -> SelectCell? { nil }
 }
 
 class RowCell {
@@ -325,8 +333,9 @@ extension Keyed {
 			t.Errorf("%s calls %v, want %s", fn, got, want)
 		}
 	}
-	// A name an if or guard condition casts is a value of the cast's type.
-	for _, want := range []string{"Sources/App.ExpandCell.willDisplay", "Sources/App.SelectCell.willDisplay", "Sources/App.RowCell.willDisplay"} {
+	// A name an if or guard condition casts is a value of the cast's type, and one
+	// it unwraps keeps the optional's; the condition itself sees the name it shadows.
+	for _, want := range []string{"Sources/App.ExpandCell.collapse", "Sources/App.ExpandCell.sibling", "Sources/App.ExpandCell.willDisplay", "Sources/App.SelectCell.willDisplay", "Sources/App.RowCell.willDisplay"} {
 		if got := swCalls(t, ff, "Sources/App.Address.display"); !slices.Contains(got, want) {
 			t.Errorf("Address.display calls %v, want %s", got, want)
 		}

@@ -1332,11 +1332,6 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "property_declaration" && w.localTypes != nil {
 		w.bindLocal(node)
 	}
-	if (kind == "if_statement" || kind == "guard_statement") && w.localTypes != nil {
-		if restore := w.bindConditions(node); kind == "if_statement" {
-			defer restore()
-		}
-	}
 	switch kind {
 	case "navigation_expression":
 		w.noteMetatype(node)
@@ -1546,6 +1541,11 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// site and inflate the operator's fan-in.
 	if op := customOperatorToken(node, w.src); op != "" {
 		w.addOwnerEdge(facts.RelCalls, op)
+	}
+
+	if (kind == "if_statement" || kind == "guard_statement") && w.localTypes != nil {
+		w.walkConditional(node, kind == "guard_statement")
+		return
 	}
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {

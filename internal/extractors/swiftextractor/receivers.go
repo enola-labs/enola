@@ -104,41 +104,86 @@ func (w *astWalker) bindLocal(prop *sitter.Node) {
 	}
 }
 
-// bindConditions records the names an if or guard condition binds: the type a
-// cast states (`if let cell = cell as? ExpandableCell`), else none, so the name
-// no longer has the type it had (a parameter's it shadows). `if let cell` keeps
-// it. It returns what restores the names as they were, for the end of an if.
-func (w *astWalker) bindConditions(stmt *sitter.Node) func() {
-	saved := map[string]*string{}
+// walkConditional walks an if or guard statement with the names its condition
+// binds typed (conditionBindings): an if's in its body, until its else; a guard's
+// after it. The condition itself still sees the names it shadows
+// (`guard let group = group?.toDomain()`).
+func (w *astWalker) walkConditional(stmt *sitter.Node, guard bool) {
+	binds := w.conditionBindings(stmt)
+	var restore func()
+	applied := false
+	for i := uint(0); i < stmt.ChildCount(); i++ {
+		c := stmt.Child(i)
+		switch k := kindOf(c); {
+		case guard:
+		case k == "else":
+			if restore != nil {
+				restore()
+				restore = nil
+			}
+		case (k == "{" || k == "statements") && !applied:
+			restore = w.applyBindings(binds)
+			applied = true
+		}
+		w.walkForCalls(c)
+	}
+	if guard {
+		w.applyBindings(binds)
+	} else if restore != nil {
+		restore()
+	}
+}
+
+// conditionBinding is one name an if or guard condition binds, and its type.
+type conditionBinding struct{ name, typ string }
+
+// conditionBindings returns the names an if or guard condition binds: by a cast
+// (`if let cell = cell as? ExpandableCell`) the cast's type, by unwrapping a name
+// (`if let api = api`) that name's, else none, so the name no longer has the type
+// of what it shadows. `if let cell` binds nothing new.
+func (w *astWalker) conditionBindings(stmt *sitter.Node) []conditionBinding {
+	var out []conditionBinding
 	for i := uint(0); i+2 < stmt.ChildCount(); i++ {
 		// bound_identifier, then `=` and the value, all condition children.
 		if stmt.FieldNameForChild(uint32(i)) != "bound_identifier" || kindOf(stmt.Child(i+1)) != "=" ||
 			stmt.FieldNameForChild(uint32(i+2)) != "condition" {
 			continue
 		}
-		name := nodeText(stmt.Child(i), w.src)
 		value := stmt.Child(i + 2)
 		t := ""
-		if kindOf(value) == "as_expression" {
+		switch kindOf(value) {
+		case "as_expression":
 			if op := findChildByKind(value, "as_operator"); op != nil && nodeText(op, w.src) != "as" {
 				t = statedType(value.ChildByFieldName("name"), w.src)
 			}
+		case "simple_identifier", "navigation_expression":
+			t = w.valueType(value)
 		}
-		if _, ok := saved[name]; !ok {
-			if prev, had := w.localTypes[name]; had {
-				saved[name] = &prev
-			} else {
-				saved[name] = nil
-			}
+		out = append(out, conditionBinding{nodeText(stmt.Child(i), w.src), t})
+	}
+	return out
+}
+
+// applyBindings types the bound names and returns what restores them.
+func (w *astWalker) applyBindings(binds []conditionBinding) func() {
+	type prev struct {
+		typ string
+		had bool
+	}
+	saved := map[string]prev{}
+	for _, b := range binds {
+		if _, ok := saved[b.name]; !ok {
+			t, had := w.localTypes[b.name]
+			saved[b.name] = prev{t, had}
 		}
-		w.localTypes[name] = t
+		w.localTypes[b.name] = b.typ
 	}
 	return func() {
-		for name, prev := range saved {
-			if prev == nil {
-				delete(w.localTypes, name)
+		for name, p := range saved {
+			if p.had {
+				w.localTypes[name] = p.typ
 			} else {
-				w.localTypes[name] = *prev
+				delete(w.localTypes, name)
 			}
 		}
 	}
@@ -170,6 +215,11 @@ func (w *astWalker) receiverType(callee *sitter.Node) string {
 	if target == nil {
 		target = firstNamedChild(callee)
 	}
+	return w.valueType(target)
+}
+
+// valueType is the stated type of a value written as a name or a member of self.
+func (w *astWalker) valueType(target *sitter.Node) string {
 	if target == nil {
 		return ""
 	}
