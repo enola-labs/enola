@@ -1,6 +1,7 @@
 package dartextractor
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 
@@ -68,6 +69,9 @@ type walker struct {
 	fieldValues *bodyWalk
 	// importPrefixes are the file's `import ... as p` names, read on first use.
 	importPrefixes map[string]bool
+	// unnamedExtensions counts the file's unnamed extensions per extended type, so a
+	// second `extension on T` in one file gets its own name.
+	unnamedExtensions map[string]int
 }
 
 // extractFile parses one Dart file and returns its facts.
@@ -385,6 +389,10 @@ func (w *walker) walkDeclarations(root *sitter.Node) {
 // classDecl emits a type symbol and everything it declares.
 func (w *walker) classDecl(n *sitter.Node, construct string) {
 	name := identifierChild(n, w.src)
+	anonymous := false
+	if name == "" && kindOf(n) == "extension_declaration" {
+		name, anonymous = w.unnamedExtensionName(n), true
+	}
 	if name == "" {
 		return
 	}
@@ -402,6 +410,9 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 	}
 	if kindOf(n) == "extension_declaration" && childOfKind(n, "type_parameters", "type_arguments") == nil {
 		props["extension_on"] = declaredReceiverType(n, w.src)
+	}
+	if anonymous {
+		props["anonymous"] = true
 	}
 	if parent := childOfKind(n, "superclass"); parent != nil {
 		if typ := declaredReceiverType(parent, w.src); typ != "" {
@@ -488,6 +499,44 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 		Relations: rels,
 	})
 	w.setDoc(n)
+}
+
+// unnamedExtensionName names `extension on T { ... }`, which Dart leaves unnamed:
+// `_on_<T>@<file>`, with `@2`, `@3` for further unnamed extensions on T in the file,
+// in source order. The leading `_` keeps it library-private, as Dart makes an unnamed
+// extension. T is the type's own name without type arguments or an import prefix
+// (`List<int>` is List, `p.Foo` is Foo); a function type is Function and a record type
+// Record. A dot in the file's base name becomes `_` (`user.repository.dart` gives
+// `@user_repository`), since `.` separates a qualified name.
+func (w *walker) unnamedExtensionName(n *sitter.Node) string {
+	file := strings.TrimSuffix(w.relFile[strings.LastIndexByte(w.relFile, '/')+1:], ".dart")
+	if file == "" {
+		return ""
+	}
+	file = strings.ReplaceAll(file, ".", "_")
+	typ := ""
+	for _, c := range namedChildren(n) {
+		switch kindOf(c) {
+		case "type_identifier":
+			typ = c.Utf8Text(w.src)
+		case "function_type":
+			typ = "Function"
+		case "record_type":
+			typ = "Record"
+		}
+	}
+	if typ == "" {
+		return ""
+	}
+	if w.unnamedExtensions == nil {
+		w.unnamedExtensions = map[string]int{}
+	}
+	w.unnamedExtensions[typ]++
+	name := "_on_" + typ + "@" + file
+	if k := w.unnamedExtensions[typ]; k > 1 {
+		name += "@" + strconv.Itoa(k)
+	}
+	return name
 }
 
 // memberInfo describes one declared member, for the abstractness and data-holder rules.

@@ -1,6 +1,7 @@
 package swiftextractor
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -180,5 +181,38 @@ struct S {
 	}
 	if got[11] != "        func m() {}" {
 		t.Errorf("macro body declaration changed: %q", got[11])
+	}
+}
+
+// `try await` in an if condition made the grammar read the body as a trailing
+// closure and the whole file as one error, so the class had no symbol and its
+// methods surfaced as top-level functions.
+func TestSwiftTryAwaitInIfConditionKeepsTheType(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/App/Store.swift": `
+@MainActor
+final class Store {
+    func bootstrap() async {
+        if let result = try? await provider.reconcile(dataset) {
+            apply(result)
+        }
+        if let file = try await decrypt(item) {
+            apply(file)
+        }
+        for try await line in lines {
+            apply(line)
+        }
+    }
+    func apply(_ x: Int) {}
+}
+`,
+	})
+	calls := swCalls(t, ff, "Sources/App.Store.bootstrap")
+	if !slices.Contains(calls, "Sources/App.Store.apply") {
+		t.Errorf("Store.bootstrap calls %v, want Sources/App.Store.apply", calls)
+	}
+	out, changed := blankAwaitAfterTry([]byte("a = try? await f()\nb = try await g()\nfor try await x in s {}\nc = await h()\n"))
+	if !changed || string(out) != "a = try?       f()\nb = try       g()\nfor try await x in s {}\nc = await h()\n" {
+		t.Errorf("blankAwaitAfterTry = %q", out)
 	}
 }

@@ -4139,7 +4139,38 @@ import (
 // foreach or a collection callback, is that model; a closure parameter of declared
 // type and a local assigned a typed property are typed. A binding never displaces
 // what an assignment gives the local.
-const cacheVersion = "v743"
+// v744: Dart: an unnamed extension (`extension on T { ... }`) is a symbol named
+// `_on_<T>@<file>` (`@2`, `@3` for further ones on T in the file, a dot in the file
+// name read as `_`), marked anonymous, with members and walked bodies like a named one.
+// v745: Dart: a static member of a class behind an import prefix (`p.K.sm`) read or
+// torn off is a use of it, as `p.name` is (v739); a construction through a prefix
+// (`new p.Foo()`, `const p.Foo()`, `p.Foo()` in a body or outside one) binds through
+// that prefix's imports, and one that binds nothing keeps the bare class name.
+// v746: .vue and .svelte files under a test/ or tests/ directory are ignored and
+// listed as test globs by default, and read for test refs through their script blocks.
+// A folder index's `export * from` is followed to the module that declares the name,
+// in the production and the test-ref pass, unless a file of the folder declares the
+// name or two star sources export it. A computed lookup on a namespace import
+// (`ns[key]`) is a use of the export its key names when the key is a string literal,
+// a const bound to one, a union of string literal types or `keyof typeof ns`; with
+// any other key it draws no edge and marks each export of the module
+// reached_dynamically, with the files of the lookups.
+// v747: PHP: a method call on a model an Eloquent query fetches (`M::find($id)`,
+// `M::whereX($v)->firstOrFail()`), directly, through a local, through a relation read
+// or as an element of a query's collection, binds to the method the model, a parent
+// or a trait declares, read as v743 reads relation reads; a framework method on it
+// binds nothing.
+// v748: Swift: a member call on a parameter, local or stored property whose stated
+// type the repository declares nowhere (an imported type, not a generic parameter,
+// an associated type, Any or AnyObject) gets no edge when only classes and structs
+// of the repository declare a method of its name; an init's parameters are typed
+// receivers as a method's are; a name an if or guard condition binds has, in the
+// if's body or after the guard, the type of the cast (`if let cell = cell as? T`)
+// or of the name it unwraps (`if let api = api`), any other binding none. A type
+// any Swift source declares by its text is never foreign. A file with `try await`
+// (or `try?`/`try!`) in an if condition, which the grammar read as one error, is
+// parsed again with that `await` blanked, so its types are symbols again.
+const cacheVersion = "v748"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

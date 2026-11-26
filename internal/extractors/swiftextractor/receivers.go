@@ -32,6 +32,10 @@ const propTypedCalls = "swift_typed_calls"
 type swiftTypedCall struct {
 	typ    string // simple type name
 	method string
+	// stated marks a receiver that is a value of typ (a parameter, a local or a
+	// stored property), as opposed to self or a type; bare marks such a call whose
+	// bare edge the walker left to resolveTypedCalls.
+	stated, bare bool
 }
 
 // statedType reduces a written type to the simple name of the type a value of it
@@ -100,6 +104,91 @@ func (w *astWalker) bindLocal(prop *sitter.Node) {
 	}
 }
 
+// walkConditional walks an if or guard statement with the names its condition
+// binds typed (conditionBindings): an if's in its body, until its else; a guard's
+// after it. The condition itself still sees the names it shadows
+// (`guard let group = group?.toDomain()`).
+func (w *astWalker) walkConditional(stmt *sitter.Node, guard bool) {
+	binds := w.conditionBindings(stmt)
+	var restore func()
+	applied := false
+	for i := uint(0); i < stmt.ChildCount(); i++ {
+		c := stmt.Child(i)
+		switch k := kindOf(c); {
+		case guard:
+		case k == "else":
+			if restore != nil {
+				restore()
+				restore = nil
+			}
+		case (k == "{" || k == "statements") && !applied:
+			restore = w.applyBindings(binds)
+			applied = true
+		}
+		w.walkForCalls(c)
+	}
+	if guard {
+		w.applyBindings(binds)
+	} else if restore != nil {
+		restore()
+	}
+}
+
+// conditionBinding is one name an if or guard condition binds, and its type.
+type conditionBinding struct{ name, typ string }
+
+// conditionBindings returns the names an if or guard condition binds: by a cast
+// (`if let cell = cell as? ExpandableCell`) the cast's type, by unwrapping a name
+// (`if let api = api`) that name's, else none, so the name no longer has the type
+// of what it shadows. `if let cell` binds nothing new.
+func (w *astWalker) conditionBindings(stmt *sitter.Node) []conditionBinding {
+	var out []conditionBinding
+	for i := uint(0); i+2 < stmt.ChildCount(); i++ {
+		// bound_identifier, then `=` and the value, all condition children.
+		if stmt.FieldNameForChild(uint32(i)) != "bound_identifier" || kindOf(stmt.Child(i+1)) != "=" ||
+			stmt.FieldNameForChild(uint32(i+2)) != "condition" {
+			continue
+		}
+		value := stmt.Child(i + 2)
+		t := ""
+		switch kindOf(value) {
+		case "as_expression":
+			if op := findChildByKind(value, "as_operator"); op != nil && nodeText(op, w.src) != "as" {
+				t = statedType(value.ChildByFieldName("name"), w.src)
+			}
+		case "simple_identifier", "navigation_expression":
+			t = w.valueType(value)
+		}
+		out = append(out, conditionBinding{nodeText(stmt.Child(i), w.src), t})
+	}
+	return out
+}
+
+// applyBindings types the bound names and returns what restores them.
+func (w *astWalker) applyBindings(binds []conditionBinding) func() {
+	type prev struct {
+		typ string
+		had bool
+	}
+	saved := map[string]prev{}
+	for _, b := range binds {
+		if _, ok := saved[b.name]; !ok {
+			t, had := w.localTypes[b.name]
+			saved[b.name] = prev{t, had}
+		}
+		w.localTypes[b.name] = b.typ
+	}
+	return func() {
+		for name, p := range saved {
+			if p.had {
+				w.localTypes[name] = p.typ
+			} else {
+				delete(w.localTypes, name)
+			}
+		}
+	}
+}
+
 // memberTypesOf maps the stored properties a type body declares to the types they
 // state, for calls the type's methods make on them: `useCase.execute()`, or
 // `self.useCase.execute()`, inside a closure as anywhere else.
@@ -126,6 +215,11 @@ func (w *astWalker) receiverType(callee *sitter.Node) string {
 	if target == nil {
 		target = firstNamedChild(callee)
 	}
+	return w.valueType(target)
+}
+
+// valueType is the stated type of a value written as a name or a member of self.
+func (w *astWalker) valueType(target *sitter.Node) string {
 	if target == nil {
 		return ""
 	}
@@ -162,14 +256,44 @@ func (w *astWalker) noteTypedCall(typ, method string) {
 		return
 	}
 	notes, _ := w.out[idx].PropAny(propTypedCalls).([]swiftTypedCall)
-	w.out[idx].SetProp(propTypedCalls, append(notes, swiftTypedCall{typ, method}))
+	w.out[idx].SetProp(propTypedCalls, append(notes, swiftTypedCall{typ: typ, method: method}))
+}
+
+// noteStatedReceiverCall records a member call on a parameter, local or stored
+// property of stated type. Its bare edge, which resolveMethodCalls binds by name,
+// is written in resolveTypedCalls once it is known whether the repository declares
+// the type.
+func (w *astWalker) noteStatedReceiverCall(typ, method string) {
+	if method == "" || isCapitalized(method) {
+		return
+	}
+	idx := w.currentOwner()
+	if idx < 0 {
+		return
+	}
+	bare := !w.typedReceiversOnly && !swiftBuiltins[method] && !swiftIterators[method] && !swiftCheapMethods[method]
+	notes, _ := w.out[idx].PropAny(propTypedCalls).([]swiftTypedCall)
+	w.out[idx].SetProp(propTypedCalls, append(notes, swiftTypedCall{typ: typ, method: method, stated: true, bare: bare}))
 }
 
 // resolveTypedCalls binds each noted call to the method its receiver's type
 // declares, replacing the bare edge the walker wrote for it, or adding the edge
 // where the walker skipped the name. A production caller sees production
 // declarations only (scope.go).
-func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies) {
+//
+// A call on a value of a type no declaration of the repository names
+// (`config.int(forKey:)` on an imported `ConfigReader`) is a framework call. When
+// only classes and structs of the repository declare a method of its name, it gets
+// no edge, as a call rooted at such a type (resolveRootedCalls). When an extension
+// or a protocol extension declares one too, the bare edge is kept and binds by name
+// as before: which of them a foreign value has is not known here, and choosing the
+// one open method bound `engine.run()` to an extension of an unrelated framework
+// class. A generic parameter, an associated type, Any and AnyObject are not
+// foreign: their members are a constraint's or any class's. Nor is a name any Swift
+// source declares a type of by its text (declared), so a type the parser lost keeps
+// the bare-name binding.
+func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies, index *swiftIndexes, declared map[string]bool) {
+	assoc := associatedTypeSet(allFacts)
 	for i := range allFacts {
 		f := &allFacts[i]
 		notes, ok := f.PropAny(propTypedCalls).([]swiftTypedCall)
@@ -178,8 +302,22 @@ func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies) {
 		}
 		f.DelProp(propTypedCalls)
 		h := hier.forFile(f.File)
+		ix := index.forFile(f.File)
 		for _, n := range notes {
 			target := h.resolve(n.typ, n.method, f.Name)
+			if n.bare && (target == "" || target == f.Name) {
+				// The bare edge, for resolveMethodCalls to bind by name, unless the
+				// type is foreign and only classes and structs of the repository
+				// declare the name.
+				foreign := len(ix.owners[n.typ]) == 0 && !declared[n.typ] && !assoc[n.typ] && !anyType[n.typ]
+				if target == "" && foreign && len(ix.openMethods(n.method)) == 0 {
+					continue
+				}
+				if !f.HasRelation(facts.RelCalls, n.method) {
+					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: n.method})
+				}
+				continue
+			}
 			if target == "" || target == f.Name {
 				continue
 			}
@@ -201,6 +339,24 @@ func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies) {
 			}
 		}
 	}
+}
+
+// anyType holds the types whose values can have any method: AnyObject dispatches
+// an @objc method of any class by name.
+var anyType = map[string]bool{"Any": true, "AnyObject": true}
+
+// associatedTypeSet returns the associated type names the repository's protocols
+// declare.
+func associatedTypeSet(allFacts []facts.Fact) map[string]bool {
+	out := map[string]bool{}
+	for i := range allFacts {
+		if s, _ := allFacts[i].PropAny(propAssociatedTypes).(string); s != "" {
+			for _, a := range strings.Split(s, ",") {
+				out[a] = true
+			}
+		}
+	}
+	return out
 }
 
 // Calls rooted at a type name.

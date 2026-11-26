@@ -2829,8 +2829,8 @@ var emberTestSuffixes = []string{"-test.ts", "-test.js", "-test.gts", "-test.gjs
 // testDirExts are the extensions config.Default().TestGlobs' "**/test/**/*.<ext>"
 // and "**/tests/**/*.<ext>" entries name: Mocha's default spec, test/*.{js,cjs,mjs},
 // and the suffix-less TypeScript and JSX helpers, fixtures and suites kept under a
-// test/ or tests/ directory.
-var testDirExts = []string{".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"}
+// test/ or tests/ directory, and the single-file components kept there as fixtures.
+var testDirExts = []string{".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte"}
 
 // isTSTestFile reports whether a repo-relative path is a TypeScript test/spec file.
 // The dotted convention reserves its suffixes everywhere, so — like Go's
@@ -2908,7 +2908,7 @@ func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, file
 	index := newTSFileIndex(known)
 	index.root = repoPath
 	index.probe = plugin.DiskProber(ctx)
-	barrels := barrelExports(prodTS, readTSSources(ctx, repoPath, folderIndexFiles(prodTS)), known)
+	barrels := barrelExports(prodTS, cachedSourceReader(repoPath), known)
 
 	perFile := parallel.MapFiles(ctx, testFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
@@ -2935,16 +2935,21 @@ func lastDotSeg(target string) string {
 	return target[strings.LastIndex(target, ".")+1:]
 }
 
-// folderIndexFiles returns the index files among tsFiles, the only ones
-// barrelExports reads.
-func folderIndexFiles(tsFiles []string) []string {
-	var out []string
-	for _, f := range tsFiles {
-		if strings.TrimSuffix(path.Base(f), path.Ext(f)) == "index" {
-			out = append(out, f)
+// cachedSourceReader reads a repository file once, for barrelExports, which reads
+// the folder indexes and only the modules their stars and folders reach.
+func cachedSourceReader(repoPath string) func(string) []byte {
+	read := map[string][]byte{}
+	return func(rel string) []byte {
+		if src, ok := read[rel]; ok {
+			return src
 		}
+		src, err := os.ReadFile(filepath.Join(repoPath, rel))
+		if err != nil {
+			src = nil
+		}
+		read[rel] = src
+		return src
 	}
-	return out
 }
 
 // resolveTestRefBarrels rewrites a test reference to a name a folder's index
@@ -2978,6 +2983,9 @@ func resolveTestRefBarrels(all []facts.Fact, barrels map[string]string) {
 // fields collectTSFileRefs reads are populated on the ctx.
 func (e *TSExtractor) testRefsFromFile(src []byte, relFile string, aliases map[string]tsAlias, known map[string]bool, index *tsFileIndex) []facts.Fact {
 	isTSX := strings.HasSuffix(relFile, ".tsx") || strings.HasSuffix(relFile, ".jsx")
+	if isVueFile(relFile) || isSvelteFile(relFile) {
+		src, isTSX = componentScripts(src, relFile)
+	}
 	kinds := tsKindsFor(isTSX)
 
 	lang := typescript.LanguageTypescript()
@@ -3003,6 +3011,25 @@ func (e *TSExtractor) testRefsFromFile(src []byte, relFile string, aliases map[s
 	}
 	out := e.collectTSFileRefs(kinds, tree.RootNode(), ctx, aliases, facts.KindTestRef)
 	return applyTestCalls(out, relFile, collectTestCalls(kinds, tree.RootNode(), src))
+}
+
+// componentScripts is the script of a single-file component: its <script> blocks
+// joined, and whether one is written in TSX or JSX.
+func componentScripts(src []byte, relFile string) ([]byte, bool) {
+	var parts [][]byte
+	tsx := false
+	if isVueFile(relFile) {
+		for _, b := range extractVueScriptBlocks(src) {
+			parts = append(parts, b.Content)
+			tsx = tsx || b.Lang == "tsx" || b.Lang == "jsx"
+		}
+	} else {
+		for _, b := range extractSvelteScriptBlocks(src) {
+			parts = append(parts, b.Content)
+			tsx = tsx || b.Lang == "tsx" || b.Lang == "jsx"
+		}
+	}
+	return bytes.Join(parts, []byte("\n")), tsx
 }
 
 // resolveLocalOrImport resolves a bare name used in a value/call position to its

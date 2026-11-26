@@ -202,11 +202,11 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 	allFacts = append(allFacts, eloquentFacts(allFacts)...)
 
 	// A relation is read as a property of a model declared in another file.
-	bindRelationReads(allFacts)
+	relations := bindRelationReads(allFacts)
 
 	// An instance call names its method only once the receiver's class is known, and
 	// that class is declared in another file.
-	bindReceiverCalls(allFacts)
+	bindReceiverCalls(allFacts, relations)
 
 	// File-scope code calls helper functions declared in another file.
 	allFacts = bindFileScopeCalls(allFacts)

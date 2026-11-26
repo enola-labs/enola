@@ -323,6 +323,9 @@ func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort strin
 			b.addRelation(facts.RelInstantiates, name)
 		} else {
 			b.addRelation(facts.RelCalls, target)
+			if typ := w.prefixedConstruction(c, kids, i, name, receiver, baseIsType, b.shadows); typ != "" {
+				b.addRelation(relDartPrefixedCtor, typ)
+			}
 		}
 
 		// Recursion requires the call to reach THIS symbol, not merely a method that

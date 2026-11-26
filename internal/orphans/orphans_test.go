@@ -47,6 +47,39 @@ func TestClassifyExcludesConformanceExtensions(t *testing.T) {
 	}
 }
 
+// An unnamed Dart extension (`extension on T { ... }`) carries a synthetic name no
+// source can spell, so the container is never a candidate, not even under an explicit
+// kind query; its unused members are.
+func TestClassifyExcludesAnonymousDartExtensions(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"lib._on_T@b","file":"lib/b.dart","props":{"symbol_kind":"type","language":"dart","dart_construct":"extension","anonymous":true,"extension_on":"T"},"relations":[{"kind":"declares","target":"lib._on_T@b.used"},{"kind":"declares","target":"lib._on_T@b.unused"}]}
+{"kind":"symbol","name":"lib._on_T@b.used","file":"lib/b.dart","props":{"symbol_kind":"method","language":"dart"}}
+{"kind":"symbol","name":"lib._on_T@b.unused","file":"lib/b.dart","props":{"symbol_kind":"method","language":"dart"}}
+{"kind":"symbol","name":"lib.main","file":"lib/b.dart","props":{"symbol_kind":"function","language":"dart"},"relations":[{"kind":"calls","target":"lib._on_T@b.used"}]}
+{"kind":"symbol","name":"lib._on_T@c","file":"lib/c.dart","props":{"symbol_kind":"type","language":"dart","dart_construct":"extension","anonymous":true,"extension_on":"T"},"relations":[{"kind":"declares","target":"lib._on_T@c.idle"}]}
+{"kind":"symbol","name":"lib._on_T@c.idle","file":"lib/c.dart","props":{"symbol_kind":"method","language":"dart"}}
+`)
+	for _, kind := range []string{"", facts.SymbolType} {
+		got := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all", Kind: kind}))
+		for _, ext := range []string{"lib._on_T@b", "lib._on_T@c"} {
+			if _, ok := got[ext]; ok {
+				t.Errorf("kind=%q: anonymous extension %s reported: %+v", kind, ext, got)
+			}
+		}
+		if kind == "" {
+			if _, ok := got["lib._on_T@c.idle"]; !ok {
+				t.Errorf("member of an all-unused anonymous extension not reported: %+v", got)
+			}
+			if _, ok := got["lib._on_T@b.unused"]; !ok {
+				t.Errorf("unused member of an anonymous extension not reported: %+v", got)
+			}
+			if _, ok := got["lib._on_T@b.used"]; ok {
+				t.Errorf("used member reported: %+v", got)
+			}
+		}
+	}
+}
+
 func TestCollectNamedReferencesProtectSymbols(t *testing.T) {
 	syms, refs := collectFromJSONL(t, `
 {"kind":"symbol","name":"pkg.callback","file":"pkg/code.py","props":{"symbol_kind":"function"}}

@@ -192,14 +192,20 @@ func (ix *swiftNameIndex) reachesRepo(root string, via []string) bool {
 // extension of a framework type or protocol's included. With none, the top-level
 // functions of that name (a module-qualified call, `SharedModels.score(word)`).
 func (ix *swiftNameIndex) openCandidates(method string) []string {
+	if open := ix.openMethods(method); len(open) > 0 {
+		return open
+	}
+	return ix.funcs[method]
+}
+
+// openMethods returns the methods named method that no class or struct of the
+// repository owns.
+func (ix *swiftNameIndex) openMethods(method string) []string {
 	var open []string
 	for _, c := range ix.methods[method] {
 		if !ix.concrete[lastDotComponent(ownerOf(c))] {
 			open = append(open, c)
 		}
-	}
-	if len(open) == 0 {
-		return ix.funcs[method]
 	}
 	return open
 }

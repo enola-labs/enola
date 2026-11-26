@@ -32,6 +32,10 @@ func TestIsTSTestFile(t *testing.T) {
 		"src/e2e-tests/helpers.ts":                false,
 		"src/test.js":                             false,
 		"src/testing/harness.js":                  false,
+		"test/fixtures/basic/app.vue":             true,
+		"tests/specs/fmt/badly_formatted.svelte":  true,
+		"src/test.vue":                            false,
+		"src/components/Test.svelte":              false,
 	}
 	for path, want := range cases {
 		if got := isTSTestFile(path); got != want {

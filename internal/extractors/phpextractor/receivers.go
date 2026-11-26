@@ -236,8 +236,16 @@ func thisProperty(node *sitter.Node, src []byte) string {
 // The one call named without a declaration is a framework method on an Eloquent model
 // (`$order->delete()` on a route-bound Order): the model is this repository's, and the
 // call is how the code touches it.
-func bindReceiverCalls(allFacts []facts.Fact) {
+//
+// A receiver no declared return type names may be a model an Eloquent query fetched
+// (`Story::find($id)`, an element of `->get()`), read as bindRelationReads reads it.
+// Such a call binds only to a method the model, a parent or a trait declares: the
+// query's model is inferred, and a framework method on it adds nothing.
+func bindReceiverCalls(allFacts []facts.Fact, relations relationResolver) {
 	ix := newClassIndex(allFacts)
+	if relations.ix == nil {
+		relations.ix = ix
+	}
 	models := map[string]bool{}
 	isModel := func(class string) bool {
 		known, seen := models[class]
@@ -267,7 +275,12 @@ func bindReceiverCalls(allFacts []facts.Fact) {
 			if sep <= 0 {
 				continue
 			}
-			typ := marks.typeOf(call[:sep], 0)
+			typ, fetched := marks.typeOf(call[:sep], 0), false
+			if !ix.hasClass(typ) && !ix.interfaces[typ] {
+				if class, kind := relations.eloquentResult(call[:sep], 0); kind == ofModel && ix.hasClass(class) {
+					typ, fetched = class, true
+				}
+			}
 			if typ == "" {
 				continue
 			}
@@ -279,7 +292,7 @@ func bindReceiverCalls(allFacts []facts.Fact) {
 				f.AddInheritedCalls(call)
 			}
 			// A model calling a framework method on itself says nothing new.
-			if len(targets) == 0 && !strings.HasPrefix(f.Name, call[:sep]+"::") && isModel(call[:sep]) {
+			if len(targets) == 0 && !fetched && !strings.HasPrefix(f.Name, call[:sep]+"::") && isModel(call[:sep]) {
 				targets = []string{call}
 			}
 			for _, target := range targets {

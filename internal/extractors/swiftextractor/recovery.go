@@ -12,7 +12,11 @@ import (
 //   - the `consume` and `copy` operators (`switch consume checkout { ... }`);
 //   - a freestanding macro in a type body (`#Middleware(using: ...) { func me() }`):
 //     the grammar closes the type at the `#`, so the members after it surface at file
-//     scope and the type has no symbol.
+//     scope and the type has no symbol;
+//   - `try await` (or `try?`, `try!`) in an `if` condition
+//     (`if let r = try? await p.load(d) {`): the grammar takes the body for a
+//     trailing closure and the whole file becomes one error, so its types have no
+//     symbols. `await` after a `try` is blanked; the call stays.
 //
 // A file that does not parse is parsed again with those forms blanked out. Blanking
 // writes spaces over the bytes and keeps every newline, so every byte offset and line
@@ -23,7 +27,7 @@ import (
 
 // recoveryRewrites are the byte-preserving rewrites tried, in order, on a file that
 // does not parse.
-var recoveryRewrites = []func([]byte) ([]byte, bool){blankOwnershipSpecifiers, blankTypeBodyMacros}
+var recoveryRewrites = []func([]byte) ([]byte, bool){blankOwnershipSpecifiers, blankTypeBodyMacros, blankAwaitAfterTry}
 
 // parseRecovered parses src and, when the tree has errors, returns the best of it
 // and the parses of src with each recovery rewrite written in, each applied on top
@@ -445,4 +449,45 @@ func blankTypeBodyMacros(src []byte) ([]byte, bool) {
 		}
 	}
 	return out, changed
+}
+
+// blankAwaitAfterTry blanks an `await` that follows `try`, `try?` or `try!`, except
+// in `for try await`, a loop form the grammar reads.
+func blankAwaitAfterTry(src []byte) ([]byte, bool) {
+	m := codeMask(src)
+	out := make([]byte, len(src))
+	copy(out, src)
+	changed := false
+	for i := 0; i < len(src); i++ {
+		if !m[i] || !isIdentStart(src[i]) || (i > 0 && m[i-1] && isIdentByte(src[i-1])) {
+			continue
+		}
+		w := wordAt(src, m, i)
+		end := i + len(w)
+		if w == "await" {
+			// The `try` before it, through a `?` or `!`.
+			k := lastCodeByte(src, m, i)
+			if k >= 0 && (src[k] == '?' || src[k] == '!') {
+				k = lastCodeByte(src, m, k)
+			}
+			if k >= 2 && string(src[k-2:k+1]) == "try" && wordAt(src, m, k-2) == "try" &&
+				(k < 3 || !isIdentByte(src[k-3])) && prevToken(src, m, k-2) != "for" {
+				blank(out, i, end)
+				changed = true
+			}
+		}
+		i = end - 1
+	}
+	return out, changed
+}
+
+// lastCodeByte returns the index of the last code byte before i that is not
+// whitespace, or -1.
+func lastCodeByte(src []byte, m []bool, i int) int {
+	for j := i - 1; j >= 0; j-- {
+		if m[j] && src[j] != ' ' && src[j] != '\t' && src[j] != '\n' && src[j] != '\r' {
+			return j
+		}
+	}
+	return -1
 }

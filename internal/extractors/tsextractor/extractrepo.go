@@ -49,7 +49,9 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	a := assembleFileResults(perFile, tsFiles)
 	a.compose(repoPath, rc, templates)
 	a.facts = bindTailwind(a.facts, tailwindTokens(repoPath, files, plugin.DiskReader(ctx)), repoPath, files, tsFiles, sources)
-	a.facts = mergeFileRefs(append(a.facts, e.viteHTMLFacts(ctx, repoPath, files, aliasRoots, rc)...))
+	a.facts = append(a.facts, e.viteHTMLFacts(ctx, repoPath, files, aliasRoots, rc)...)
+	bindNamespaceLookups(a.facts)
+	a.facts = mergeFileRefs(a.facts)
 	a.facts = append(a.facts, a.coverageFacts(repoPath)...)
 
 	// One account per declared client in this repository, including a client that found
@@ -157,7 +159,7 @@ func newRepoCtx(fw tsFrameworks, tsFiles []string, sources map[string][]byte, kn
 		// Exported request helpers, read before the parallel pass for the same reason:
 		// a helper and the calls to it live in different files.
 		requestHelpers: buildRequestHelperIndex(tsFiles, sources),
-		barrels:        barrelExports(tsFiles, sources, knownFiles),
+		barrels:        barrelExports(tsFiles, func(f string) []byte { return sources[f] }, knownFiles),
 	}
 	if fw.isNuxt {
 		rc.nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)
