@@ -4115,7 +4115,12 @@ import (
 // invoked, binds through that prefix's imports as a prefixed call does (a part
 // uses its library's prefixes): a top-level getter read or setter write is a
 // call, a function in a value position is a names edge; SDK targets are skipped.
-const cacheVersion = "v739"
+// v741: Swift: a declaration in an extension of a qualified type is named through
+// the path the extension writes (`extension A.B { struct C }` declares A.B.C, its
+// members A.B.m), less a leading module (imported or the file's own) no top-level
+// type of the repository shadows; the types an extension's where-clause states are
+// names of the members it declares and of its conformances.
+const cacheVersion = "v741"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

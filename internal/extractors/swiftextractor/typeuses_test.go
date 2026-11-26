@@ -270,7 +270,7 @@ struct Feature {
 	if !hasName(names, "Sources/Lib.Handoff", "Sources/Lib.Handoff.State") {
 		t.Errorf("Handoff: State() names no nested State: %v", names["Sources/Lib.Handoff"])
 	}
-	if !hasName(names, "Sources/Lib.Strategy.parse", "Sources/Lib.Formats.Strategy.ParseError") {
+	if !hasName(names, "Sources/Lib.Formats.Strategy.parse", "Sources/Lib.Formats.Strategy.ParseError") {
 		t.Errorf("a qualified extension's member does not see the nested type: %v", names)
 	}
 	found := false

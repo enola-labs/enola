@@ -164,6 +164,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 		return extractFileWithClients(src, relFile, isiOS, dir, clients)
 	})
 
+	dropModuleHeads(perFileFacts, moduleForFile)
 	for i, fileFacts := range perFileFacts {
 		relFile := swiftFiles[i]
 		allFacts = append(allFacts, fileFacts...)
