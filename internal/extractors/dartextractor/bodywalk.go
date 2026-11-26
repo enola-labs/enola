@@ -273,7 +273,7 @@ func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort strin
 		// chains, so they are matched directly.
 		kind := kindOf(c)
 		if kind == "const_object_expression" || kind == "new_expression" {
-			b.addRelation(facts.RelInstantiates, dartCreatedType(c, w.src))
+			b.addRelation(facts.RelInstantiates, w.createdType(c))
 			continue
 		}
 		if kind != "selector" {

@@ -63,6 +63,8 @@ type walker struct {
 	// fieldValues collects what class-body field initializers name, for the
 	// file's reference-only fact.
 	fieldValues *bodyWalk
+	// importPrefixes are the file's `import ... as p` names, read on first use.
+	importPrefixes map[string]bool
 }
 
 // extractFile parses one Dart file and returns its facts.

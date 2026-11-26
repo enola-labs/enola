@@ -39,7 +39,7 @@ func (w *walker) constructionReferences(n *sitter.Node, shadows map[string]bool,
 	}
 	switch kindOf(n) {
 	case "const_object_expression", "new_expression":
-		b.addRelation(facts.RelInstantiates, dartCreatedType(n, w.src))
+		b.addRelation(facts.RelInstantiates, w.createdType(n))
 	}
 	kids := namedChildren(n)
 	for i, c := range kids {
@@ -55,22 +55,21 @@ func (w *walker) constructionReferences(n *sitter.Node, shadows map[string]bool,
 	}
 }
 
-// dartCreatedType is the class a `const`/`new` expression builds. The grammar
-// spells an import prefix as a type: `const i0.Value()` is two type_identifiers,
-// so the last one is the class, and `new p.Foo()` is a type_identifier and an
-// identifier, which is also how `new Foo.named()` and `const bool.fromEnvironment()`
-// read, so the identifier is the class only when it is capitalised and the first
-// name is not.
-func dartCreatedType(n *sitter.Node, src []byte) string {
+// createdType is the class a `const`/`new` expression builds. The grammar spells
+// an import prefix as a type: `const i0.Value()` is two type_identifiers, so the
+// last one is the class, and `new p.Foo()` is a type_identifier and an identifier,
+// which is also how `new Foo.named()` reads, so the identifier is the class only
+// when the first name is one of this file's import prefixes.
+func (w *walker) createdType(n *sitter.Node) string {
 	name := ""
 	for _, c := range namedChildren(n) {
 		switch kindOf(c) {
 		case "type_identifier":
-			name = c.Utf8Text(src)
+			name = c.Utf8Text(w.src)
 			continue
 		case "identifier":
-			if text := c.Utf8Text(src); name != "" && !namesAType(name) && namesAType(text) {
-				return text
+			if name != "" && w.importPrefix(n, name) {
+				return c.Utf8Text(w.src)
 			}
 		}
 		if name != "" {
@@ -78,6 +77,25 @@ func dartCreatedType(n *sitter.Node, src []byte) string {
 		}
 	}
 	return name
+}
+
+// importPrefix reports whether name is an `as` prefix of an import in n's file.
+func (w *walker) importPrefix(n *sitter.Node, name string) bool {
+	if w.importPrefixes == nil {
+		w.importPrefixes = map[string]bool{}
+		root := n
+		for root.Parent() != nil {
+			root = root.Parent()
+		}
+		for _, d := range namedChildren(root) {
+			if spec := firstOfKind(d, "import_specification"); spec != nil {
+				if prefix := childOfKind(spec, "identifier"); prefix != nil {
+					w.importPrefixes[prefix.Utf8Text(w.src)] = true
+				}
+			}
+		}
+	}
+	return w.importPrefixes[name]
 }
 
 // constructorInvocation is the rule that reads `Name(...)` or `Name<T>(...)` at

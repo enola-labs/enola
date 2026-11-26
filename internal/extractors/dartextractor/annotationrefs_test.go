@@ -40,6 +40,10 @@ func orphanTitles(t *testing.T, all []facts.Fact) string {
 // body: `= const Opt()` builds Opt, and an abstract method's defaults are read too.
 func TestDartDefaultConstructionsAndAbstractDefaults(t *testing.T) {
 	all := dartReviewFacts(t, map[string]string{"lib/a.dart": `
+import 'a.dart' as i0;
+class lower {
+  lower.Named();
+}
 class Opt {
   const Opt([int x = 0]);
 }
@@ -52,6 +56,7 @@ class $Gen {
 class Host {
   void run({Object o = const Opt(1)}) {}
   void prefixed({Object o = const i0.Gadget(), Object n = new i0.Opt()}) {}
+  void named({Object l = new lower.Named()}) {}
   void builtin({bool b = const bool.fromEnvironment('x'), Object g = const $Gen()}) {}
 }
 abstract class Api {
@@ -66,6 +71,7 @@ void _cb() {}
 		"symbol lib.Host.prefixed -> lib.Gadget",
 		"symbol lib.Host.prefixed -> lib.Opt",
 		"symbol lib.Host.builtin -> sdk/lib/core.bool",
+		"symbol lib.Host.named -> lib.lower",
 		"symbol lib.Host.builtin -> lib.$Gen",
 	} {
 		if !inst[want] {
