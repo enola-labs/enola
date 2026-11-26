@@ -467,7 +467,9 @@ func (r *dartMemberResolver) setterWrite(spelled string, from *facts.Fact) strin
 
 // setterMember finds the setter a type or its mixins and superclass declare. The
 // nearest declaration of the name decides: a field or method there hides any
-// setter further up.
+// setter further up. A getter alone hides nothing, since getters and setters
+// are separate members: an overriding getter leaves the inherited setter, or
+// field, in force.
 func (r *dartMemberResolver) setterMember(owner *facts.Fact, name string, seen map[*facts.Fact]bool) string {
 	if owner == nil || seen[owner] {
 		return ""
@@ -477,9 +479,10 @@ func (r *dartMemberResolver) setterMember(owner *facts.Fact, name string, seen m
 		if dartHasSetter(entry) {
 			return entry.fact.Name
 		}
-		return ""
-	}
-	if _, field := r.fieldValues[dartMemberKey{owner, name}]; field {
+		if entry.count != 1 || entry.fact.PropString("accessor") != "getter" {
+			return ""
+		}
+	} else if _, field := r.fieldValues[dartMemberKey{owner, name}]; field {
 		return ""
 	}
 	mixins, _ := owner.Props["mixin_types"].([]string)

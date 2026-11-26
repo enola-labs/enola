@@ -175,6 +175,17 @@ class Box extends Base {
   void resize() { size = 3; counter = 4; }
   void inherited() { value = 5; }
 }
+class Fragment { Fragment? next; }
+class Lens extends Base {
+  @override
+  int get value => 1;
+  void reset() { value = 0; }
+}
+class Sub extends Fragment {
+  @override
+  Sub? get next => null;
+  void link(Sub s) { next = s; }
+}
 `,
 	})
 	for name, target := range map[string]string{
@@ -182,6 +193,7 @@ class Box extends Base {
 		"lib.readTop":       "lib.phase",
 		"lib.Box.toggle":    "lib.Box.open",
 		"lib.Box.inherited": "lib.Base.value",
+		"lib.Lens.reset":    "lib.Base.value",
 	} {
 		if f := findFact(all, facts.KindSymbol, name); !hasRelation(f, facts.RelCalls, target) {
 			t.Errorf("%s: no calls edge to %s: %+v", name, target, f)
@@ -200,6 +212,9 @@ class Box extends Base {
 		if f := findFact(all, facts.KindSymbol, name); f == nil || len(f.Relations) > 1 {
 			t.Errorf("%s: a plain field write recorded a use: %+v", name, f)
 		}
+	}
+	if f := findFact(all, facts.KindSymbol, "lib.Sub.link"); f == nil || hasRelation(f, facts.RelCalls, "lib.Sub.next") || hasRelation(f, facts.RelCalls, "lib.Fragment.next") {
+		t.Errorf("an overriding getter's inherited field write recorded a use: %+v", f)
 	}
 	if f := findFact(all, facts.KindSymbol, "lib.writeTop"); hasRelation(f, facts.RelCalls, "lib.plainTop") {
 		t.Errorf("a top-level variable write recorded a use: %+v", f)
