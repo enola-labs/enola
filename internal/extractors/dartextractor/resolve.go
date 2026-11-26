@@ -66,8 +66,21 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			case facts.RelImplements, facts.RelInjects, facts.RelInstantiates:
 				if typ := r.typeNamed(rel.Target, f.File); typ != nil {
 					rel.Target = typ.Name
-				} else if len(r.canonicalTypes[rel.Target]) > 0 {
-					rel.Target = "(" + rel.Target + ")"
+				} else {
+					// A construction through a prefix that binds nothing keeps the
+					// bare class name, as before prefixes were kept.
+					if prefix, short, ok := strings.Cut(rel.Target, "."); ok && rel.Kind == facts.RelInstantiates && r.importPrefix(prefix, f.File) {
+						rel.Target = short
+					}
+					if len(r.canonicalTypes[rel.Target]) > 0 {
+						rel.Target = "(" + rel.Target + ")"
+					}
+				}
+			case relDartPrefixedCtor:
+				// Bound classes become constructions; the rest stay this kind and are
+				// dropped below.
+				if typ := r.typeNamed(rel.Target, f.File); typ != nil && repoFiles[typ.File] {
+					rel.Kind, rel.Target = facts.RelInstantiates, typ.Name
 				}
 			case relDartCtorRef:
 				// Bound constructors become calls of them; the rest stay this kind and
@@ -140,7 +153,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			for _, use := range names {
 				kind, name, _ := strings.Cut(use, ":")
 				fn := r.members[r.valueTarget(name, f, nil)].fact
-				if fn == nil || fn.PropString("symbol_kind") != facts.SymbolFunc || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
+				// A static method torn off through its class (`p.K.sm`) is a method.
+				callable := fn != nil && (fn.PropString("symbol_kind") == facts.SymbolFunc || (fn.PropString("symbol_kind") == facts.SymbolMethod && fn.PropBool("static")))
+				if !callable || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
 					continue
 				}
 				if rel := (facts.Relation{Kind: kind, Target: fn.Name}); !slices.Contains(f.Relations, rel) {
@@ -168,10 +183,10 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		seen := map[facts.Relation]bool{}
 		relations := f.Relations[:0]
 		for _, rel := range f.Relations {
-			if rel.Kind == relDartTypeRef || rel.Kind == relDartCtorRef {
+			if rel.Kind == relDartTypeRef || rel.Kind == relDartCtorRef || rel.Kind == relDartPrefixedCtor {
 				continue
 			}
-			if rel.Kind == facts.RelCalls {
+			if rel.Kind == facts.RelCalls || rel.Kind == facts.RelInstantiates {
 				if seen[rel] {
 					continue
 				}
@@ -469,10 +484,20 @@ func disambiguateDartGetters(all []facts.Fact) {
 // valueTarget resolves a name read, written or torn off outside a call.
 // `p.name` spelled through an import prefix binds through the library's imports
 // under that prefix alone, as a prefixed call does, and like a bare name never
-// to a bundled SDK signature; anything else resolves as a call.
+// to a bundled SDK signature; `p.K.sm` binds to a static member K itself
+// declares, the class found the same way. Anything else resolves as a call.
 func (r *dartMemberResolver) valueTarget(spelled string, from *facts.Fact, constructed map[string]*facts.Fact) string {
 	if qualified, ok := strings.CutPrefix(spelled, dartPrefixedValue); ok {
 		prefix, name, _ := strings.Cut(qualified, ".")
+		if class, member, static := strings.Cut(name, "."); static {
+			// Static members are not inherited: K's own declaration or nothing.
+			if typ := r.typeNamed(prefix+"."+class, from.File); typ != nil && !r.sdkHosts[r.libraryFile(typ.File)] {
+				if entry := r.members[typ.Name+"."+member]; entry.fact != nil && entry.fact.PropBool("static") && r.sameDartLibrary(entry.fact, typ) {
+					return entry.fact.Name
+				}
+			}
+			return ""
+		}
 		if r.importPrefix(prefix, from.File) {
 			if fn := uniqueDartFact(r.importedFunctions(prefix, name, from.File)); fn != nil && !r.sdkHosts[r.libraryFile(fn.File)] {
 				return fn.Name

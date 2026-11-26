@@ -22,6 +22,12 @@ const relDartTypeRef = "dart_type_ref"
 // a call of it, and so a construction of Foo, and any other spelling is dropped.
 const relDartCtorRef = "dart_ctor_ref"
 
+// relDartPrefixedCtor carries a `p.Foo(...)` spelled through an import prefix p, from
+// the walk to resolveCallTargets. Only the prefix's imports tell a class from a
+// capitalised function: one that binds to a class of the repository becomes an
+// `instantiates` edge, and any other spelling is dropped.
+const relDartPrefixedCtor = "dart_prefixed_ctor"
+
 // constructionReferences records the classes an expression outside a function body
 // builds: a parameter default, a class-body field initializer, an annotation argument.
 // Function bodies record the same constructions in scanCallChain, with the same
@@ -55,6 +61,8 @@ func (w *walker) constructionReferences(n *sitter.Node, shadows map[string]bool,
 		}
 		if name, receiver, baseIsType := w.calleeOf(kids, i); name != "" && w.constructorInvocation(kids, i, name, receiver, baseIsType, shadows) {
 			b.addRelation(facts.RelInstantiates, name)
+		} else if typ := w.prefixedConstruction(n, kids, i, name, receiver, baseIsType, shadows); typ != "" {
+			b.addRelation(relDartPrefixedCtor, typ)
 		} else if typ := w.namedConstructorType(n, kids, i, receiver, baseIsType, shadows); typ != "" {
 			b.addRelation(relDartCtorRef, typ+"."+name)
 		}
@@ -98,24 +106,50 @@ func (w *walker) namedConstructorType(n *sitter.Node, kids []*sitter.Node, i int
 // an import prefix as a type: `const i0.Value()` is two type_identifiers, so the
 // last one is the class, and `new p.Foo()` is a type_identifier and an identifier,
 // which is also how `new Foo.named()` reads, so the identifier is the class only
-// when the first name is one of this file's import prefixes.
+// when the first name is one of this file's import prefixes. A class behind one of
+// this file's prefixes keeps it, `p.Foo`, so that it resolves through that import.
 func (w *walker) createdType(n *sitter.Node) string {
-	name := ""
+	first, name := "", ""
 	for _, c := range namedChildren(n) {
 		switch kindOf(c) {
 		case "type_identifier":
+			if first == "" {
+				first = c.Utf8Text(w.src)
+			}
 			name = c.Utf8Text(w.src)
 			continue
 		case "identifier":
 			if name != "" && w.importPrefix(n, name) {
-				return c.Utf8Text(w.src)
+				return name + "." + c.Utf8Text(w.src)
 			}
 		}
 		if name != "" {
 			break
 		}
 	}
+	if first != name && w.importPrefix(n, first) {
+		return first + "." + name
+	}
 	return name
+}
+
+// prefixedConstruction is `p.Foo` when kids[i] invokes `p.Foo(...)`: p one of this
+// file's import prefixes that nothing in scope hides, as the chain's base, and the
+// capitalised Foo directly after it. Whether Foo is a class is decided after
+// indexing (relDartPrefixedCtor).
+func (w *walker) prefixedConstruction(n *sitter.Node, kids []*sitter.Node, i int, name, receiver string, baseIsType bool, shadows map[string]bool) string {
+	previous := i - 1
+	if previous >= 0 && kindOf(kids[previous]) == "type_arguments" {
+		previous--
+	}
+	if baseIsType || name == "" || !namesAType(name) || previous < 1 || kindOf(kids[previous]) != "selector" {
+		return ""
+	}
+	base := kids[previous-1]
+	if kindOf(base) != "identifier" || base.Utf8Text(w.src) != receiver || shadows[receiver] || !w.unboundName(receiver) || !w.importPrefix(n, receiver) {
+		return ""
+	}
+	return receiver + "." + name
 }
 
 // importPrefix reports whether name is an `as` prefix of an import in n's file.

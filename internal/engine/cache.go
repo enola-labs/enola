@@ -4142,7 +4142,11 @@ import (
 // v744: Dart: an unnamed extension (`extension on T { ... }`) is a symbol named
 // `_on_<T>@<file>` (`@2`, `@3` for further ones on T in the file, a dot in the file
 // name read as `_`), marked anonymous, with members and walked bodies like a named one.
-const cacheVersion = "v744"
+// v745: Dart: a static member of a class behind an import prefix (`p.K.sm`) read or
+// torn off is a use of it, as `p.name` is (v739); a construction through a prefix
+// (`new p.Foo()`, `const p.Foo()`, `p.Foo()` in a body or outside one) binds through
+// that prefix's imports, and one that binds nothing keeps the bare class name.
+const cacheVersion = "v745"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

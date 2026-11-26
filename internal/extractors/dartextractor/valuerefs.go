@@ -123,7 +123,8 @@ const dartPrefixedValue = "@prefix:"
 // recordPrefixedValue records `p.name` read or written through an import
 // prefix, as recordUnboundValue does for a bare name: a read is a getter-read
 // candidate, a plain write a setter write, and a read in a value position also
-// a tear-off candidate. A part's prefixes are its library's, which only the
+// a tear-off candidate. `p.K.sm`, a static member of a class behind the prefix,
+// is read the same way. A part's prefixes are its library's, which only the
 // resolution pass knows. An invocation is the call scan's, and a local or
 // member named like the prefix hides it.
 func (w *walker) recordPrefixedValue(n *sitter.Node, site dartSite, prefix string, shadows map[string]bool, b *bodyWalk, loop, scaling int) {
@@ -158,6 +159,21 @@ func (w *walker) recordPrefixedValue(n *sitter.Node, site dartSite, prefix strin
 	b.markGetterRead(dartPrefixedValue+prefix+"."+name, loop, scaling)
 	if dartValuePositionAt(n, site.parent, after) {
 		b.addValueName(facts.RelNames, dartPrefixedValue+prefix+"."+name)
+	}
+	// `p.K.sm`: a static member of the class K behind the prefix, read or torn
+	// off the same way. Invoked, it is the call scan's.
+	if !namesAType(name) || kindOf(after) != "selector" {
+		return
+	}
+	member := identifierChild(childOfKind(after, "unconditional_assignable_selector"), w.src)
+	next := after.NextNamedSibling()
+	if member == "" || (kindOf(next) == "selector" && childOfKind(next, "argument_part") != nil) {
+		return
+	}
+	static := dartPrefixedValue + prefix + "." + name + "." + member
+	b.markGetterRead(static, loop, scaling)
+	if dartValuePositionAt(n, site.parent, next) {
+		b.addValueName(facts.RelNames, static)
 	}
 }
 
