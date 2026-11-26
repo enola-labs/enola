@@ -61,6 +61,11 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				} else if len(r.canonicalTypes[rel.Target]) > 0 {
 					rel.Target = "(" + rel.Target + ")"
 				}
+			case relDartTypeRef:
+				// Bound names become uses; the rest stay this kind and are dropped below.
+				if typ := r.typeNamed(rel.Target, f.File); typ != nil {
+					rel.Kind, rel.Target = facts.RelNames, typ.Name
+				}
 			case facts.RelCalls:
 				before := rel.Target
 				rel.Target = resolved[j]
@@ -92,6 +97,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				if entry.fact == nil || entry.fact.PropString("accessor") != "getter" {
 					continue
 				}
+				if !strings.Contains(candidate, ".") && entry.fact.File != f.File && !r.libraryValueVisible(candidate, entry.fact, f) {
+					continue
+				}
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
 				if read.Loop {
 					calls, _ := f.Props["calls_in_loop"].([]string)
@@ -103,6 +111,29 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				}
 			}
 		}
+		if names, ok := f.Props["_dart_value_names"].([]string); ok {
+			for _, use := range names {
+				kind, name, _ := strings.Cut(use, ":")
+				fn := r.members[r.call(name, f, false, true, nil)].fact
+				if fn == nil || fn.PropString("symbol_kind") != facts.SymbolFunc || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
+					continue
+				}
+				if rel := (facts.Relation{Kind: kind, Target: fn.Name}); !slices.Contains(f.Relations, rel) {
+					f.Relations = append(f.Relations, rel)
+				}
+			}
+		}
+		delete(f.Props, "_dart_value_names")
+		if writes, ok := f.Props["_dart_setter_writes"].([]string); ok {
+			for _, name := range writes {
+				if target := r.setterWrite(name, f); target != "" {
+					if rel := (facts.Relation{Kind: facts.RelCalls, Target: target}); !slices.Contains(f.Relations, rel) {
+						f.Relations = append(f.Relations, rel)
+					}
+				}
+			}
+		}
+		delete(f.Props, "_dart_setter_writes")
 		delete(f.Props, "_dart_value_bindings")
 		delete(f.Props, "_dart_getter_reads")
 		delete(f.Props, "_dart_implicit_calls")
@@ -112,6 +143,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		seen := map[facts.Relation]bool{}
 		relations := f.Relations[:0]
 		for _, rel := range f.Relations {
+			if rel.Kind == relDartTypeRef {
+				continue
+			}
 			if rel.Kind == facts.RelCalls {
 				if seen[rel] {
 					continue
@@ -386,4 +420,83 @@ func disambiguateDartGetters(all []facts.Fact) {
 			f.Name = strings.TrimSuffix(f.File, ".dart") + "." + short
 		}
 	}
+}
+
+// libraryValueVisible reports whether a bare name the walker could not bind
+// reaches target, a top-level declaration found through the library's parts or
+// imports. A top-level variable of the reading library hides any import, and a
+// bundled SDK signature is no node of the graph.
+func (r *dartMemberResolver) libraryValueVisible(name string, target, from *facts.Fact) bool {
+	if r.sdkHosts[r.libraryFile(target.File)] {
+		return false
+	}
+	return len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) == 0
+}
+
+// dartHasSetter reports a member entry that holds a setter: alone, or paired
+// with its getter (a pair is the only two-declaration entry that keeps a fact).
+func dartHasSetter(e dartMemberEntry) bool {
+	if e.fact == nil {
+		return false
+	}
+	return e.fact.PropString("accessor") == "setter" || (e.count == 2 && e.fact.PropString("accessor") == "getter")
+}
+
+// setterWrite resolves a plain assignment to the setter it runs. "this.<name>"
+// is the writing class's own accessor; a bare name is a top-level accessor of
+// the library or an import, else a setter the writing class inherits. A field, or no
+// setter, records nothing: assigning a field runs no code.
+func (r *dartMemberResolver) setterWrite(spelled string, from *facts.Fact) string {
+	name, own := strings.CutPrefix(spelled, "this.")
+	if !own {
+		// Top-level setters emit no symbol of their own, so a written top-level
+		// getter name stands for its setter: a getter alone cannot be assigned.
+		target := r.call(name, from, false, true, nil)
+		if entry := r.members[target]; entry.fact != nil && entry.fact.PropString("symbol_kind") == facts.SymbolFunc && entry.fact.PropString("accessor") != "" {
+			if entry.fact.File == from.File || r.libraryValueVisible(name, entry.fact, from) {
+				return entry.fact.Name
+			}
+			return ""
+		}
+		if len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) > 0 {
+			return ""
+		}
+	}
+	return r.setterMember(r.lexicalOwner(from), name, map[*facts.Fact]bool{})
+}
+
+// setterMember finds the setter a type or its mixins and superclass declare. The
+// nearest declaration of the name decides: a field or method there hides any
+// setter further up. A getter alone hides nothing, since getters and setters
+// are separate members: an overriding getter leaves the inherited setter, or
+// field, in force.
+func (r *dartMemberResolver) setterMember(owner *facts.Fact, name string, seen map[*facts.Fact]bool) string {
+	target, _ := r.setterIn(owner, name, seen)
+	return target
+}
+
+// setterIn reports the setter found from owner up, and whether a declaration
+// on the way decided the answer.
+func (r *dartMemberResolver) setterIn(owner *facts.Fact, name string, seen map[*facts.Fact]bool) (string, bool) {
+	if owner == nil || seen[owner] {
+		return "", false
+	}
+	seen[owner] = true
+	if entry, ok := r.members[owner.Name+"."+name]; ok && (entry.fact == nil || r.sameDartLibrary(entry.fact, owner)) {
+		if dartHasSetter(entry) {
+			return entry.fact.Name, true
+		}
+		if entry.count != 1 || entry.fact.PropString("accessor") != "getter" {
+			return "", true
+		}
+	} else if _, field := r.fieldValues[dartMemberKey{owner, name}]; field {
+		return "", true
+	}
+	mixins, _ := owner.Props["mixin_types"].([]string)
+	for i := len(mixins) - 1; i >= 0; i-- {
+		if target, decided := r.setterIn(r.typeNamed(mixins[i], owner.File), name, seen); decided {
+			return target, true
+		}
+	}
+	return r.setterIn(r.typeNamed(owner.PropString("extends_type"), owner.File), name, seen)
 }

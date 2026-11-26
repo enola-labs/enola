@@ -248,21 +248,41 @@ func declaredReceiverType(n *sitter.Node, src []byte) string {
 
 type dartGetterRead struct{ Loop, Scaling bool }
 
+// dartPlainAssignment reports `left = right`. The grammar names a compound
+// operator's node but leaves a plain `=` an anonymous token.
+func dartPlainAssignment(n *sitter.Node, src []byte) bool {
+	if op := childOfKind(n, "assignment_operator"); op != nil {
+		return strings.TrimSpace(op.Utf8Text(src)) == "="
+	}
+	left := n.NamedChild(0)
+	if left == nil {
+		return false
+	}
+	rest := strings.TrimLeft(string(src[left.EndByte():min(n.EndByte(), left.EndByte()+16)]), " \t\r\n")
+	return strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==")
+}
+
 func (w *walker) recordGetterRead(target string, node *sitter.Node, b *bodyWalk, loop, scaling int) {
 	// The final member of a simple assignment is written, not read. Earlier
 	// receiver getters still execute (e.g. object.value.field = next).
+	// Only the ancestors ending where the name ends can hold it as the last
+	// token of a left-hand side, and the assignment is the first one past
+	// them. Parent() costs the node's depth, so the climb stops there.
+	end := node.EndByte()
 	for parent := node.Parent(); parent != nil; parent = parent.Parent() {
-		if kindOf(parent) == "assignment_expression" {
-			if op := childOfKind(parent, "assignment_operator"); op != nil && strings.TrimSpace(op.Utf8Text(w.src)) == "=" {
-				if left := parent.NamedChild(0); left != nil && node.EndByte() == left.EndByte() {
-					return
-				}
+		if kindOf(parent) == "assignment_expression" && dartPlainAssignment(parent, w.src) {
+			if left := parent.NamedChild(0); left != nil && end == left.EndByte() {
+				return
 			}
 		}
-		if kindOf(parent) == "function_body" {
+		if parent.EndByte() != end || kindOf(parent) == "function_body" {
 			break
 		}
 	}
+	b.markGetterRead(target, loop, scaling)
+}
+
+func (b *bodyWalk) markGetterRead(target string, loop, scaling int) {
 	if b.getterReads == nil {
 		b.getterReads = map[string]dartGetterRead{}
 	}

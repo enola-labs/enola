@@ -1256,6 +1256,8 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		w.noteStaticPath(node)
 	case "user_type":
 		w.noteTypeUse(node) // typeuses.go
+	case "comparison_expression":
+		w.noteGenericMetatype(node)
 	}
 	w.noteValueOperands(node)
 

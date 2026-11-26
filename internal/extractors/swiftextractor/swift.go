@@ -235,6 +235,10 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// call is bound, so a value that is also called here adds nothing.
 	allFacts = resolveValueRefs(allFacts, index, &swiftHierarchies{facts: allFacts})
 
+	// Classes an Info.plist, storyboard or nib names are entered by the runtime
+	// (resourceroots.go).
+	markResourceClasses(allFacts, resourceClassNames(repoPath, files))
+
 	// Propagate the walk-time io_direct flag up the call graph into a transitive
 	// performs_io prop, so callers of I/O methods are discoverable even when the
 	// call chain runs through ambiguous (kept-bare) member-call edges.

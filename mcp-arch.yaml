@@ -78,11 +78,14 @@ ignore:
   - "**/tests/**/*-test.ts"
   - "**/tests/**/*-test.gjs"
   - "**/tests/**/*-test.gts"
-  # Mocha's default test/ directory of JavaScript with no suffix in the name.
-  # JavaScript only: TypeScript under test/ includes production code.
+  # Mocha's default test/ directory of JavaScript with no suffix in the name,
+  # and TypeScript there too: fixtures, mocks and per-layer test trees.
   - "**/test/**/*.js"
   - "**/test/**/*.mjs"
   - "**/test/**/*.cjs"
+  - "**/test/**/*.jsx"
+  - "**/test/**/*.ts"
+  - "**/test/**/*.tsx"
   # Ruby has no co-located test convention (RSpec requires spec/, Minitest
   # defaults to test/), so these demand the directory as well as the filename: a
   # bare "**/*_test.rb" also swallows production code that merely ends in the
@@ -189,6 +192,7 @@ ignore:
   - "**/*.pbjson.dart"
   - "**/*.pbserver.dart"
   - "**/*.pbgrpc.dart"
+  - "**/*.mapper.dart"
   # Dart/Flutter build and package caches.
   - "**/.dart_tool/**"
   - "**/.pub-cache/**"

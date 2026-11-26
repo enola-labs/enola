@@ -878,6 +878,17 @@ func classBases(allFacts []facts.Fact, types typeIndex, visibility *includeVisib
 // lookup returns the member a class inherits under name: the nearest base, breadth
 // first, that declares it. "" when none does.
 func (b baseIndex) lookup(class, name string, known map[string]bool) string {
+	for _, t := range b.ancestors(class) {
+		if decl := t + "::" + name; known[decl] {
+			return decl
+		}
+	}
+	return ""
+}
+
+// ancestors lists a class's bases, nearest first (breadth first), each once.
+func (b baseIndex) ancestors(class string) []string {
+	var out []string
 	seen := map[string]bool{class: true}
 	queue := append([]string(nil), b[class]...)
 	for len(queue) > 0 {
@@ -887,12 +898,10 @@ func (b baseIndex) lookup(class, name string, known map[string]bool) string {
 			continue
 		}
 		seen[t] = true
-		if decl := t + "::" + name; known[decl] {
-			return decl
-		}
+		out = append(out, t)
 		queue = append(queue, b[t]...)
 	}
-	return ""
+	return out
 }
 
 func sourceDir(f *facts.Fact) string {

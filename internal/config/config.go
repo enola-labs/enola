@@ -365,13 +365,19 @@ func Default() *Config {
 			"**/tests/**/*-test.gjs",
 			"**/tests/**/*-test.gts",
 			// Mocha's default spec is test/*.{js,cjs,mjs}, with no suffix in the name, and
-			// QUnit suites in a Rails app's plugins keep the same test/ directory. Only
-			// JavaScript: across the corpus every .js, .mjs and .cjs file under a test/
-			// directory is a test, helper or fixture, while TypeScript there includes
-			// production code (a runtime's own node:test reporters).
+			// QUnit suites in a Rails app's plugins keep the same test/ directory.
+			// TypeScript too: an e2e suite's fixtures, mocks and setup files, and the
+			// test trees a codebase keeps beside each layer, carry no suffix. Across the
+			// corpus 5 of about 3,000 such files are code that ships (a runtime's
+			// node:test polyfill, loaded by string, and a form widget named `test`);
+			// facts.IsTestPath already called them tests, and no directory or name
+			// shape separates them from the rest.
 			"**/test/**/*.js",
 			"**/test/**/*.mjs",
 			"**/test/**/*.cjs",
+			"**/test/**/*.jsx",
+			"**/test/**/*.ts",
+			"**/test/**/*.tsx",
 			// Ruby, unlike Go and TS, has no co-located test convention: RSpec
 			// requires spec/, Minitest defaults to test/. Demand the directory as
 			// well as the filename — a bare "**/*_test.rb" also swallows production
@@ -661,6 +667,7 @@ func Default() *Config {
 			"**/tests/**/*-test.js", "**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs", "**/tests/**/*-test.gts",
 			"**/test/**/*.js", "**/test/**/*.mjs", "**/test/**/*.cjs",
+			"**/test/**/*.jsx", "**/test/**/*.ts", "**/test/**/*.tsx",
 			"**/spec/**/*_spec.rb", "**/test/**/*_test.rb",
 			// Python has no TestRefExtractor yet, so these four are a deliberate
 			// no-op today: runTestRefExtractors skips non-implementers. They are

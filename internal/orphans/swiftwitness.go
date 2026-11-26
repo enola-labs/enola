@@ -139,6 +139,14 @@ var swiftAssociatedTypes = map[string]map[string]bool{
 	"FormatStyle":                methodSet("FormatInput", "FormatOutput"),
 	"ParseableFormatStyle":       methodSet("FormatInput", "FormatOutput", "Strategy"),
 	"Reducer":                    methodSet("State", "Action"),
+	// SwiftUI's representables: the wrapped view or controller, and the
+	// coordinator makeCoordinator returns.
+	"UIViewRepresentable":           methodSet("UIViewType", "Coordinator"),
+	"UIViewControllerRepresentable": methodSet("UIViewControllerType", "Coordinator"),
+	"NSViewRepresentable":           methodSet("NSViewType", "Coordinator"),
+	"NSViewControllerRepresentable": methodSet("NSViewControllerType", "Coordinator"),
+	// swift-http-api's request handler.
+	"HTTPServerRequestHandler": methodSet("RequestContext", "Reader", "ResponseSender"),
 	// MultipartKit: the part body a type converts to and from.
 	"MultipartPartConvertible": methodSet("Body"),
 	"MultipartPartEncodable":   methodSet("Body"),
@@ -146,9 +154,15 @@ var swiftAssociatedTypes = map[string]map[string]bool{
 }
 
 // swiftDelegateInherits adds the stems of the delegate protocols a protocol
-// refines: a table view's delegate is its scroll view's delegate, and a window
-// scene's delegate is a scene's.
+// refines: a table view's delegate is its scroll view's delegate, a window
+// scene's delegate is a scene's, and every URLSession delegate's requirements are
+// urlSession(_:…), whatever the task kind its protocol is named after.
 var swiftDelegateInherits = map[string][]string{
+	"URLSessionTaskDelegate":             {"urlSession"},
+	"URLSessionDataDelegate":             {"urlSession"},
+	"URLSessionDownloadDelegate":         {"urlSession"},
+	"URLSessionStreamDelegate":           {"urlSession"},
+	"URLSessionWebSocketDelegate":        {"urlSession"},
 	"UITableViewDelegate":                {"scrollView"},
 	"UICollectionViewDelegate":           {"scrollView"},
 	"UICollectionViewDelegateFlowLayout": {"scrollView", "collectionView"},

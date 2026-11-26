@@ -45,6 +45,9 @@ func statedType(node *sitter.Node, src []byte) string {
 	if t == "" || strings.ContainsAny(t[:1], "[(") {
 		return ""
 	}
+	// A metatype, T.Type, is a value whose members are T's: a static method call,
+	// or a #selector naming T's method in a swizzle (objcroots.go).
+	t = strings.TrimSuffix(t, ".Type")
 	if name := extractTypeName(t); isTypeName(name) {
 		return name
 	}
@@ -346,5 +349,50 @@ func (w *astWalker) noteMetatype(nav *sitter.Node) {
 	}
 	if name := nodeText(target, w.src); isTypeName(name) && !isSystemType(name) {
 		w.addOwnerEdge(facts.RelNames, name)
+	}
+}
+
+// noteGenericMetatype records a member read through a specialized generic type,
+// `Box<T>.self` or `Box<T>.make(for:)`, which the grammar parses as two comparisons:
+// `Box < (T > .self)`. Read that way it names Box, and its type argument where that
+// is a type; the call binds to Box's method. Two chained comparisons do not compile
+// in Swift, so the shape is never a real comparison.
+func (w *astWalker) noteGenericMetatype(cmp *sitter.Node) {
+	if p := cmp.Parent(); p != nil && kindOf(p) == "comparison_expression" {
+		return
+	}
+	lhs, op, inner := cmp.ChildByFieldName("lhs"), cmp.ChildByFieldName("op"), cmp.ChildByFieldName("rhs")
+	if lhs == nil || op == nil || inner == nil || kindOf(lhs) != "simple_identifier" ||
+		nodeText(op, w.src) != "<" || kindOf(inner) != "comparison_expression" {
+		return
+	}
+	arg, op2, member := inner.ChildByFieldName("lhs"), inner.ChildByFieldName("op"), inner.ChildByFieldName("rhs")
+	if arg == nil || op2 == nil || member == nil || kindOf(arg) != "simple_identifier" || nodeText(op2, w.src) != ">" {
+		return
+	}
+	call := ""
+	switch kindOf(member) {
+	case "call_expression":
+		if callee := firstNamedChild(member); callee != nil && kindOf(callee) == "prefix_expression" {
+			call = implicitMember(callee, w.src)
+		}
+		if call == "" {
+			return
+		}
+	case "prefix_expression":
+		if o := member.ChildByFieldName("operation"); o == nil || nodeText(o, w.src) != "." {
+			return
+		}
+	default:
+		return
+	}
+	for _, id := range []*sitter.Node{lhs, arg} {
+		name := strings.Trim(nodeText(id, w.src), "`")
+		if isTypeName(name) && !isSystemType(name) && !genericParamInScope(cmp, name, w.src) {
+			w.addOwnerEdge(facts.RelNames, name)
+		}
+	}
+	if typ := strings.Trim(nodeText(lhs, w.src), "`"); call != "" && isCapitalized(typ) && !isSystemType(typ) {
+		w.noteTypedCall(typ, call)
 	}
 }

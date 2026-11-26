@@ -1,6 +1,8 @@
 package dartextractor
 
 import (
+	"maps"
+
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
 	"strings"
@@ -27,14 +29,20 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 	}
 	if kindOf(root) == "identifier" {
 		name := root.Utf8Text(w.src)
-		if dartInvocationTarget(root) {
+		if dartInvocationTarget(root) || dartCallMethodTarget(root, w.src) {
 			// File scope has no call scan, so the invocation is recorded here.
+			// `f.call(...)` on a file function invokes f itself. The target is
+			// already canonical; as a bare dotted name the resolution pass would
+			// read its directory as a receiver and lose it.
 			if target := w.callableValue(name); target != "" && !shadows[name] {
-				b.addRelation(facts.RelCalls, target)
+				b.addRelation(facts.RelCalls, "@lexical:"+target)
+			} else if !shadows[name] && w.unboundName(name) && dartInvocationTarget(root) {
+				b.addValueName(facts.RelCalls, name)
 			}
 		} else {
 			w.recordValueReference(root, name, shadows, b)
 		}
+		w.recordUnboundValue(root, b.siteOf(root), name, shadows, b, 0, 0)
 	}
 	kids := namedChildren(root)
 	for i, c := range kids {
@@ -46,6 +54,7 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 			}
 			dartBoundNames(kids[i-1], w.src, scope)
 		}
+		b.site = dartSiteAt(c, root, kids, i)
 		w.valueReferences(c, scope, b)
 	}
 }
@@ -77,21 +86,113 @@ func (w *walker) fileGetterNames(root *sitter.Node) map[string]bool {
 	return getters
 }
 
-// topLevelGetter reports whether an unshadowed identifier reads this file's
-// top-level getter. A same-named class member hides it inside its class.
-func (w *walker) topLevelGetter(n *sitter.Node, name string, b *bodyWalk) bool {
-	if !w.fileGetters[name] || b.shadows[name] {
-		return false
+// recordUnboundValue records an unshadowed read of a top-level getter: this
+// file's, or a name nothing in this file binds, whose declaration only the
+// resolution pass can find in another part of the library or an import. A
+// value-position name of the second kind is also kept as a tear-off candidate.
+// A same-named class member hides both inside its class.
+func (w *walker) recordUnboundValue(n *sitter.Node, site dartSite, name string, shadows map[string]bool, b *bodyWalk, loop, scaling int) {
+	if shadows[name] {
+		return
 	}
 	if _, member := w.memberFunctions[name]; member {
+		return
+	}
+	unbound := w.unboundName(name)
+	if w.assignedName(n, site.parent) {
+		if unbound || w.fileGetters[name] {
+			b.markSetterWrite(name)
+		}
+	} else if (w.fileGetters[name] || unbound) && dartReadKind(kindOf(site.parent)) {
+		b.markGetterRead(name, loop, scaling)
+	}
+	next := kindOf(site.next)
+	invoked := next == "selector" && childOfKind(site.next, "argument_part") != nil
+	if unbound && !invoked && dartValuePositionAt(n, site.parent, site.next) {
+		b.addValueName(facts.RelNames, name)
+	}
+}
+
+// dartSite is a node's parent and next named sibling.
+type dartSite struct{ node, parent, next *sitter.Node }
+
+func dartSiteAt(c, parent *sitter.Node, kids []*sitter.Node, i int) dartSite {
+	site := dartSite{node: c, parent: parent}
+	if i+1 < len(kids) {
+		site.next = kids[i+1]
+	}
+	return site
+}
+
+// siteOf returns the walk's record of n's site, or asks the tree when n was
+// not reached through a child loop.
+func (b *bodyWalk) siteOf(n *sitter.Node) dartSite {
+	if b.site.node != nil && b.site.node.Id() == n.Id() {
+		return b.site
+	}
+	return dartSite{node: n, parent: n.Parent(), next: n.NextNamedSibling()}
+}
+
+// assignedName reports a bare name written by a plain assignment, `name = v`.
+func (w *walker) assignedName(n, parent *sitter.Node) bool {
+	if kindOf(parent) != "assignable_expression" || parent.EndByte() != n.EndByte() {
 		return false
 	}
-	switch parent := kindOf(n.Parent()); parent {
+	assignment := parent.Parent()
+	return kindOf(assignment) == "assignment_expression" && dartPlainAssignment(assignment, w.src) &&
+		assignment.NamedChild(0) != nil && assignment.NamedChild(0).Id() == parent.Id()
+}
+
+func (b *bodyWalk) markSetterWrite(name string) {
+	if b.setterWrites == nil {
+		b.setterWrites = map[string]bool{}
+	}
+	b.setterWrites[name] = true
+}
+
+func (b *bodyWalk) addValueName(kind, name string) {
+	if b.valueNames == nil {
+		b.valueNames = map[string]bool{}
+	}
+	b.valueNames[kind+":"+name] = true
+}
+
+// unboundName reports a name this file declares nowhere it can see: not a
+// file function or getter, nor a member, field or getter of the current class.
+func (w *walker) unboundName(name string) bool {
+	if w.fileGetters[name] || w.getterNames[name] || w.valueFunctions[name] != "" {
+		return false
+	}
+	if _, field := w.fieldTypes[name]; field {
+		return false
+	}
+	_, member := w.memberFunctions[name]
+	return !member
+}
+
+// dartReadKind excludes a label, a cascade target and a member selector,
+// none of which reads a top-level name.
+func dartReadKind(parent string) bool {
+	switch parent {
 	case "label", "cascade_section", "cascade_selector":
 		return false
 	default:
 		return !strings.HasSuffix(parent, "assignable_selector")
 	}
+}
+
+// dartCallMethodTarget reports `name.call(...)`: the base of a `.call`
+// selector that arguments follow.
+func dartCallMethodTarget(n *sitter.Node, src []byte) bool {
+	sel := n.NextNamedSibling()
+	if kindOf(sel) != "selector" || childOfKind(sel, "argument_part") != nil {
+		return false
+	}
+	if identifierChild(childOfKind(sel, "unconditional_assignable_selector"), src) != "call" {
+		return false
+	}
+	args := sel.NextNamedSibling()
+	return kindOf(args) == "selector" && childOfKind(args, "argument_part") != nil
 }
 
 // dartParameterDefaults returns the default value expressions of a signature's
@@ -142,6 +243,8 @@ func (w *walker) memberCallableValues(body *sitter.Node, typeName string) map[st
 				name := signatureName(c, w.src)
 				if kindOf(c) == "getter_signature" {
 					w.getterNames[name] = true
+				} else {
+					w.setterNames[name] = true
 				}
 				values[name] = ""
 			}
@@ -155,10 +258,17 @@ func dartValuePosition(n *sitter.Node) bool {
 	if p == nil {
 		return false
 	}
+	return dartValuePositionAt(n, p, n.NextNamedSibling())
+}
+
+func dartValuePositionAt(n, p, next *sitter.Node) bool {
+	if p == nil {
+		return false
+	}
 	// A selector's base is a receiver, not a bare callback value. Invocations in
 	// function bodies have calls edges from scanCallChain; file-scope ones are
 	// recorded by valueReferences.
-	if next := n.NextNamedSibling(); kindOf(next) == "selector" {
+	if kindOf(next) == "selector" {
 		return false
 	}
 	switch kindOf(p) {
@@ -272,9 +382,53 @@ func (w *walker) moduleValueReferences(root *sitter.Node) {
 			w.valueReferences(n, shadows, b)
 		}
 	}
-	if len(b.relations) > 0 {
-		w.mergeFileReference(nil, b.relations)
+	w.emitInitializerWalk(b)
+}
+
+// emitInitializerWalk moves an initializer region's references onto the file's
+// reference-only fact. Getter reads and tear-off candidates from several
+// regions are unioned, since each region feeds the one fact.
+func (w *walker) emitInitializerWalk(b *bodyWalk) {
+	if len(b.relations) == 0 && len(b.getterReads) == 0 && len(b.valueNames) == 0 && len(b.setterWrites) == 0 {
+		return
 	}
+	props := map[string]any{}
+	if len(b.getterReads) > 0 || len(b.valueNames) > 0 || len(b.setterWrites) > 0 {
+		reads := map[string]dartGetterRead{}
+		names := map[string]bool{}
+		writes := map[string]bool{}
+		for i := range w.out {
+			f := &w.out[i]
+			if f.Kind == facts.KindFileRef && f.Name == w.relFile && f.File == w.relFile && f.Line == 0 {
+				if prior, ok := f.Props["_dart_getter_reads"].(map[string]dartGetterRead); ok {
+					maps.Copy(reads, prior)
+				}
+				if prior, ok := f.Props["_dart_value_names"].([]string); ok {
+					for _, name := range prior {
+						names[name] = true
+					}
+				}
+				if prior, ok := f.Props["_dart_setter_writes"].([]string); ok {
+					for _, name := range prior {
+						writes[name] = true
+					}
+				}
+			}
+		}
+		maps.Copy(reads, b.getterReads)
+		maps.Copy(names, b.valueNames)
+		maps.Copy(writes, b.setterWrites)
+		if len(writes) > 0 {
+			props["_dart_setter_writes"] = sortedKeys(writes)
+		}
+		if len(reads) > 0 {
+			props["_dart_getter_reads"] = reads
+		}
+		if len(names) > 0 {
+			props["_dart_value_names"] = sortedKeys(names)
+		}
+	}
+	w.mergeFileReference(props, b.relations)
 }
 
 // Class-body field initializers are the third initializer region, beside
@@ -292,11 +446,14 @@ func (w *walker) fieldInitializerReferences(list *sitter.Node) {
 	shadows := map[string]bool{}
 	dartBoundNames(list, w.src, shadows)
 	w.valueReferences(list, shadows, w.fieldValues)
+	// `late final _c = Controller()` is the class's only construction site as often
+	// as a method body is.
+	w.constructionReferences(list, shadows, w.fieldValues)
 }
 
 func (w *walker) emitFieldInitializerReferences() {
-	if w.fieldValues != nil && len(w.fieldValues.relations) > 0 {
-		w.mergeFileReference(nil, w.fieldValues.relations)
+	if w.fieldValues != nil {
+		w.emitInitializerWalk(w.fieldValues)
 	}
 	w.fieldValues = nil
 }

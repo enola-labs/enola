@@ -285,7 +285,7 @@ func (t *swiftNamedTypes) resolveDepth(from *facts.Fact, path string, vis *swift
 	head, rest, _ := strings.Cut(path, ".")
 	sites := set.sites[head]
 	if len(sites) == 0 {
-		return ""
+		return t.externalOwnerPath(from, set, path, vis)
 	}
 	own := vis.moduleOf(from.File)
 	seen := vis.resolve(from, sites)
@@ -344,6 +344,50 @@ func (t *swiftNamedTypes) resolveDepth(from *facts.Fact, path string, vis *swift
 		consumed++
 	}
 	if lower >= consumed {
+		return "" // a lower-case component is no nested type: a static member
+	}
+	if found == from.Name {
+		return ""
+	}
+	return found
+}
+
+// externalOwnerPath resolves a path headed by a type the project does not declare,
+// through a type the project nests in an extension of it (`extension Date { struct
+// Style {} }`, written `Date.Style`): the declaration of the second component nested
+// in that head, in the module the file sees it in. Each further component extends
+// the name while a nested type of it exists.
+func (t *swiftNamedTypes) externalOwnerPath(from *facts.Fact, set *swiftNamedTypeSet, path string, vis *swiftTypeVisibility) string {
+	head, rest, ok := strings.Cut(path, ".")
+	if !ok || lowerSegment(path) == 1 {
+		return ""
+	}
+	second, rest, _ := strings.Cut(rest, ".")
+	var nested []swiftTypeDeclSite
+	for _, s := range set.sites[second] {
+		if s.outer == head && set.full[s.dir+"."+head+"."+second] {
+			nested = append(nested, s)
+		}
+	}
+	if len(nested) == 0 {
+		return ""
+	}
+	dir := vis.resolve(from, nested)
+	if dir == "" {
+		return ""
+	}
+	found := dir + "." + head + "." + second
+	consumed := 2
+	for rest != "" {
+		var seg string
+		seg, rest, _ = strings.Cut(rest, ".")
+		if !set.full[found+"."+seg] {
+			break
+		}
+		found += "." + seg
+		consumed++
+	}
+	if lowerSegment(path) >= consumed {
 		return "" // a lower-case component is no nested type: a static member
 	}
 	if found == from.Name {

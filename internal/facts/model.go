@@ -304,6 +304,11 @@ const (
 // symbol. Nothing is guessed: an entry that resolves nowhere adds nothing.
 const PropMemberCalls = "member_calls"
 
+// PropMemberNames is PropMemberCalls for a member read without a call: `handler`
+// for `return self.handler`. The inherited-calls binder resolves each the same way
+// and writes a names relation when it lands on a method.
+const PropMemberNames = "member_names"
+
 // PropFieldTypes is the prop on a type mapping each attribute or field it declares
 // to the type the declaring file gives it, as that file spells it.
 const PropFieldTypes = "field_types"

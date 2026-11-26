@@ -19,8 +19,10 @@
 // self.helper.work()), because what they name is declared in another file, on a base
 // class. Each is looked up from the method's type through its ancestors, an
 // attribute's type read from PropFieldTypes on the type or ancestor declaring it,
-// and becomes a calls relation only when it lands on a symbol. Both props are
-// working data and are removed once read.
+// and becomes a calls relation only when it lands on a symbol. PropMemberNames lists
+// the members read without a call (`handler` for `return self.handler`), looked up
+// the same way from the method's type, and each becomes a names relation when it
+// lands on a method. The props are working data and are removed once read.
 package inheritedcalls
 
 import (
@@ -74,7 +76,8 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 	}
 	members := memberEdges(store.FactsRef(), ix)
-	if len(rewrite) == 0 && len(members) == 0 && !hasWorkingProps(store.FactsRef()) {
+	named := memberNames(store.FactsRef(), ix)
+	if len(rewrite) == 0 && len(members) == 0 && len(named) == 0 && !hasWorkingProps(store.FactsRef()) {
 		return nil
 	}
 
@@ -84,7 +87,14 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return
 		}
 		f.DelProp(facts.PropMemberCalls)
+		f.DelProp(facts.PropMemberNames)
 		f.DelProp(facts.PropFieldTypes)
+		for _, t := range named[key{f.Repo, f.Name}] {
+			if !f.HasRelation(facts.RelNames, t) {
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelNames, Target: t})
+				added++
+			}
+		}
 		for _, t := range members[key{f.Repo, f.Name}] {
 			if !f.HasRelation(facts.RelCalls, t) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: t})
@@ -174,6 +184,33 @@ func memberEdges(fs []facts.Fact, ix *hierarchy.Index) map[[2]string][]string {
 	return out
 }
 
+// memberNames resolves every PropMemberNames entry to the method it reaches from the
+// reading method's type, per reading symbol.
+func memberNames(fs []facts.Fact, ix *hierarchy.Index) map[[2]string][]string {
+	out := map[[2]string][]string{}
+	for _, f := range fs {
+		reads := f.PropStrings(facts.PropMemberNames)
+		if f.Kind != facts.KindSymbol || len(reads) == 0 {
+			continue
+		}
+		owner, _ := hierarchy.SplitMember(f.Name)
+		if owner == "" || !ix.IsType(f.Repo, owner) {
+			continue
+		}
+		for _, m := range reads {
+			decl, ok := ix.Lookup(f.Repo, owner, m)
+			if !ok || decl == f.Name {
+				continue
+			}
+			k := [2]string{f.Repo, f.Name}
+			if !slices.Contains(out[k], decl) {
+				out[k] = append(out[k], decl)
+			}
+		}
+	}
+	return out
+}
+
 // fieldType is the repository type an attribute of a type holds: as declared on the
 // type, else on the nearest ancestor declaring it.
 func fieldType(ix *hierarchy.Index, fields map[[2]string]map[string]string, repo, typ, attr string) string {
@@ -188,6 +225,9 @@ func fieldType(ix *hierarchy.Index, fields map[[2]string]map[string]string, repo
 func hasWorkingProps(fs []facts.Fact) bool {
 	for _, f := range fs {
 		if _, ok := f.Prop(facts.PropMemberCalls); ok {
+			return true
+		}
+		if _, ok := f.Prop(facts.PropMemberNames); ok {
 			return true
 		}
 		if _, ok := f.Prop(facts.PropFieldTypes); ok {

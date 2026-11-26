@@ -135,3 +135,45 @@ final class Server {
 		}
 	}
 }
+
+// The type an implicit member call's context infers is stated through a tuple
+// assignment's matching target, and through the right operand of `??`, whose type is
+// that of the whole expression.
+func TestSwiftImplicitMemberCallInTupleAndNilCoalescing(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/App/Source.swift": `
+struct Source {
+    static func capture(file: String = #file) -> Source { Source() }
+    static func other() -> Source { Source() }
+}
+struct Status {
+    static func ok() -> Status { Status() }
+}
+`,
+		"Sources/App/Handler.swift": `
+final class Handler {
+    func handle(given: Source?) {
+        let status: Status
+        let source: Source
+        (status, source) = (.ok(), given ?? .capture())
+    }
+    func plain() {
+        let source: Source
+        (_, source) = (1, .capture())
+    }
+}
+`,
+	})
+	calls := swCalls(t, ff, "Sources/App.Handler.handle")
+	for _, want := range []string{"Sources/App.Source.capture", "Sources/App.Status.ok"} {
+		if !slices.Contains(calls, want) {
+			t.Errorf("handle calls %v, want %s", calls, want)
+		}
+	}
+	if slices.Contains(calls, "Sources/App.Source.other") {
+		t.Errorf("handle calls %v: nothing calls other", calls)
+	}
+	if calls := swCalls(t, ff, "Sources/App.Handler.plain"); !slices.Contains(calls, "Sources/App.Source.capture") {
+		t.Errorf("plain calls %v, want Sources/App.Source.capture", calls)
+	}
+}

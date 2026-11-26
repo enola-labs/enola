@@ -23,7 +23,20 @@ type bodyWalk struct {
 	instanceCalls    map[string]bool
 	constructedTypes map[string]bool
 	getterReads      map[string]dartGetterRead
-	valueBindings    map[string]dartLocalValue
+	// valueNames are uses of names this file does not bind, keyed
+	// "<relation>:<name>": a tear-off (names) anywhere, an invocation (calls) at
+	// file scope. The resolution pass keeps those reaching an imported or
+	// part-file function.
+	valueNames map[string]bool
+	// setterWrites are names a plain assignment writes: "this.<name>" for the
+	// class's own accessor, a bare name for one the file does not bind. The
+	// resolution pass keeps those reaching a declared setter.
+	setterWrites map[string]bool
+	// site is where the child about to be walked sits: the walk knows its
+	// parent and next named sibling, which tree-sitter finds only by descending
+	// from the root.
+	site          dartSite
+	valueBindings map[string]dartLocalValue
 
 	cyclomatic int
 	loopCount  int
@@ -72,6 +85,12 @@ func (b *bodyWalk) applyTo(props map[string]any) {
 
 	if len(b.getterReads) > 0 {
 		props["_dart_getter_reads"] = b.getterReads
+	}
+	if len(b.valueNames) > 0 {
+		props["_dart_value_names"] = sortedKeys(b.valueNames)
+	}
+	if len(b.setterWrites) > 0 {
+		props["_dart_setter_writes"] = sortedKeys(b.setterWrites)
 	}
 
 	if b.loopCount > 0 {
@@ -136,9 +155,11 @@ func (w *walker) walkBody(body *sitter.Node, selfName string, signature *sitter.
 	b.shadows = shadows
 	b.receiverTypes, b.receiverGenerics = w.bodyReceiverTypes(signature, shadows, bindings)
 	// Defaults are evaluated outside the parameter scope and are constant, so
-	// only the value pass applies; the declaration's own bindings hide nothing.
+	// only the value pass and the construction scan apply (`= const Opt()`); the
+	// declaration's own bindings hide nothing.
 	for _, d := range dartParameterDefaults(signature) {
 		w.valueReferences(d, map[string]bool{}, b)
+		w.constructionReferences(d, map[string]bool{}, b)
 	}
 	for _, init := range initializers {
 		w.walkNode(init, b, selfShort, 0, 0)
@@ -165,12 +186,14 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 	if kind == "identifier" {
 		name := n.Utf8Text(w.src)
 		w.recordValueReference(n, name, b.shadows, b)
-		if w.getterNames[name] && !b.shadows[name] && kindOf(n.Parent()) != "label" && kindOf(n.Parent()) != "cascade_section" && kindOf(n.Parent()) != "cascade_selector" && !strings.HasSuffix(kindOf(n.Parent()), "assignable_selector") {
+		site := b.siteOf(n)
+		if (w.getterNames[name] || w.setterNames[name]) && !b.shadows[name] && w.assignedName(n, site.parent) {
+			// A plain write runs the setter, which the class or a base declares.
+			b.markSetterWrite("this." + name)
+		} else if w.getterNames[name] && !b.shadows[name] && kindOf(n.Parent()) != "label" && kindOf(n.Parent()) != "cascade_section" && kindOf(n.Parent()) != "cascade_selector" && !strings.HasSuffix(kindOf(n.Parent()), "assignable_selector") {
 			w.recordGetterRead("this."+name, n, b, loopDepth, scalingDepth)
 		}
-		if w.topLevelGetter(n, name, b) {
-			w.recordGetterRead(name, n, b, loopDepth, scalingDepth)
-		}
+		w.recordUnboundValue(n, site, name, b.shadows, b, loopDepth, scalingDepth)
 	}
 
 	// The call scan and recursive walk inspect the same immutable sibling list.
@@ -188,7 +211,7 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		// `.map((e) => f(e))` — and every call inside one was missing, which inflates
 		// the dead-code report with functions that are plainly used.
 		w.scanCallChain(kids, b, selfShort, 0, 0)
-		w.walkChildren(kind, kids, b, selfShort, 0, 0)
+		w.walkChildren(n, kids, b, selfShort, 0, 0)
 		return
 	}
 
@@ -215,7 +238,7 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 			nextScaling++
 		}
 		b.observeDepth(nextLoop, nextScaling)
-		w.walkChildren(kind, kids, b, selfShort, nextLoop, nextScaling)
+		w.walkChildren(n, kids, b, selfShort, nextLoop, nextScaling)
 		return
 	}
 
@@ -223,11 +246,13 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 	// models `api.fetch(id)` as three siblings (identifier, `.fetch` selector, `(id)`
 	// selector) rather than as a nested call expression.
 	w.scanCallChain(kids, b, selfShort, loopDepth, scalingDepth)
-	w.walkChildren(kind, kids, b, selfShort, loopDepth, scalingDepth)
+	w.walkChildren(n, kids, b, selfShort, loopDepth, scalingDepth)
 }
 
-func (w *walker) walkChildren(kind string, kids []*sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
+func (w *walker) walkChildren(parent *sitter.Node, kids []*sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
+	kind := kindOf(parent)
 	for i, c := range kids {
+		b.site = dartSiteAt(c, parent, kids, i)
 		if kind == "try_statement" && kindOf(c) == "block" && i > 0 && kindOf(kids[i-1]) == "catch_clause" {
 			restore := w.enterDartScope(kids[i-1], b)
 			w.walkNode(c, b, selfShort, loopDepth, scalingDepth)
@@ -259,9 +284,7 @@ func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort strin
 		// chains, so they are matched directly.
 		kind := kindOf(c)
 		if kind == "const_object_expression" || kind == "new_expression" {
-			if t := childOfKind(c, "type_identifier"); t != nil {
-				b.addRelation(facts.RelInstantiates, t.Utf8Text(w.src))
-			}
+			b.addRelation(facts.RelInstantiates, w.createdType(c))
 			continue
 		}
 		if kind != "selector" {
@@ -293,15 +316,7 @@ func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort strin
 
 		sourceReceiver, directReceiver := w.callReceiver(kids, i)
 		target := w.scopedCallTarget(sourceReceiver, directReceiver, name, b)
-		previous := i - 1
-		if previous >= 0 && kindOf(kids[previous]) == "type_arguments" {
-			previous--
-		}
-		constructor := baseIsType && receiver == name && previous >= 0 && kindOf(kids[previous]) != "selector" && !b.shadows[name] && w.callableValue(name) == ""
-		if _, field := w.fieldTypes[name]; field {
-			constructor = false
-		}
-		if constructor {
+		if w.constructorInvocation(kids, i, name, receiver, baseIsType, b.shadows) {
 			target = name
 			b.constructedTypes[name] = true
 			b.addRelation(facts.RelInstantiates, name)
@@ -360,7 +375,7 @@ func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort strin
 			}
 			b.observeDepth(nextLoop, nextScaling)
 			for _, arg := range namedChildren(c) {
-				w.walkChildren(kindOf(arg), namedChildren(arg), b, selfShort, nextLoop, nextScaling)
+				w.walkChildren(arg, namedChildren(arg), b, selfShort, nextLoop, nextScaling)
 			}
 			// The closure has been walked at the loop's depth. Walking it again at this
 			// depth counted its branches twice, and doubled the work at every nested

@@ -119,3 +119,33 @@ func TestSwiftLocalProtocolIsNotTheFrameworkOne(t *testing.T) {
 		"Delegated.application": true,
 	})
 }
+
+// An associated type of a framework or package protocol is witnessed by a type of
+// its name nested in the conformer, and a delegate protocol that refines another
+// shares its requirement stem: URLSessionTaskDelegate's are urlSession(_:task:…).
+func TestSwiftAssociatedTypeAndRefinedDelegateWitnesses(t *testing.T) {
+	var s swiftStore
+	s.typ("Handler", "HTTPServerRequestHandler")
+	s.add("Handler.RequestContext", facts.SymbolType, nil)
+	s.add("Handler.Reader", facts.SymbolType, nil)
+	s.add("Handler.ResponseSender", facts.SymbolType, nil)
+	s.add("Handler.Scratch", facts.SymbolType, nil)
+	s.typ("Confetti", "UIViewRepresentable")
+	s.add("Confetti.UIViewType", facts.SymbolType, nil)
+	s.typ("Wrapped", "UIViewControllerRepresentable")
+	s.add("Wrapped.UIViewControllerType", facts.SymbolType, nil)
+	s.typ("SceneDelegate", "UIWindowSceneDelegate")
+	s.add("SceneDelegate+URLSessionTaskDelegate", facts.SymbolExtension, nil, implements("URLSessionTaskDelegate"))
+	s.method("SceneDelegate", "urlSession")
+	s.method("SceneDelegate", "urlSessions")
+	wantReported(t, s.reported(), map[string]bool{
+		"Handler.RequestContext":       false,
+		"Handler.Reader":               false,
+		"Handler.ResponseSender":       false,
+		"Handler.Scratch":              true,
+		"Confetti.UIViewType":          false,
+		"Wrapped.UIViewControllerType": false,
+		"SceneDelegate.urlSession":     false,
+		"SceneDelegate.urlSessions":    true,
+	})
+}

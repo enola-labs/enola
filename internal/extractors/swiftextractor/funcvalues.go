@@ -79,6 +79,9 @@ type swiftValueNote struct {
 	name   string
 	dir    string // the caller's module
 	member bool   // written as a member path (self.x, Type.x, value.x)
+	// selector marks the operand of a #selector (objcroots.go). It names an @objc
+	// method, never a property, so an extension of a framework type is searched.
+	selector bool
 }
 
 // swiftValueFields names, per node kind, the fields whose child stands as a value.
@@ -97,7 +100,7 @@ var swiftValueFields = map[string][]string{
 func (w *astWalker) noteValueOperands(node *sitter.Node) {
 	if kindOf(node) == "selector_expression" { // objcroots.go
 		if w.currentOwner() >= 0 {
-			w.noteValueOperand(selectorOperand(node, w.src))
+			w.noteSelectorOperand(selectorOperand(node, w.src))
 		}
 		return
 	}
@@ -123,9 +126,19 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
+// noteSelectorOperand records what a #selector names, as noteValueOperand does a
+// value, with the note marked as a selector's.
+func (w *astWalker) noteSelectorOperand(c *sitter.Node) {
+	w.noteOperand(c, true)
+}
+
 // noteValueOperand records c when it is a bare name or a member path that can
 // name a function.
 func (w *astWalker) noteValueOperand(c *sitter.Node) {
+	w.noteOperand(c, false)
+}
+
+func (w *astWalker) noteOperand(c *sitter.Node, selector bool) {
 	if c == nil {
 		return
 	}
@@ -135,7 +148,7 @@ func (w *astWalker) noteValueOperand(c *sitter.Node) {
 		if !isValueName(name) || w.boundInScope(c, name) {
 			return
 		}
-		w.addValueNote(swiftValueNote{typ: lastDotComponent(w.enclosingType()), name: name, dir: w.dir})
+		w.addValueNote(swiftValueNote{typ: lastDotComponent(w.enclosingType()), name: name, dir: w.dir, selector: selector})
 	case "navigation_expression":
 		target, suffix := c.ChildByFieldName("target"), c.ChildByFieldName("suffix")
 		if target == nil || suffix == nil {
@@ -159,7 +172,7 @@ func (w *astWalker) noteValueOperand(c *sitter.Node) {
 			typ = w.receiverType(c)
 		}
 		if typ != "" {
-			w.addValueNote(swiftValueNote{typ: typ, name: name, dir: w.dir, member: true})
+			w.addValueNote(swiftValueNote{typ: typ, name: name, dir: w.dir, member: true, selector: selector})
 		}
 	}
 }
@@ -332,7 +345,11 @@ func resolveValueNote(n swiftValueNote, ix *swiftNameIndex, h *swiftHierarchy, p
 	// UIViewController) has members nobody can see, and `self.view` is its
 	// property, not the `view(fromNib:)` a protocol extension adds. Nor on a type
 	// the repository does not declare at all, for the same reason.
-	if n.typ != "" && len(h.typeNames[n.typ]) > 0 {
+	//
+	// A #selector is the exception for the second: it names an @objc method, which
+	// a property is not, so `#selector(vc.ksr_viewDidLoad)` binds to the method an
+	// extension of UIViewController declares.
+	if n.typ != "" && (len(h.typeNames[n.typ]) > 0 || n.selector) {
 		if names := h.methodByType[n.typ][n.name]; len(names) > 0 {
 			return nearestName(names, from)
 		}

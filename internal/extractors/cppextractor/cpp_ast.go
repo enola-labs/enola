@@ -177,6 +177,10 @@ type astWalker struct {
 	// body to "leaf|argument" when its type is a smart pointer or a container
 	// (std::vector<Row> is "vector|Row"), and to "" otherwise (construct.go).
 	receiverTemplates map[string]string
+	// receiverChains maps an auto local bound to a chain of members
+	// (`auto &arena = state.context.arena;`) to that chain as written, "" for a
+	// name bound to several (construct.go).
+	receiverChains map[string]string
 	// swallowed collects the function definitions found inside the body being
 	// walked. C and C++ have no nested functions, so one there is a later
 	// definition that parse-error recovery attached to a function it could not
@@ -1003,7 +1007,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	savedMetrics, savedDepth := w.metrics, w.loopDepth
 	savedScaling, savedRepeat := w.scalingDepth, w.repeatDepth
 	savedName, savedShort, savedReceiverTypes := w.selfName, w.selfShort, w.receiverTypes
-	savedReceiverTemplates := w.receiverTemplates
+	savedReceiverTemplates, savedReceiverChains := w.receiverTemplates, w.receiverChains
 	w.metrics = &cppBodyMetrics{}
 	w.loopDepth = 0
 	w.scalingDepth = 0
@@ -1016,7 +1020,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	savedFactory := w.factoryParams
 	w.factoryParams, w.pendingFactoryParams = w.pendingFactoryParams, nil
 	if body := node.ChildByFieldName("body"); body != nil {
-		w.receiverTypes, w.receiverTemplates = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
+		w.receiverTypes, w.receiverTemplates, w.receiverChains = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
 		w.valueScope.fdecl, w.valueScope.body, w.valueScope.locals = fdecl, body, nil
 		// A constructor's member initializer list (S() : m(helper(x)) {}) runs as
 		// part of the constructor, before its body.
@@ -1062,7 +1066,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	w.metrics, w.loopDepth = savedMetrics, savedDepth
 	w.scalingDepth, w.repeatDepth = savedScaling, savedRepeat
 	w.selfName, w.selfShort = savedName, savedShort
-	w.receiverTypes, w.receiverTemplates = savedReceiverTypes, savedReceiverTemplates
+	w.receiverTypes, w.receiverTemplates, w.receiverChains = savedReceiverTypes, savedReceiverTemplates, savedReceiverChains
 	for range outOfLineScopes {
 		w.popType()
 	}
@@ -2487,10 +2491,12 @@ func (w *astWalker) handleCapitalizedCall(name string) {
 // template wrappers (a unique_ptr<T> receiver is not a T), nested lambdas and any
 // variable declared with conflicting types in the same function. The second map
 // holds the smart pointers and containers among them, "leaf|argument" by name
-// (templateArgument), and is nil when there are none.
-func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, body *sitter.Node, src []byte) (map[string]string, map[string]string) {
+// (templateArgument), and is nil when there are none. The third holds the auto
+// locals bound to a chain of members, the chain by name, and is nil when there are
+// none.
+func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, body *sitter.Node, src []byte) (map[string]string, map[string]string, map[string]string) {
 	out := map[string]string{}
-	var templates map[string]string
+	var templates, chains map[string]string
 	addDeclaration := func(node *sitter.Node) {
 		typeNode := node.ChildByFieldName("type")
 		if lang == langCpp {
@@ -2522,6 +2528,17 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 				}
 				name := declaratorLeafName(kinds, referencedDeclarator(kinds, d), src)
 				typ := autoCallType(kinds, d.ChildByFieldName("value"), src, out)
+				if name != "" && typ == "" && lang == langCpp {
+					if chain := memberChain(kinds, d.ChildByFieldName("value"), src); chain != "" {
+						if chains == nil {
+							chains = map[string]string{}
+						}
+						if prior, exists := chains[name]; exists && prior != chain {
+							chain = ""
+						}
+						chains[name] = chain
+					}
+				}
 				if name == "" || typ == "" {
 					continue
 				}
@@ -2572,7 +2589,7 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 		}
 		addDeclaration(decl)
 	}
-	return out, templates
+	return out, templates, chains
 }
 
 // parameterNames returns the names a function declarator gives its parameters.

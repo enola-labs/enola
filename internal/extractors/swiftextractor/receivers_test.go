@@ -181,3 +181,36 @@ final class OrdersState {
 		t.Errorf("shadowed calls %v: the untyped local shadows the property", shadowed)
 	}
 }
+
+// The grammar parses a generic metatype, `Box<T>.self`, and a static call through a
+// specialized type, `Box<T>.make(for:)`, as two comparisons. Both name the type, the
+// call binds to its static method, and a generic parameter names nothing.
+func TestSwiftGenericMetatypeIsNamed(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/App/Box.swift": `
+struct Payload: Decodable {}
+struct Box<D: Decodable>: Decodable {
+    static func info(for keys: [String]) -> [String: String] { [:] }
+}
+`,
+		"Sources/App/Loader.swift": `
+final class Loader {
+    func load<D: Decodable>(_: D.Type) {
+        decode(Box<D>.self, info: Box<D>.info(for: []))
+        decode(Box<Payload>.self, info: [:])
+    }
+    func decode<T>(_ type: T.Type, info: [String: String]) {}
+}
+`,
+	})
+	names := namesOf(ff)
+	if !hasName(names, "Sources/App.Loader.load", "Sources/App.Box") {
+		t.Errorf("load names %v, want Sources/App.Box", names["Sources/App.Loader.load"])
+	}
+	if !hasName(names, "Sources/App.Loader.load", "Sources/App.Payload") {
+		t.Errorf("load names %v, want Sources/App.Payload (a type argument)", names["Sources/App.Loader.load"])
+	}
+	if calls := swCalls(t, ff, "Sources/App.Loader.load"); !slices.Contains(calls, "Sources/App.Box.info") {
+		t.Errorf("load calls %v, want Sources/App.Box.info", calls)
+	}
+}

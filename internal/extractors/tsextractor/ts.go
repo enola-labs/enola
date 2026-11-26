@@ -2825,18 +2825,17 @@ var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx",
 // config.Default().TestGlobs' "**/tests/**/*-test.*" entries.
 var emberTestSuffixes = []string{"-test.ts", "-test.js", "-test.gts", "-test.gjs"}
 
-// mochaTestExts are the extensions of Mocha's default spec, test/*.{js,cjs,mjs}:
-// any name under a test/ directory. JavaScript only, mirroring
-// config.Default().TestGlobs' "**/test/**/*.js" entries; TypeScript under test/
-// can be production code.
-var mochaTestExts = []string{".js", ".mjs", ".cjs"}
+// testDirExts are the extensions config.Default().TestGlobs' "**/test/**/*.<ext>"
+// entries name: Mocha's default spec, test/*.{js,cjs,mjs}, and the suffix-less
+// TypeScript and JSX helpers, fixtures and suites kept under a test/ directory.
+var testDirExts = []string{".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"}
 
 // isTSTestFile reports whether a repo-relative path is a TypeScript test/spec file.
 // The dotted convention reserves its suffixes everywhere, so — like Go's
 // *_test.go — no production file can legally collide; the Ember convention is
 // reserved only inside tests/, so the directory is demanded there. Jest runs
-// every script under __tests__/, so that directory reserves any name. Mocha runs
-// every JavaScript file under test/ the same way.
+// every script under __tests__/, so that directory reserves any name, and test/
+// holds Mocha's specs and the suffix-less helpers and fixtures of other runners.
 func isTSTestFile(relFile string) bool {
 	for _, suffix := range tsTestSuffixes {
 		if strings.HasSuffix(relFile, suffix) {
@@ -2848,7 +2847,7 @@ func isTSTestFile(relFile string) bool {
 		if seg == "__tests__" {
 			return true
 		}
-		if seg == "test" && slices.Contains(mochaTestExts, filepath.Ext(relFile)) {
+		if seg == "test" && slices.Contains(testDirExts, filepath.Ext(relFile)) {
 			return true
 		}
 	}

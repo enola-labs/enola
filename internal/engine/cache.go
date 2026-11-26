@@ -4072,7 +4072,42 @@ import (
 // most characters, and among those to the one with the fewest segments after
 // them; candidates equal on both, or several sharing none, bind nothing. The C and C++
 // test refs bind inherited members through it inside the extractor.
-const cacheVersion = "v730"
+// v731: Swift: a generic metatype or static call through a specialized type
+// (`Box<T>.self`, `Box<T>.make(for:)`, which the grammar parses as two comparisons)
+// names the type and its type argument and calls its method; a path headed by a
+// type the project only extends (`Date.Style`) binds to the type nested in that
+// extension; an implicit member call takes its context type through the right
+// operand of `??` and through the matching target of a tuple assignment.
+// v732: Swift: a class an Info.plist ($(PRODUCT_MODULE_NAME).X, or a *ClassName or
+// *PrincipalClass key) or a storyboard or nib (customClass=) names is
+// framework_registered; a #selector binds to a method an extension of a framework
+// type declares; and a metatype parameter (T.Type) has T's members.
+// v733: TypeScript and JSX files under a test/ directory are ignored and listed as
+// test globs by default, whatever their name, and the TypeScript extractor reads
+// them for test refs, as it already did the JavaScript there.
+// v734: Dart: a bare name the file does not bind is resolved through the library's
+// parts and imports: a top-level getter it reads is a call, and a function it
+// names as a value is a tear-off, in function bodies and initializers alike, and
+// one a module initializer invokes is a call; a library's own top-level variable
+// hides the import. A read of a file getter and
+// `f.call(...)` on a file function in a module initializer are calls, and a
+// file-scope invocation keeps its target through resolution. `.mapper.dart`
+// (dart_mappable) is generated.
+// v735: Dart: a construction in a parameter default (`= const Opt()`) or a class-body
+// field initializer records `instantiates`, and an abstract method's defaults are
+// read. An annotation's arguments record what they name: a type that binds in the
+// library (`@DriftDatabase(tables: [Users])`) as a names edge, a tear-off, and a
+// construction, on the annotated type, or on the file's reference fact otherwise.
+// v736: C++: a member function template reached through a chain of members
+// (a.b.c.Make<T>(), this->a.b), through an auto local bound to such a chain, or
+// through a member the caller's class inherits constructs its type argument; a
+// member template a receiver's class inherits is found on its nearest base.
+// v737: TypeScript: a module-scope enum read as `Enum.Member` in the file that
+// declares it is a names edge to the enum. Python: a method read through self or
+// cls without a call (`return self.test_func`) is a names edge to the class's own
+// method, and one the class inherits is left to the inherited-calls binder
+// (member_names), which binds it only through the class's bases.
+const cacheVersion = "v737"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

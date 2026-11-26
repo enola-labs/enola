@@ -31,6 +31,7 @@ var DartGeneratedSuffixes = []string{
 	".pbjson.dart",
 	".pbserver.dart",
 	".pbgrpc.dart",
+	".mapper.dart", // dart_mappable
 }
 
 // IsGeneratedDartPath reports whether a path's file name carries a Dart code

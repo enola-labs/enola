@@ -169,27 +169,86 @@ func (w *astWalker) emitEmplaceConstruction(root string) {
 // factoryReceiver says how the project pass finds the member template a call
 // root.f<A>(…) reaches: "this" through the caller's class, "t:Type" through a
 // parameter or local's type or a smart pointer local's pointee, "f:member" through
-// a member of the caller's class. ok is false for a receiver none of these reach.
+// a member of the caller's class (or one it inherits). A chain of members after
+// any of these (`input.state.arena.Make<A>()`, `this->state.arena`) follows as
+// ".state.arena", each member looked up on the class the one before it names; an
+// auto local bound to such a chain stands for it. ok is false for a receiver none
+// of these reach.
 func (w *astWalker) factoryReceiver(root string) (recv string, ok bool) {
-	if root == "this" {
-		return "this", true
+	path := receiverPath(root)
+	if len(path) == 0 {
+		return "", false
 	}
-	if typ := w.receiverTypes[root]; typ != "" {
-		return "t:" + typ, !strings.HasSuffix(typ, callMark)
+	if chain, bound := w.receiverChains[path[0]]; bound {
+		_, typed := w.receiverTypes[path[0]]
+		_, templated := w.receiverTemplates[path[0]]
+		alias := receiverPath(chain)
+		if typed || templated || alias == nil || w.receiverChains[alias[0]] != "" {
+			return "", false
+		}
+		path = append(alias, path[1:]...)
 	}
-	if v, local := w.receiverTemplates[root]; local {
+	head, hops := path[0], ""
+	if len(path) > 1 {
+		hops = "." + strings.Join(path[1:], ".")
+	}
+	if head == "this" {
+		if len(path) == 1 {
+			return "this", true
+		}
+		if w.enclosingTypeReceiver() == "" {
+			return "", false
+		}
+		return "f:" + strings.Join(path[1:], "."), true
+	}
+	if typ := w.receiverTypes[head]; typ != "" {
+		return "t:" + typ + hops, !strings.HasSuffix(typ, callMark)
+	}
+	if v, local := w.receiverTemplates[head]; local {
 		if leaf, arg, _ := strings.Cut(v, "|"); smartPointers[leaf] {
 			if typ := w.writtenTypeText(arg); typ != "" {
-				return "t:" + typ, true
+				return "t:" + typ + hops, true
 			}
 		}
 		return "", false
 	}
-	field := fieldRoot(root)
-	if field == "" || w.enclosingTypeReceiver() == "" || field == root && w.valueLocal(field) {
+	if w.enclosingTypeReceiver() == "" || w.valueLocal(head) {
 		return "", false
 	}
-	return "f:" + field, true
+	return "f:" + head + hops, true
+}
+
+// receiverPath splits a receiver written as a name or a chain of member accesses
+// (a.b->c, this->a.b) into its names, and is nil for any other expression.
+func receiverPath(root string) []string {
+	root = strings.Join(strings.Fields(root), "")
+	path := strings.Split(strings.ReplaceAll(root, "->", "."), ".")
+	for _, name := range path {
+		if fieldRoot(name) == "" {
+			return nil
+		}
+	}
+	return path
+}
+
+// memberChain returns a chain of member accesses as written without spaces
+// ("state.context.arena", "this->arena"), or "" for any other expression.
+func memberChain(kinds *tsutil.KindTable, n *sitter.Node, src []byte) string {
+	if kindOf(kinds, n) != "field_expression" {
+		return ""
+	}
+	for a := n; ; a = a.ChildByFieldName("argument") {
+		switch kindOf(kinds, a) {
+		case "field_expression":
+			if kindOf(kinds, a.ChildByFieldName("field")) != "field_identifier" {
+				return ""
+			}
+			continue
+		case "identifier", "this":
+			return strings.Join(strings.Fields(nodeText(n, src)), "")
+		}
+		return ""
+	}
 }
 
 // stdFactories construct their first type argument, whatever qualifies them: the
@@ -568,17 +627,49 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 		}
 		return resolveClass(receiver, sourceDir(f))
 	}
-	// member returns what a member of the caller's class is declared with.
-	member := func(f *facts.Fact, field string) (kind, written, source string) {
-		m, ok := members[ownClass(f)]
-		if !ok {
+	bases := classBases(allFacts, types, visibility)
+	// memberOf returns what a member of class is declared with, looked up on the
+	// class and then on its bases, nearest first. A class declaring the member with
+	// a type none of propFieldTemplates' kinds holds ends the lookup.
+	memberOf := func(class, field string) (kind, written, source string) {
+		if class == "" {
 			return "", "", ""
 		}
-		kind, written, _ = strings.Cut(m.fields[field], "|")
-		return kind, written, m.source
+		for _, c := range append([]string{class}, bases.ancestors(class)...) {
+			if m, ok := members[c]; ok {
+				if v, ok := m.fields[field]; ok {
+					kind, written, _ = strings.Cut(v, "|")
+					return kind, written, m.source
+				}
+			}
+			if _, declared := kinds[c+"::"+field]; declared {
+				return "", "", ""
+			}
+		}
+		return "", "", ""
+	}
+	// member returns what a member of the caller's class is declared with.
+	member := func(f *facts.Fact, field string) (kind, written, source string) {
+		return memberOf(ownClass(f), field)
+	}
+	// follow returns the class a chain of members of class names, "" when a member
+	// is not of a class type.
+	follow := func(class string, hops []string) string {
+		for _, h := range hops {
+			kind, written, source := memberOf(class, h)
+			if kind != "obj" && kind != "ptr" {
+				return ""
+			}
+			if class = resolveClass(written, source); class == "" {
+				return ""
+			}
+		}
+		return class
 	}
 	// callees lists the factory a call `callee<…>` on recv may reach, most specific
-	// first (factoryReceiver says what recv holds).
+	// first (factoryReceiver says what recv holds). On a class reached through a
+	// receiver it is the template the class declares, or else the one the nearest
+	// base declaring callee does.
 	callees := func(f *facts.Fact, callee, recv string) []string {
 		var class string
 		switch {
@@ -590,14 +681,18 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 			}
 			return []string{class + "::" + callee, calledTarget(f.Relations, callee)}
 		case strings.HasPrefix(recv, "t:"):
-			class = resolveClass(recv[2:], sourceDir(f))
+			path := strings.Split(recv[2:], ".")
+			class = follow(resolveClass(path[0], sourceDir(f)), path[1:])
 		case strings.HasPrefix(recv, "f:"):
-			if kind, written, source := member(f, recv[2:]); kind == "obj" || kind == "ptr" {
-				class = resolveClass(written, source)
-			}
+			class = follow(ownClass(f), strings.Split(recv[2:], "."))
 		}
 		if class == "" {
 			return nil
+		}
+		for _, c := range append([]string{class}, bases.ancestors(class)...) {
+			if _, declared := kinds[c+"::"+callee]; declared {
+				return []string{c + "::" + callee}
+			}
 		}
 		return []string{class + "::" + callee}
 	}
