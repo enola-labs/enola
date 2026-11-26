@@ -124,3 +124,86 @@ func TestCppChainedReceiverFactoriesInstantiate(t *testing.T) {
 		t.Errorf("a local hides the inherited member of its name, got %+v", shadow.Relations)
 	}
 }
+
+const chainEmplace = `#include <vector>
+#include <memory>
+namespace db {
+class ByMemberChain { public: ByMemberChain(); };
+class ByThisChain { public: ByThisChain(int); };
+class ByParamChain { public: ByParamChain(); };
+class ByBaseChain { public: ByBaseChain(); };
+class ByAliasChain { public: ByAliasChain(); };
+class ByShadow { public: ByShadow(); };
+struct Inner {
+	std::vector<ByMemberChain> items;
+	std::vector<ByThisChain> bars;
+	std::vector<ByParamChain> params;
+	std::vector<ByBaseChain> based;
+	std::vector<ByAliasChain> aliased;
+	std::vector<ByShadow> shadowed;
+	int count;
+};
+struct Holder { std::unique_ptr<Inner> inner; };
+struct Base { Inner base_in; };
+struct Outer : public Base {
+	Inner in;
+	Holder holder;
+	void Member();
+	void Param(Holder &h);
+	void Shadow();
+};
+}
+`
+
+func chainEmplaceProject(t *testing.T) []facts.Fact {
+	t.Helper()
+	return extractProject(t, map[string]string{
+		"include/chain.hpp": chainEmplace,
+		"src/emplace.cpp": `#include "../include/chain.hpp"
+namespace db {
+void Outer::Member() {
+	in.items.emplace_back();
+	this->holder.inner->bars.emplace_back(1);
+	base_in.based.emplace_back();
+	auto &alias = holder.inner;
+	alias->aliased.emplace_back();
+	in.count.emplace_back();
+}
+void Outer::Param(Holder &h) {
+	h.inner->params.emplace_back();
+}
+void Outer::Shadow() {
+	auto in = Holder();
+	in.shadowed.emplace_back();
+}
+}
+`,
+	})
+}
+
+// An emplace on a container reached through a chain of members (a.b.items, this->a.b,
+// a typed parameter's member, an inherited member, an auto alias of a chain)
+// constructs the container's element type, as one on a member of the caller's
+// class does.
+func TestCppEmplaceThroughMemberChainInstantiates(t *testing.T) {
+	ff := chainEmplaceProject(t)
+	member := mustFact(t, ff, "src.db::Outer::Member")
+	for _, want := range []string{"ByMemberChain", "ByThisChain", "ByBaseChain", "ByAliasChain"} {
+		if !hasRelation(member, facts.RelInstantiates, "include.db::"+want) {
+			t.Errorf("Member should instantiate %s, got %+v", want, member.Relations)
+		}
+	}
+	if param := mustFact(t, ff, "src.db::Outer::Param"); !hasRelation(param, facts.RelInstantiates, "include.db::ByParamChain") {
+		t.Errorf("Param should instantiate ByParamChain, got %+v", param.Relations)
+	}
+	if shadow := mustFact(t, ff, "src.db::Outer::Shadow"); hasRelation(shadow, facts.RelInstantiates, "include.db::ByShadow") {
+		t.Errorf("a local hides the member of its name, got %+v", shadow.Relations)
+	}
+	for _, f := range ff {
+		for _, r := range f.Relations {
+			if r.Kind == relFieldElementCandidate {
+				t.Errorf("%s keeps a provisional edge %+v", f.Name, r)
+			}
+		}
+	}
+}

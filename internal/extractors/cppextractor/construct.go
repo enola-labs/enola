@@ -148,7 +148,10 @@ func (w *astWalker) recordFieldTemplates(node *sitter.Node) {
 }
 
 // emitEmplaceConstruction records the element type an emplace on root constructs:
-// a parameter or local container's directly, a member's for the project pass.
+// a parameter or local container's directly; for a container that is a member, of
+// the caller's class or at the end of a chain of members (in.items, this->a.b,
+// param.state.items), the receiver as factoryReceiver describes it, for the
+// project pass to follow to the member's declared element type.
 func (w *astWalker) emitEmplaceConstruction(root string) {
 	if w.lang != langCpp {
 		return
@@ -161,9 +164,11 @@ func (w *astWalker) emitEmplaceConstruction(root string) {
 		}
 		return
 	}
-	if field := fieldRoot(root); field != "" && w.enclosingTypeReceiver() != "" && (field != root || !w.valueLocal(field)) {
-		w.addOwnerEdge(relFieldElementCandidate, field)
+	recv, ok := w.factoryReceiver(root)
+	if !ok || recv == "this" || strings.HasPrefix(recv, "t:") && !strings.Contains(recv, ".") {
+		return // the object itself, or a typed local or parameter: not a member
 	}
+	w.addOwnerEdge(relFieldElementCandidate, recv)
 }
 
 // factoryReceiver says how the project pass finds the member template a call
@@ -648,10 +653,6 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 		}
 		return "", "", ""
 	}
-	// member returns what a member of the caller's class is declared with.
-	member := func(f *facts.Fact, field string) (kind, written, source string) {
-		return memberOf(ownClass(f), field)
-	}
 	// follow returns the class a chain of members of class names, "" when a member
 	// is not of a class type.
 	follow := func(class string, hops []string) string {
@@ -665,6 +666,25 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 			}
 		}
 		return class
+	}
+	// chainMember returns what the last member of a receiver factoryReceiver
+	// described ("f:a.b.items", "t:Type.a.items") is declared with, on the class
+	// the members before it lead to.
+	chainMember := func(f *facts.Fact, recv string) (kind, written, source string) {
+		var path []string
+		var class string
+		switch {
+		case strings.HasPrefix(recv, "f:"):
+			path = strings.Split(recv[2:], ".")
+			class = ownClass(f)
+		case strings.HasPrefix(recv, "t:"):
+			path = strings.Split(recv[2:], ".")
+			class, path = resolveClass(path[0], sourceDir(f)), path[1:]
+		}
+		if len(path) == 0 || class == "" {
+			return "", "", ""
+		}
+		return memberOf(follow(class, path[:len(path)-1]), path[len(path)-1])
 	}
 	// callees lists the factory a call `callee<…>` on recv may reach, most specific
 	// first (factoryReceiver says what recv holds). On a class reached through a
@@ -723,7 +743,7 @@ func resolveConstructions(allFacts []facts.Fact, types typeIndex, visibility *in
 					}
 				}
 			case relFieldElementCandidate:
-				if kind, written, from := member(f, r.Target); kind == "elem" {
+				if kind, written, from := chainMember(f, r.Target); kind == "elem" {
 					built = append(built, builtType{written, from})
 				}
 			default:

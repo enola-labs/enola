@@ -4122,7 +4122,10 @@ import (
 // where-clause states are names of the members it declares and of its
 // conformances; each side of a `..` operator, which the grammar reads as one
 // navigation chain, is a type path of its own.
-const cacheVersion = "v741"
+// v742: C++: an emplace on a container reached through a chain of members
+// (in.items.emplace_back(), this->a.b->items, param.state.items, an inherited
+// member or an auto alias of a chain) constructs the container's element type.
+const cacheVersion = "v742"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
