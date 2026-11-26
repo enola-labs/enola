@@ -48,6 +48,7 @@ class Gadget {
 }
 class Host {
   void run({Object o = const Opt(1)}) {}
+  void prefixed({Object o = const i0.Gadget(), Object n = new i0.Opt()}) {}
 }
 abstract class Api {
   void fetch({Object g = const Gadget(), Object cb = _cb});
@@ -58,10 +59,15 @@ void _cb() {}
 	for _, want := range []string{
 		"symbol lib.Host.run -> lib.Opt",
 		"symbol lib.Api.fetch -> lib.Gadget",
+		"symbol lib.Host.prefixed -> lib.Gadget",
+		"symbol lib.Host.prefixed -> lib.Opt",
 	} {
 		if !inst[want] {
 			t.Errorf("missing instantiates %q; got %v", want, inst)
 		}
+	}
+	if inst["symbol lib.Host.prefixed -> i0"] {
+		t.Errorf("an import prefix read as the class built: %v", inst)
 	}
 	if names := relationSet(all, facts.RelNames); !names["symbol lib.Api.fetch -> lib._cb"] {
 		t.Errorf("abstract default tear-off not recorded; got %v", names)
@@ -136,6 +142,9 @@ class Row {
 
 @Riverpod(dependencies: [Posts])
 int counter() => 1;
+
+@Box(counter())
+class NotConstant {}
 `,
 	})
 	names := relationSet(all, facts.RelNames)
@@ -153,7 +162,7 @@ int counter() => 1;
 	}
 	for _, f := range all {
 		for _, r := range f.Relations {
-			if r.Kind == "dart_type_ref" || strings.Contains(r.Target, "Unknown") {
+			if r.Kind == "dart_type_ref" || strings.Contains(r.Target, "Unknown") || (r.Kind == facts.RelCalls && strings.HasSuffix(r.Target, "counter")) {
 				t.Errorf("unresolved annotation name leaked: %s %s -> %s %s", f.Kind, f.Name, r.Kind, r.Target)
 			}
 		}

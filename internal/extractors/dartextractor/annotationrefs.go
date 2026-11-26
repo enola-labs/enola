@@ -39,9 +39,7 @@ func (w *walker) constructionReferences(n *sitter.Node, shadows map[string]bool,
 	}
 	switch kindOf(n) {
 	case "const_object_expression", "new_expression":
-		if t := childOfKind(n, "type_identifier"); t != nil {
-			b.addRelation(facts.RelInstantiates, t.Utf8Text(w.src))
-		}
+		b.addRelation(facts.RelInstantiates, dartCreatedType(n, w.src))
 	}
 	kids := namedChildren(n)
 	for i, c := range kids {
@@ -55,6 +53,32 @@ func (w *walker) constructionReferences(n *sitter.Node, shadows map[string]bool,
 	for _, c := range kids {
 		w.constructionReferences(c, shadows, b)
 	}
+}
+
+// dartCreatedType is the class a `const`/`new` expression builds. The grammar
+// spells an import prefix as a type: `const i0.Value()` is two type_identifiers,
+// and `new p.Foo()` a type_identifier and an identifier, which is also how
+// `new Foo.named()` reads, so the capitalised name decides.
+func dartCreatedType(n *sitter.Node, src []byte) string {
+	name := ""
+	for _, c := range namedChildren(n) {
+		switch kindOf(c) {
+		case "type_identifier":
+			name = c.Utf8Text(src)
+			continue
+		case "identifier":
+			if text := c.Utf8Text(src); name != "" && !namesAType(name) && namesAType(text) {
+				name = text
+			}
+		}
+		if name != "" {
+			break
+		}
+	}
+	if !namesAType(name) {
+		return ""
+	}
+	return name
 }
 
 // constructorInvocation is the rule that reads `Name(...)` or `Name<T>(...)` at
@@ -93,7 +117,15 @@ func (w *walker) annotationReferences(n *sitter.Node, b *bodyWalk) {
 	switch kindOf(n) {
 	case "annotation":
 		if args := childOfKind(n, "arguments"); args != nil {
-			w.valueReferences(args, map[string]bool{}, b)
+			// Metadata is constant, so a function invocation there does not compile;
+			// only the value pass's tear-offs are kept.
+			values := &bodyWalk{seenRel: map[string]bool{}}
+			w.valueReferences(args, map[string]bool{}, values)
+			for _, r := range values.relations {
+				if r.Kind != facts.RelCalls {
+					b.addRelation(r.Kind, r.Target)
+				}
+			}
 			w.constructionReferences(args, map[string]bool{}, b)
 			w.annotationTypeNames(args, b)
 		}
