@@ -340,6 +340,7 @@ var versionCoverage = map[int][]string{
 	745: {"TestDartImportPrefixedStaticMembers", "TestDartImportPrefixedStaticMemberScope", "TestDartImportPrefixedConstructions", "TestDartImportPrefixedConstructionScope"},
 	746: {"TestNamespaceLookup_StaticKeyIsAUse", "TestNamespaceLookup_DynamicKeyMarksExportsWithoutEdges", "TestBarrelExports_StarReexportFollowedToTheDeclaringModule", "TestExtractTestRefs_StarBarrelResolvesToTheDeclaringModule", "TestExtractTestRefs_ComponentUnderATestDirectory", "TestTestsDirectoryIsTests", "TestMochaTestDirectoryIsTests", "TestIsTSTestFile", "TestGolden"},
 	747: {"TestReceiverCalls_EloquentQueryResult", "TestReceiverCalls_FrameworkMethodOnAModel", "TestEloquentQueryResultRelationReadIsAUse"},
+	748: {"TestSwiftCallOnAnExternalTypedReceiverDoesNotBindByName", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

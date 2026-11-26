@@ -1255,7 +1255,11 @@ func (w *astWalker) handleInit(node *sitter.Node) {
 		}
 	}
 	if body := findChildByKind(node, "function_body"); body != nil {
+		// A call on a parameter binds through its stated type, as in a method.
+		savedLocals := w.localTypes
+		w.bindParameters(node)
 		w.walkForCalls(body)
+		w.localTypes = savedLocals
 	}
 }
 
@@ -1471,12 +1475,21 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// post-pass. Preserve the existing in-loop perf metric. A chain rooted
 				// at a framework type (URL.documentsDirectory.appending()) is a
 				// rooted call.
-				if isCapitalized(root) {
+				typ := w.receiverType(callee)
+				switch {
+				case isCapitalized(root):
 					w.noteRootedCall(callee, root, name)
-				} else if !w.typedReceiversOnly {
-					w.addTentativeMethodCall(name)
+					w.noteTypedCall(typ, name)
+				case typ != "" && !genericParamInScope(callee, typ, w.src):
+					// A receiver of stated type: its bare edge waits for the type
+					// (resolveTypedCalls), which may be one the repository lacks.
+					w.noteStatedReceiverCall(typ, name)
+				default:
+					if !w.typedReceiversOnly {
+						w.addTentativeMethodCall(name)
+					}
+					w.noteTypedCall(typ, name)
 				}
-				w.noteTypedCall(w.receiverType(callee), name)
 				if w.loopDepth > 0 && !swiftCheapMethods[name] {
 					tgt := name
 					if root != "" {

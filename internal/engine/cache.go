@@ -4160,7 +4160,12 @@ import (
 // or as an element of a query's collection, binds to the method the model, a parent
 // or a trait declares, read as v743 reads relation reads; a framework method on it
 // binds nothing.
-const cacheVersion = "v747"
+// v748: Swift: a member call on a parameter, local or stored property whose stated
+// type the repository declares nowhere (an imported type, not a generic parameter,
+// an associated type, Any or AnyObject) gets no edge when only classes and structs
+// of the repository declare a method of its name; an init's parameters are typed
+// receivers as a method's are.
+const cacheVersion = "v748"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

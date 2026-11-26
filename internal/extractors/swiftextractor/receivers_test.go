@@ -214,3 +214,93 @@ final class Loader {
 		t.Errorf("load calls %v, want Sources/App.Box.info", calls)
 	}
 }
+
+// A call on a parameter, local or stored property whose type the repository does
+// not declare (an imported ConfigReader) is the framework's, so the one in-repo
+// method of that name a struct owns does not capture it. A method the repository
+// adds to the type or a protocol still binds; where an extension of another type
+// declares the name too, the call keeps its bare name. A receiver typed by a generic
+// parameter, an associated type, AnyObject or a type the repository declares
+// binds by name as before.
+func TestSwiftCallOnAnExternalTypedReceiverDoesNotBindByName(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/App/Strategy.swift": `
+struct Strategy {
+    private static func int(_ s: String) -> Int? { nil }
+    func render() {}
+    func lookup() {}
+    func show() {}
+    func run() {}
+}
+
+extension TaskRunner {
+    func run() {}
+}
+
+extension ConfigReader {
+    func port() -> Int { 0 }
+}
+
+protocol Keyed {
+    associatedtype Value
+}
+
+protocol Shiny {}
+
+extension Shiny {
+    func gleam() {}
+}
+`,
+		"Sources/App/Address.swift": `
+import Configuration
+
+struct Address {
+    let reader: ConfigReader
+    init(from config: ConfigReader) {
+        _ = config.int(forKey: "port")
+        _ = config.port()
+        let other: ConfigReader = config
+        other.render()
+        reader.gleam()
+        config.run()
+    }
+    func generic<T>(_ value: T) {
+        value.lookup()
+    }
+    func any(_ target: AnyObject) {
+        target.show()
+    }
+}
+
+extension Keyed {
+    func read(_ v: Value) {
+        v.render()
+    }
+}
+`,
+	})
+	// A type's own init records its calls on the type.
+	calls := swCalls(t, ff, "Sources/App.Address")
+	for _, bad := range []string{"Sources/App.Strategy.int", "Sources/App.Strategy.render", "int", "render"} {
+		if slices.Contains(calls, bad) {
+			t.Errorf("Address calls %v, must not call %s", calls, bad)
+		}
+	}
+	if slices.Contains(calls, "Sources/App.TaskRunner.run") {
+		t.Errorf("Address calls %v, must not bind run to an extension of another type", calls)
+	}
+	for _, want := range []string{"Sources/App.ConfigReader.port", "Sources/App.Shiny.gleam", "run"} {
+		if !slices.Contains(calls, want) {
+			t.Errorf("Address calls %v, want %s", calls, want)
+		}
+	}
+	for fn, want := range map[string]string{
+		"Sources/App.Address.generic": "Sources/App.Strategy.lookup",
+		"Sources/App.Address.any":     "Sources/App.Strategy.show",
+		"Sources/App.Keyed.read":      "Sources/App.Strategy.render",
+	} {
+		if got := swCalls(t, ff, fn); !slices.Contains(got, want) {
+			t.Errorf("%s calls %v, want %s", fn, got, want)
+		}
+	}
+}
