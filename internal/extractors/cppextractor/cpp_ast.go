@@ -173,6 +173,10 @@ type astWalker struct {
 	// receiverTypes maps explicit parameter/local names in the current function
 	// body to their simple project type. Empty values mark conflicting declarations.
 	receiverTypes map[string]string
+	// receiverTemplates maps every parameter/local name in the current function
+	// body to "leaf|argument" when its type is a smart pointer or a container
+	// (std::vector<Row> is "vector|Row"), and to "" otherwise (construct.go).
+	receiverTemplates map[string]string
 	// swallowed collects the function definitions found inside the body being
 	// walked. C and C++ have no nested functions, so one there is a later
 	// definition that parse-error recovery attached to a function it could not
@@ -194,11 +198,9 @@ type astWalker struct {
 		locals      map[string]bool
 	}
 	// templateParams holds the enclosing templates' parameter names, and
-	// factoryParams the current function template's own, while returnDepth is
-	// non-zero inside its return statement (construct.go).
+	// factoryParams the current function template's own (construct.go).
 	templateParams                      [][]string
 	pendingFactoryParams, factoryParams []string
-	returnDepth                         int
 	// root is the file's tree, and fileTypes the type names it declares, built on
 	// first use (construct.go).
 	root      *sitter.Node
@@ -1001,6 +1003,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	savedMetrics, savedDepth := w.metrics, w.loopDepth
 	savedScaling, savedRepeat := w.scalingDepth, w.repeatDepth
 	savedName, savedShort, savedReceiverTypes := w.selfName, w.selfShort, w.receiverTypes
+	savedReceiverTemplates := w.receiverTemplates
 	w.metrics = &cppBodyMetrics{}
 	w.loopDepth = 0
 	w.scalingDepth = 0
@@ -1010,10 +1013,10 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	savedSwallowed, savedClassDepth := w.swallowed, w.localClassDepth
 	w.swallowed, w.localClassDepth = nil, 0
 	savedValueScope := w.valueScope
-	savedFactory, savedReturn := w.factoryParams, w.returnDepth
-	w.factoryParams, w.pendingFactoryParams, w.returnDepth = w.pendingFactoryParams, nil, 0
+	savedFactory := w.factoryParams
+	w.factoryParams, w.pendingFactoryParams = w.pendingFactoryParams, nil
 	if body := node.ChildByFieldName("body"); body != nil {
-		w.receiverTypes = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
+		w.receiverTypes, w.receiverTemplates = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
 		w.valueScope.fdecl, w.valueScope.body, w.valueScope.locals = fdecl, body, nil
 		// A constructor's member initializer list (S() : m(helper(x)) {}) runs as
 		// part of the constructor, before its body.
@@ -1025,7 +1028,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 		w.walkForCalls(body)
 	}
 	w.valueScope = savedValueScope
-	w.factoryParams, w.returnDepth = savedFactory, savedReturn
+	w.factoryParams = savedFactory
 	swallowed := w.swallowed
 	w.swallowed, w.localClassDepth = savedSwallowed, savedClassDepth
 	m := w.metrics
@@ -1059,7 +1062,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	w.metrics, w.loopDepth = savedMetrics, savedDepth
 	w.scalingDepth, w.repeatDepth = savedScaling, savedRepeat
 	w.selfName, w.selfShort = savedName, savedShort
-	w.receiverTypes = savedReceiverTypes
+	w.receiverTypes, w.receiverTemplates = savedReceiverTypes, savedReceiverTemplates
 	for range outOfLineScopes {
 		w.popType()
 	}
@@ -1105,6 +1108,7 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 
 	// Data member(s): "Foo *a, b;" → one SymbolVariable per declared name.
 	w.emitFieldConstruction(node)
+	w.recordFieldTemplates(node)
 	constMember := strings.Contains(declTypePrefix(node, w.src), "const")
 	fieldType := w.memberTypeName(node)
 	for i := uint(0); i < node.ChildCount(); i++ {
@@ -2339,8 +2343,6 @@ func (w *astWalker) walkForCallsAt(nv sitter.Node) {
 		if v := firstNamedChild(node); v != nil && w.lang == langCpp {
 			w.emitDeclValueRef(v, false)
 		}
-		w.returnDepth++
-		defer func() { w.returnDepth-- }()
 	case "compound_literal_expression":
 		// An in-body designated initializer — `cfg = (struct regmap_config){ .lock =
 		// fn, ... };` — wires callbacks like a file-scope ops table but inside a
@@ -2429,6 +2431,9 @@ func (w *astWalker) handleCall(node *sitter.Node) {
 			w.noteMemberCall(name)
 		}
 	case kind == calleeField:
+		if emplaceMethods[name] {
+			w.emitEmplaceConstruction(root)
+		}
 		// Resolve only a simple receiver with one explicit, unambiguous parameter or
 		// local type. Project-wide canonicalization later verifies that the type and
 		// method actually exist; auto, templates, fields and expressions stay unknown.
@@ -2480,11 +2485,34 @@ func (w *astWalker) handleCapitalizedCall(name string) {
 // collectExplicitReceiverTypes finds parameter and local declarations whose type
 // is a simple project class/struct name. It intentionally ignores auto, builtins,
 // template wrappers (a unique_ptr<T> receiver is not a T), nested lambdas and any
-// variable declared with conflicting types in the same function.
-func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, body *sitter.Node, src []byte) map[string]string {
+// variable declared with conflicting types in the same function. The second map
+// holds the smart pointers and containers among them, "leaf|argument" by name
+// (templateArgument), and is nil when there are none.
+func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, body *sitter.Node, src []byte) (map[string]string, map[string]string) {
 	out := map[string]string{}
+	var templates map[string]string
 	addDeclaration := func(node *sitter.Node) {
 		typeNode := node.ChildByFieldName("type")
+		if lang == langCpp {
+			if leaf, arg := templateArgument(kinds, typeNode, src); smartPointers[leaf] || elementContainers[leaf] {
+				if templates == nil {
+					templates = map[string]string{}
+				}
+				for i := uint(0); i < node.ChildCount(); i++ {
+					if node.FieldNameForChild(uint32(i)) != "declarator" {
+						continue
+					}
+					if name := declaratorLeafName(kinds, referencedDeclarator(kinds, node.Child(i)), src); name != "" {
+						if prior, exists := templates[name]; exists && prior != leaf+"|"+arg {
+							templates[name] = ""
+						} else {
+							templates[name] = leaf + "|" + arg
+						}
+					}
+				}
+				return
+			}
+		}
 		if isAuto(kinds, typeNode, src) {
 			// `auto e = makeEngine()`: what the call returns (factoryreturns.go).
 			for i := uint(0); i < node.ChildCount(); i++ {
@@ -2544,7 +2572,7 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 		}
 		addDeclaration(decl)
 	}
-	return out
+	return out, templates
 }
 
 // parameterNames returns the names a function declarator gives its parameters.

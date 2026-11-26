@@ -26,6 +26,7 @@ package orphans
 import (
 	"context"
 	"fmt"
+	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -679,6 +680,31 @@ var iosEntryPointComponents = map[string]bool{
 	"swiftui_app": true,
 }
 
+// isTestEntryName reports a test entry point recognised by its name, in the one
+// file kind whose runner collects that name: Go's Test/Benchmark/Example/Fuzz
+// functions in a _test.go file, and the Test* classes and test_* functions that
+// pytest and unittest collect from a test*.py or *_test.py module (unittest's and
+// Django's discovery pattern is test*.py, which also covers a Django app's
+// tests.py). Python test modules outside a test tree are indexed as production
+// (see facts.IsTestPath), so the name is what keeps their tests out of the list.
+//
+// The prefixes are not a convention anywhere else. Applied to every file they hid
+// production symbols in every language: a Kotlin `TestOnlyMarker` annotation, a
+// TS `ExampleCard` component, a Java `TestDataFactory`. Other languages' tests are
+// excluded by path (test trees, spec files) or never become symbols (Rust #[test]).
+func isTestEntryName(file, bn string) bool {
+	base := path.Base(file)
+	switch {
+	case strings.HasSuffix(base, "_test.go"):
+		return strings.HasPrefix(bn, "Test") || strings.HasPrefix(bn, "Benchmark") ||
+			strings.HasPrefix(bn, "Example") || strings.HasPrefix(bn, "Fuzz")
+	case strings.HasSuffix(base, ".py") &&
+		(strings.HasPrefix(base, "test") || strings.HasSuffix(base, "_test.py")):
+		return strings.HasPrefix(bn, "Test") || strings.HasPrefix(bn, "test_")
+	}
+	return false
+}
+
 // isExcluded reports whether a symbol is dropped before orphan analysis given
 // the test/entry-point options.
 func isExcluded(sym symInput, opts options) bool {
@@ -750,10 +776,7 @@ func isExcluded(sym symInput, opts options) bool {
 		if isTestPath(sym.File) {
 			return true
 		}
-		// Go test/benchmark/example/fuzz entry points and pytest test_* functions.
-		if strings.HasPrefix(bn, "Test") || strings.HasPrefix(bn, "Benchmark") ||
-			strings.HasPrefix(bn, "Example") || strings.HasPrefix(bn, "Fuzz") ||
-			strings.HasPrefix(bn, "test_") {
+		if isTestEntryName(sym.File, bn) {
 			return true
 		}
 	}

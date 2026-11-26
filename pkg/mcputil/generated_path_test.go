@@ -23,6 +23,8 @@ func TestIsGeneratedPath(t *testing.T) {
 		"pkg/gen/api.pb.rs",
 		// The Kubernetes code generators' file name.
 		"apps/dashboard/pkg/apis/v0alpha1/zz_generated.deepcopy.go", "zz_generated.openapi.go",
+		// Every Dart codegen suffix the extractor skips, not only .g.dart.
+		"lib/user.g.dart", "lib/user.freezed.dart", "lib/forms/login.gform.dart", "lib/db/database.steps.dart",
 	}
 	for _, p := range generated {
 		if !IsGeneratedPath(p) {

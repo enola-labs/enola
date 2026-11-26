@@ -286,22 +286,29 @@ func (ix *Index) resolveName(repo, sub, raw string, notSelf bool) string {
 		}
 		return ""
 	}
-	// A bare name: the candidate sharing the longest prefix with the subclass, so a
-	// type of the subclass's own package wins over a namesake elsewhere.
-	best, bestLen, tied := "", -1, false
+	// A bare name: the candidate sharing the most leading path segments with the
+	// subclass, so a type of the subclass's own package wins over a namesake
+	// elsewhere. Among those sharing as many, the one with the fewest segments
+	// after them is nearest (a base in the subclass's own directory beats one a
+	// directory further down). Candidates equal on both tie and bind nothing, and
+	// so do several that share no segment at all: being shorter is no reason to
+	// prefer an unrelated tree.
+	best, bestShared, bestRest, tied, considered := "", -1, 0, false, 0
 	for _, c := range cands {
 		if notSelf && c == sub {
 			continue
 		}
-		n := commonPrefix(c, sub)
+		considered++
+		shared := commonSegments(c, sub)
+		rest := countSegments(c) - shared
 		switch {
-		case n > bestLen:
-			best, bestLen, tied = c, n, false
-		case n == bestLen:
+		case shared > bestShared || shared == bestShared && rest < bestRest:
+			best, bestShared, bestRest, tied = c, shared, rest, false
+		case shared == bestShared && rest == bestRest:
 			tied = true
 		}
 	}
-	if tied {
+	if tied || bestShared == 0 && considered > 1 {
 		return ""
 	}
 	return best
@@ -349,13 +356,42 @@ func hasQualifiedSuffix(name, suffix string) bool {
 	return false
 }
 
-func commonPrefix(a, b string) int {
+// commonSegments counts the equal leading segments of two names, split at any of
+// the separators a name's path and qualifiers use ('/', '.', ':', '#', '\\'): only
+// whole segments count, so tools/ and test/ share none.
+func commonSegments(a, b string) int {
 	n := 0
-	for n < len(a) && n < len(b) && a[n] == b[n] {
+	for {
+		sa, ra := nextSegment(a)
+		sb, rb := nextSegment(b)
+		if sa == "" || sa != sb {
+			return n
+		}
+		n++
+		a, b = ra, rb
+	}
+}
+
+// countSegments counts the segments of a name, as commonSegments splits them.
+func countSegments(s string) int {
+	n := 0
+	for seg, rest := nextSegment(s); seg != ""; seg, rest = nextSegment(rest) {
 		n++
 	}
 	return n
 }
+
+// nextSegment returns the first segment of s and the rest after it, skipping the
+// separators before it.
+func nextSegment(s string) (seg, rest string) {
+	s = strings.TrimLeft(s, segmentSeparators)
+	if i := strings.IndexAny(s, segmentSeparators); i >= 0 {
+		return s[:i], s[i:]
+	}
+	return s, ""
+}
+
+const segmentSeparators = "/.:#\\"
 
 func appendUnique(list []string, s string) []string {
 	for _, x := range list {

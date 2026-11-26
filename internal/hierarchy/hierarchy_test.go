@@ -88,6 +88,56 @@ func TestBuild_ABareBaseResolvesOnlyWhenOneTypeIsNearest(t *testing.T) {
 	}
 }
 
+// Nearness counts whole path segments: a type whose path only begins with the same
+// characters (tools/ against test/, src/main against src/mainline) is no nearer, so
+// candidates that share no more segments than each other tie and bind nothing.
+func TestResolveType_NearnessCountsWholeSegments(t *testing.T) {
+	ix := Build([]facts.Fact{
+		typ("src/include/duckdb/main.duckdb::Connection", facts.SymbolClass),
+		typ("tools/cpp.duckdb::cxx::Connection", facts.SymbolClass),
+		typ("test/common.duckdb::Runner", facts.SymbolClass),
+		typ("src/main.Base", facts.SymbolClass),
+		typ("src/other.Base", facts.SymbolClass),
+		typ("src/mainline.Sub", facts.SymbolClass, "Base"),
+		typ("src/main/deep.Sub", facts.SymbolClass, "Base"),
+	})
+	if got := ix.ResolveType("r", "test/common.duckdb::Runner", "Connection"); got != "" {
+		t.Errorf("Connection from test/common = %q, want none: tools/ is no nearer than src/", got)
+	}
+	if got := ix.Ancestors("r", "src/mainline.Sub"); got != nil {
+		t.Errorf("src/mainline.Sub's base = %v, want none: src/main and src/other are equally near", got)
+	}
+	if got := ix.Ancestors("r", "src/main/deep.Sub"); !reflect.DeepEqual(got, []string{"src/main.Base"}) {
+		t.Errorf("src/main/deep.Sub's base = %v, want the Base two segments away", got)
+	}
+}
+
+// Among candidates sharing as many segments, the one with the fewest segments after
+// them wins: the base beside the subclass over one a directory further down, the
+// one in a sibling directory over one deeper in another.
+func TestResolveType_EqualSharedSegmentsPreferTheShorterPath(t *testing.T) {
+	ix := Build([]facts.Fact{
+		typ("ext/node/polyfills.Session", facts.SymbolClass),
+		typ("ext/node/polyfills/internal_binding.Session", facts.SymbolClass),
+		typ("ext/node/polyfills.ClientSession", facts.SymbolClass, "Session"),
+		typ("ext/web.EventTarget", facts.SymbolClass),
+		typ("ext/node/polyfills.EventTarget", facts.SymbolClass),
+		typ("ext/websocket.WebSocket", facts.SymbolClass, "EventTarget"),
+		typ("lib/a.Twin", facts.SymbolClass),
+		typ("lib/b.Twin", facts.SymbolClass),
+		typ("lib/c.User", facts.SymbolClass, "Twin"),
+	})
+	if got := ix.Ancestors("r", "ext/node/polyfills.ClientSession"); !reflect.DeepEqual(got, []string{"ext/node/polyfills.Session"}) {
+		t.Errorf("ClientSession's base = %v, want the Session beside it", got)
+	}
+	if got := ix.Ancestors("r", "ext/websocket.WebSocket"); !reflect.DeepEqual(got, []string{"ext/web.EventTarget"}) {
+		t.Errorf("WebSocket's base = %v, want the EventTarget in the sibling directory", got)
+	}
+	if got := ix.Ancestors("r", "lib/c.User"); got != nil {
+		t.Errorf("User's base = %v, want none: lib/a and lib/b are equally near", got)
+	}
+}
+
 // The overriders of a member are the first declaration down each branch.
 func TestOverriders_TopmostOnEachBranch(t *testing.T) {
 	ix := Build([]facts.Fact{

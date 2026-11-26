@@ -55,7 +55,10 @@ var hubBudgets = map[string]int{
 	"internal/server": 21,
 	"pkg/command":     33,
 	"pkg/check":       11,
-	"internal/config": 4,
+	// 5: internal/facts, so the default ignore globs for Dart codegen output are
+	// built from the extractor's own suffix list instead of a copy that had fallen
+	// behind it.
+	"internal/config": 5,
 	// 7: internal/config, so the insight admission list is config.KnownExplainers
 	// instead of a hand-kept copy of it that had fallen four explainers behind.
 	"pkg/dashboard": 7,

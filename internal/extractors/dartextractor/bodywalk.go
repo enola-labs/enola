@@ -135,6 +135,11 @@ func (w *walker) walkBody(body *sitter.Node, selfName string, signature *sitter.
 	}
 	b.shadows = shadows
 	b.receiverTypes, b.receiverGenerics = w.bodyReceiverTypes(signature, shadows, bindings)
+	// Defaults are evaluated outside the parameter scope and are constant, so
+	// only the value pass applies; the declaration's own bindings hide nothing.
+	for _, d := range dartParameterDefaults(signature) {
+		w.valueReferences(d, map[string]bool{}, b)
+	}
 	for _, init := range initializers {
 		w.walkNode(init, b, selfShort, 0, 0)
 	}
@@ -162,6 +167,9 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		w.recordValueReference(n, name, b.shadows, b)
 		if w.getterNames[name] && !b.shadows[name] && kindOf(n.Parent()) != "label" && kindOf(n.Parent()) != "cascade_section" && kindOf(n.Parent()) != "cascade_selector" && !strings.HasSuffix(kindOf(n.Parent()), "assignable_selector") {
 			w.recordGetterRead("this."+name, n, b, loopDepth, scalingDepth)
+		}
+		if w.topLevelGetter(n, name, b) {
+			w.recordGetterRead(name, n, b, loopDepth, scalingDepth)
 		}
 	}
 

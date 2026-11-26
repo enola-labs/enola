@@ -175,12 +175,15 @@ ignore:
   # real Flutter project and none of it is code a human navigates: one @freezed
   # model yields hundreds of generated lines of copyWith/== plus a .g.dart of
   # serialization. Indexing it inflates symbol counts and manufactures god-class
-  # and complexity findings about machine output.
+  # and complexity findings about machine output. The built-in defaults derive
+  # these from the Dart extractor's own list; a test holds this copy to them.
   - "**/*.g.dart"
   - "**/*.freezed.dart"
   - "**/*.mocks.dart"
   - "**/*.gr.dart"
   - "**/*.config.dart"
+  - "**/*.gform.dart"
+  - "**/*.steps.dart"
   - "**/*.pb.dart"
   - "**/*.pbenum.dart"
   - "**/*.pbjson.dart"

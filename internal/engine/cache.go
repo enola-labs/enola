@@ -4050,7 +4050,29 @@ import (
 // v724: C and C++: a bare name found by its unique short name binds to a member
 // (`Type::member`) only from inside a C++ member function. From C, where a bare
 // name is a parameter or local, and from a C++ free function, it binds nothing.
-const cacheVersion = "v724"
+// v725: Dart: a parameter default and either side of `??` record the callables
+// they name, and a read of a file's top-level getter is a call to it.
+// v726: Dart: a class-body field initializer records the callables it names as
+// tear-offs on the file's reference fact, as file-scope initializers do; and
+// `.steps.dart` (drift_dev's migration steps, banner after the imports) and
+// `.gform.dart` are generated, from one suffix list the default ignore globs share.
+// v727: Dart: a same-file function invoked in a module initializer, directly or
+// inside a closure there, is a calls edge on the file reference (file scope has no
+// call scan), and a typed top-level final or const tear-off is a names edge.
+// v728: Dart: the modules under lib/ of a package pub would publish (a version, a
+// license file beside the pubspec, no `publish_to: none`) carry `published`.
+// v729: C++: a member function template that news its type parameter, or passes it
+// to another factory through the object, a member (a smart pointer's pointee
+// included) or a typed receiver, constructs the type argument a call writes, and a
+// template body counts wherever the construction sits, not only in its return
+// statement. emplace_back, emplace_front and emplace on a standard container
+// declared by a parameter, local or member construct its element type.
+// v730: a bare base or field type name with several candidates resolves to the
+// one sharing the most whole path segments with the type that writes it, not the
+// most characters, and among those to the one with the fewest segments after
+// them; candidates equal on both, or several sharing none, bind nothing. The C and C++
+// test refs bind inherited members through it inside the extractor.
+const cacheVersion = "v730"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

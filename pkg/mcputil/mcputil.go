@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -124,12 +125,17 @@ func IsGeneratedPath(p string) bool {
 	// protoc, `.min.js` is a minified bundle whose loop nesting is meaningless.
 	for _, suf := range []string{
 		".gen.ts", ".gen.tsx", ".gen.js", ".gen.go", ".generated.ts", ".generated.go",
-		".min.js", ".min.css", ".pb.go", ".pb.gw.go", ".pb.rs", ".g.dart",
+		".min.js", ".min.css", ".pb.go", ".pb.gw.go", ".pb.rs",
 		"_pb2.py", "_pb2_grpc.py",
 	} {
 		if strings.HasSuffix(base, suf) {
 			return true
 		}
+	}
+	// Every Dart code generator's suffix, from the list the Dart extractor and the
+	// default ignore globs use.
+	if facts.IsGeneratedDartPath(base) {
+		return true
 	}
 	// `zz_generated.deepcopy.go`, `zz_generated.openapi.go`: the name the
 	// Kubernetes code generators give every file they write.

@@ -26,7 +26,15 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 		shadows = local
 	}
 	if kindOf(root) == "identifier" {
-		w.recordValueReference(root, root.Utf8Text(w.src), shadows, b)
+		name := root.Utf8Text(w.src)
+		if dartInvocationTarget(root) {
+			// File scope has no call scan, so the invocation is recorded here.
+			if target := w.callableValue(name); target != "" && !shadows[name] {
+				b.addRelation(facts.RelCalls, target)
+			}
+		} else {
+			w.recordValueReference(root, name, shadows, b)
+		}
 	}
 	kids := namedChildren(root)
 	for i, c := range kids {
@@ -55,6 +63,55 @@ func (w *walker) fileCallableValues(root *sitter.Node) map[string]string {
 		}
 	}
 	return values
+}
+
+func (w *walker) fileGetterNames(root *sitter.Node) map[string]bool {
+	getters := map[string]bool{}
+	for _, n := range namedChildren(root) {
+		if kindOf(n) == "getter_signature" {
+			if name := signatureName(n, w.src); name != "" {
+				getters[name] = true
+			}
+		}
+	}
+	return getters
+}
+
+// topLevelGetter reports whether an unshadowed identifier reads this file's
+// top-level getter. A same-named class member hides it inside its class.
+func (w *walker) topLevelGetter(n *sitter.Node, name string, b *bodyWalk) bool {
+	if !w.fileGetters[name] || b.shadows[name] {
+		return false
+	}
+	if _, member := w.memberFunctions[name]; member {
+		return false
+	}
+	switch parent := kindOf(n.Parent()); parent {
+	case "label", "cascade_section", "cascade_selector":
+		return false
+	default:
+		return !strings.HasSuffix(parent, "assignable_selector")
+	}
+}
+
+// dartParameterDefaults returns the default value expressions of a signature's
+// own parameters. They sit beside the formal_parameter nodes, not inside them.
+func dartParameterDefaults(signature *sitter.Node) []*sitter.Node {
+	params := firstOfKind(signature, "formal_parameter_list")
+	var out []*sitter.Node
+	for _, group := range namedChildren(params) {
+		if kindOf(group) != "optional_formal_parameters" {
+			continue
+		}
+		for _, c := range namedChildren(group) {
+			switch kindOf(c) {
+			case "formal_parameter", "annotation", "comment", "documentation_comment":
+			default:
+				out = append(out, c)
+			}
+		}
+	}
+	return out
 }
 
 func (w *walker) memberCallableValues(body *sitter.Node, typeName string) map[string]string {
@@ -98,23 +155,33 @@ func dartValuePosition(n *sitter.Node) bool {
 	if p == nil {
 		return false
 	}
-	// A selector's base is a receiver, not a bare callback value. Invocations
-	// already have calls edges from scanCallChain.
+	// A selector's base is a receiver, not a bare callback value. Invocations in
+	// function bodies have calls edges from scanCallChain; file-scope ones are
+	// recorded by valueReferences.
 	if next := n.NextNamedSibling(); kindOf(next) == "selector" {
 		return false
 	}
 	switch kindOf(p) {
 	case "argument", "named_argument", "return_statement", "function_body", "function_expression_body",
-		"list_literal", "set_or_map_literal", "switch_expression_case", "conditional_expression":
+		"list_literal", "set_or_map_literal", "switch_expression_case", "conditional_expression",
+		"if_null_expression", "optional_formal_parameters":
 		return true
 	case "pair", "initialized_variable_definition":
 		value := p.ChildByFieldName("value")
 		return value != nil && value.StartByte() == n.StartByte()
-	case "initialized_identifier":
+	case "initialized_identifier", "static_final_declaration":
 		first := childOfKind(p, "identifier")
 		return first != nil && first.StartByte() != n.StartByte()
 	}
 	return false
+}
+
+// dartInvocationTarget reports a bare name invoked directly: `name(...)` or
+// `name<T>(...)`. The grammar has no call node, only the name followed by an
+// argument selector.
+func dartInvocationTarget(n *sitter.Node) bool {
+	next := n.NextNamedSibling()
+	return kindOf(next) == "selector" && childOfKind(next, "argument_part") != nil
 }
 
 // Collect bindings belonging to one lexical scope. Nested scopes are entered by
@@ -208,6 +275,30 @@ func (w *walker) moduleValueReferences(root *sitter.Node) {
 	if len(b.relations) > 0 {
 		w.mergeFileReference(nil, b.relations)
 	}
+}
+
+// Class-body field initializers are the third initializer region, beside
+// constructor initializer lists (walked with the constructor) and file-scope
+// variables (moduleValueReferences). A schema generator's `late final T t =
+// T(columns: [_column_0])` names its top-level column builders only here. The
+// walk runs while the class's member overlay is in force, so a field's own name
+// and a sibling field still shadow a same-named function, and a method tear-off
+// resolves to the member. Private fields have no symbol to carry the edge, so all
+// of them go to the file's reference-only fact, as file-scope initializers do.
+func (w *walker) fieldInitializerReferences(list *sitter.Node) {
+	if w.fieldValues == nil {
+		w.fieldValues = &bodyWalk{seenRel: map[string]bool{}}
+	}
+	shadows := map[string]bool{}
+	dartBoundNames(list, w.src, shadows)
+	w.valueReferences(list, shadows, w.fieldValues)
+}
+
+func (w *walker) emitFieldInitializerReferences() {
+	if w.fieldValues != nil && len(w.fieldValues.relations) > 0 {
+		w.mergeFileReference(nil, w.fieldValues.relations)
+	}
+	w.fieldValues = nil
 }
 
 // Blocks, closures and loop/catch bindings have their own visibility region.

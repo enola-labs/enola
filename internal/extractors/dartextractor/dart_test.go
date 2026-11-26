@@ -309,6 +309,7 @@ func TestGeneratedCodeYieldsNothing(t *testing.T) {
 		"lib/models/user.g.dart", "lib/models/user.freezed.dart",
 		"lib/api/client.mocks.dart", "lib/routing/router.gr.dart",
 		"lib/di/injection.config.dart", "lib/proto/messages.pb.dart",
+		"lib/forms/login.gform.dart", "lib/database/database.steps.dart",
 	} {
 		if !isGeneratedDart(path) {
 			t.Errorf("%s should be recognised as generated", path)
