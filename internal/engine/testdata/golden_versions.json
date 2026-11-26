@@ -1,5 +1,5 @@
 {
-  "cache_version": "v742",
+  "cache_version": "v743",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",

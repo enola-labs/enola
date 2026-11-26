@@ -39,7 +39,7 @@ func relationCalls(t *testing.T, name string, sources ...string) []string {
 	var out []string
 	found := false
 	for _, f := range all {
-		for _, p := range []string{propPropertyReads, propRelationMethod} {
+		for _, p := range []string{propPropertyReads, propEagerLoads, propRelationMethod} {
 			if _, left := f.Props[p]; left {
 				t.Errorf("%s still carries %s after binding", f.Name, p)
 			}
@@ -131,4 +131,53 @@ func wantRelationCalls(t *testing.T, got, want, absent []string) {
 			t.Errorf("calls %q hold %s", got, a)
 		}
 	}
+}
+
+// TestEloquentQueryResultRelationReadIsAUse: a model fetched by a query
+// (`Media::whereProfileId($pid)->findOrFail($id)`), directly or through a local, is
+// that model, and a query built on a model class or a relation method is that model's
+// query; a relation read on the one or named in an eager load of the other is a use.
+// A path of property reads follows each relation's model. A collection, a query read
+// as a property, a class that is no model and a name no relation has record nothing.
+func TestEloquentQueryResultRelationReadIsAUse(t *testing.T) {
+	got := relationCalls(t, `App\Services\Feed::show`, relationModels, `<?php
+namespace App\Models;
+class Plain {
+    public function owner() { return $this->belongsTo(Profile::class); }
+}
+`, `<?php
+namespace App\Services;
+use App\Models\Media;
+use App\Models\Status;
+use App\Models\Plain;
+class Feed {
+    public function show($id, $pid) {
+        $media = Media::whereProfileId($pid)->findOrFail($id);
+        $a = $media->contentCredential;
+        $b = Status::where('id', $id)->first()->poll;
+        Status::whereNull('deleted_at')->whereHas('mentions')->get();
+        $c = $media->status()->firstOrFail()->author;
+        $d = Status::where('a', 1)->get()->profile;
+        $e = Media::where('a', 1)->owner;
+        $f = Media::findOrFail($id)->missing;
+        $g = Plain::first()->owner;
+        return [$a, $b, $c, $d, $e, $f, $g];
+    }
+}
+`)
+	wantRelationCalls(t, got, []string{`App\Models\Media::contentCredential`, `App\Models\Status::poll`,
+		`App\Models\Status::mentions`, `App\Models\Status::author`},
+		[]string{`App\Models\Status::profile`, `App\Models\Media::owner`, `App\Models\Plain::owner`, `App\Models\Media::author`})
+
+	chain := relationCalls(t, `App\Services\Feed::chain`, relationModels, `<?php
+namespace App\Services;
+use App\Models\Media;
+class Feed {
+    public function chain(Media $media) {
+        return [$media->status->poll, $media->owner->poll, $media->status->caption];
+    }
+}
+`)
+	wantRelationCalls(t, chain, []string{`App\Models\Media::status`, `App\Models\Status::poll`, `App\Models\Media::owner`},
+		[]string{`App\Models\Status::caption`, "poll"})
 }

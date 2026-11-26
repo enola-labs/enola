@@ -13,9 +13,12 @@ import (
 // notes each property read and each eager-loaded name, and bindRelationReads turns
 // the ones naming a relation method into calls edges once every file is read.
 const (
-	// propPropertyReads lists, on a function or method, the properties it reads
-	// (`name`) and those whose receiver type is declared (`Type::name`).
+	// propPropertyReads lists, on a function or method, the properties it reads on
+	// a receiver of known type, `Type::name`, or `Type::a.b` for `$x->a->b`.
 	propPropertyReads = "property_reads"
+	// propEagerLoads lists the relation paths it names in an eager load or a relation
+	// query, `Type::a.b`, where Type may be a query of the model as well as one.
+	propEagerLoads = "eager_loads"
 	// propRelationMethod marks a method returning `$this->hasMany(...)` or another
 	// relation builder.
 	propRelationMethod = "relation_method"
@@ -64,14 +67,38 @@ func (w *phpWalker) recordPropertyRead(node *sitter.Node, ownerIdx int) {
 			return
 		}
 	}
-	w.addRead(ownerIdx, w.plainReceiver(node.ChildByFieldName("object")), phpText(name, w.src))
+	// `$media->status->poll` reads poll on what status reads: the path is followed
+	// through each relation's model once every file is read.
+	path := []string{phpText(name, w.src)}
+	obj := node.ChildByFieldName("object")
+	for obj != nil {
+		if typ := w.receiverOf(obj, w.localTypes); typ != "" {
+			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+				path[i], path[j] = path[j], path[i]
+			}
+			w.addRead(ownerIdx, propPropertyReads, typ, strings.Join(path, "."))
+			return
+		}
+		switch kindOf(obj) {
+		case "member_access_expression", "nullsafe_member_access_expression":
+		default:
+			return
+		}
+		seg := obj.ChildByFieldName("name")
+		if seg == nil || kindOf(seg) != "name" {
+			return
+		}
+		path = append(path, phpText(seg, w.src))
+		obj = obj.ChildByFieldName("object")
+	}
 }
 
 // recordEagerLoads notes the relations an eager load or relation query names:
 // `with('author.profile')`, `withCount(['comments as total'])`,
 // `with(['posts' => fn ($q) => ...])`. typ is the receiver's class when declared; it
-// types the first segment of each path; without it nothing is recorded, so a view's
-// or a redirect's `with('key', $value)` names no relation.
+// types the first segment of each path, and may be a query's result, marked as in
+// factoryreturns.go; without it nothing is recorded, so a view's or a redirect's
+// `with('key', $value)` names no relation.
 func (w *phpWalker) recordEagerLoads(call *sitter.Node, ownerIdx int, method, typ string) {
 	if !eagerLoadMethods[method] || ownerIdx < 0 || typ == "" {
 		return
@@ -129,37 +156,24 @@ func (w *phpWalker) addRelationPath(ownerIdx int, typ, path string) {
 			return
 		}
 	}
-	w.addRead(ownerIdx, typ, path)
-}
-
-// plainReceiver is receiverOf for a receiver whose class is known without a later
-// return-type lookup, "" otherwise.
-func (w *phpWalker) plainReceiver(obj *sitter.Node) string {
-	if obj == nil {
-		return ""
-	}
-	typ := w.receiverOf(obj, w.localTypes)
-	if strings.HasSuffix(typ, callMark) {
-		return ""
-	}
-	return typ
+	w.addRead(ownerIdx, propEagerLoads, typ, path)
 }
 
 // addRead appends a read, `Type::name` or `Type::a.b` for a path, to the owner's
-// property reads, each once. A read on a receiver of unknown type is not recorded:
-// without the model's columns, `$x->status` may as well be a column as a relation.
-func (w *phpWalker) addRead(ownerIdx int, typ, name string) {
+// prop, each once. A read on a receiver of unknown type is not recorded: without the
+// model's columns, `$x->status` may as well be a column as a relation.
+func (w *phpWalker) addRead(ownerIdx int, prop, typ, name string) {
 	if typ == "" || name == "" {
 		return
 	}
 	entry := typ + "::" + name
-	reads, _ := w.out[ownerIdx].Props[propPropertyReads].([]string)
+	reads, _ := w.out[ownerIdx].Props[prop].([]string)
 	for _, r := range reads {
 		if r == entry {
 			return
 		}
 	}
-	w.out[ownerIdx].Props[propPropertyReads] = append(reads, entry)
+	w.out[ownerIdx].Props[prop] = append(reads, entry)
 }
 
 func isIdentifier(s string) bool {
@@ -176,13 +190,13 @@ func isIdentifier(s string) bool {
 // bindRelationReads adds a calls edge for each property read or eager-loaded path
 // that reaches a relation method, in place, and removes the carrier props.
 //
-// Every read has a receiver of declared type. It reaches that class's relation
+// Every read has a receiver of known type. It reaches that class's relation
 // (declared on it, a parent or a trait) or nothing: a column of that model shares the
 // name with no relation of its own. A path's later segments are looked up on the
 // class the previous relation names (eloquent_target); a morphTo names none, and the
-// path stops there.
+// path stops there. A receiver that is a query's result is read by eloquentResult.
 func bindRelationReads(allFacts []facts.Fact) {
-	relations := map[string]string{}
+	r := relationResolver{relations: map[string]string{}, returns: map[string]string{}, models: map[string]bool{}}
 	reads := false
 	for i := range allFacts {
 		f := &allFacts[i]
@@ -191,49 +205,145 @@ func bindRelationReads(allFacts []facts.Fact) {
 		}
 		if f.PropBool(propRelationMethod) {
 			delete(f.Props, propRelationMethod)
-			relations[f.Name] = f.PropString(propEloquentTarget)
+			r.relations[f.Name] = f.PropString(propEloquentTarget)
+		}
+		// Read here, removed by bindReceiverCalls.
+		if t, ok := f.Props[propReturnType].(string); ok {
+			r.returns[f.Name] = t
 		}
 		if _, ok := f.Props[propPropertyReads]; ok {
+			reads = true
+		}
+		if _, ok := f.Props[propEagerLoads]; ok {
 			reads = true
 		}
 	}
 	if !reads {
 		return
 	}
-	var ix *classIndex
-	if len(relations) > 0 {
-		ix = newClassIndex(allFacts)
+	if len(r.relations) > 0 {
+		r.ix = newClassIndex(allFacts)
 	}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if (f.Kind != facts.KindSymbol && f.Kind != facts.KindFileRef) || f.Props == nil {
 			continue
 		}
-		entries, _ := f.Props[propPropertyReads].([]string)
+		props, _ := f.Props[propPropertyReads].([]string)
+		loads, _ := f.Props[propEagerLoads].([]string)
 		delete(f.Props, propPropertyReads)
-		if ix == nil {
+		delete(f.Props, propEagerLoads)
+		if r.ix == nil {
 			continue
 		}
-		for _, r := range entries {
-			sep := strings.LastIndex(r, "::")
-			if sep <= 0 {
-				continue
-			}
-			class := r[:sep]
-			for _, seg := range strings.Split(r[sep+2:], ".") {
-				if class == "" || !ix.hasClass(class) {
-					break
+		for n, entries := range [][]string{props, loads} {
+			for _, e := range entries {
+				sep := strings.LastIndex(e, "::")
+				if sep <= 0 {
+					continue
 				}
-				m := ix.declaringMethod(class, seg)
-				target, ok := relations[m]
-				if !ok {
-					break
+				class, query := r.eloquentResult(e[:sep], 0)
+				// A property of a query is none of its model's relations.
+				if query && n == 0 {
+					continue
 				}
-				if m != f.Name && !f.HasRelation(facts.RelCalls, m) {
-					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: m})
+				for _, seg := range strings.Split(e[sep+2:], ".") {
+					if class == "" || !r.ix.hasClass(class) {
+						break
+					}
+					m := r.ix.declaringMethod(class, seg)
+					target, ok := r.relations[m]
+					if !ok {
+						break
+					}
+					if m != f.Name && !f.HasRelation(facts.RelCalls, m) {
+						f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: m})
+					}
+					class = target
 				}
-				class = target
 			}
 		}
 	}
+}
+
+// relationResolver holds what bindRelationReads looks receivers up in.
+type relationResolver struct {
+	ix *classIndex
+	// relations maps each relation method to the model it names, "" for a morphTo.
+	relations map[string]string
+	// returns maps a method to the class its return type declares.
+	returns map[string]string
+	models  map[string]bool
+}
+
+// queryMethods are the Eloquent builder methods a model class, a model or a query
+// forwards to a query of the same model.
+var queryMethods = map[string]bool{
+	"query": true, "newQuery": true, "on": true, "onWriteConnection": true,
+	"select": true, "addSelect": true, "distinct": true,
+	"latest": true, "oldest": true, "orderBy": true, "orderByDesc": true, "reorder": true, "inRandomOrder": true,
+	"groupBy": true, "having": true, "limit": true, "take": true, "skip": true, "offset": true, "forPage": true,
+	"join": true, "leftJoin": true, "rightJoin": true, "crossJoin": true,
+	"withTrashed": true, "onlyTrashed": true, "withoutTrashed": true,
+	"withoutGlobalScope": true, "withoutGlobalScopes": true,
+	"lockForUpdate": true, "sharedLock": true, "when": true, "unless": true,
+}
+
+// resultMethods are those that fetch, create or reload one model.
+var resultMethods = map[string]bool{
+	"find": true, "findOrFail": true, "findOrNew": true, "findOr": true,
+	"first": true, "firstOrFail": true, "firstOrNew": true, "firstOrCreate": true, "firstOr": true,
+	"firstWhere": true, "sole": true, "create": true, "forceCreate": true, "updateOrCreate": true,
+	"make": true, "fresh": true, "refresh": true, "replicate": true,
+	"load": true, "loadMissing": true, "loadCount": true,
+}
+
+// eloquentResult is the class a receiver type names, and whether it is a query of
+// that class rather than one of its models. A marked type (factoryreturns.go) is a
+// method's result: a method the repository declares yields its declared return
+// type, or a query of its model when it is a relation; a method of the Eloquent
+// builder an undeclared one, on a model class or its query, yields a query of the
+// model (a `whereX` or a scope the model declares as `scopeX` included) or one of
+// its models. Anything else, a collection among them, is "".
+func (r relationResolver) eloquentResult(t string, depth int) (string, bool) {
+	if !strings.HasSuffix(t, callMark) {
+		return t, false
+	}
+	path := strings.TrimSuffix(t, callMark)
+	sep := strings.LastIndex(path, "::")
+	if sep <= 0 || depth > 8 {
+		return "", false
+	}
+	class, _ := r.eloquentResult(path[:sep], depth+1)
+	method := path[sep+2:]
+	if class == "" || !r.ix.hasClass(class) {
+		return "", false
+	}
+	if decl := r.ix.declaringMethod(class, method); decl != "" {
+		if target, ok := r.relations[decl]; ok {
+			return target, true
+		}
+		return r.returns[decl], false
+	}
+	if !r.isModel(class) {
+		return "", false
+	}
+	switch {
+	case resultMethods[method]:
+		return class, false
+	case queryMethods[method], eagerLoadMethods[method], strings.HasPrefix(method, "where"), strings.HasPrefix(method, "orWhere"):
+		return class, true
+	case method != "" && r.ix.declaringMethod(class, "scope"+strings.ToUpper(method[:1])+method[1:]) != "":
+		return class, true
+	}
+	return "", false
+}
+
+func (r relationResolver) isModel(class string) bool {
+	known, seen := r.models[class]
+	if !seen {
+		known = r.ix.extendsEloquent(class, map[string]bool{})
+		r.models[class] = known
+	}
+	return known
 }

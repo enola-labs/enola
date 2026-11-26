@@ -4125,7 +4125,12 @@ import (
 // v742: C++: an emplace on a container reached through a chain of members
 // (in.items.emplace_back(), this->a.b->items, param.state.items, an inherited
 // member or an auto alias of a chain) constructs the container's element type.
-const cacheVersion = "v742"
+// v743: PHP: a model an Eloquent query fetches (`M::whereX($v)->findOrFail($id)`,
+// `$m->relation()->first()`), directly or through a local, is read as that model,
+// and a query built on a model class or a relation method as that model's query, so a
+// relation read on the one or eager loaded on the other is a calls edge. A chain of
+// property reads (`$media->status->poll`) follows each relation's model.
+const cacheVersion = "v743"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
