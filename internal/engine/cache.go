@@ -4078,7 +4078,11 @@ import (
 // type the project only extends (`Date.Style`) binds to the type nested in that
 // extension; an implicit member call takes its context type through the right
 // operand of `??` and through the matching target of a tuple assignment.
-const cacheVersion = "v731"
+// v732: Swift: a class an Info.plist ($(PRODUCT_MODULE_NAME).X, or a *ClassName or
+// *PrincipalClass key) or a storyboard or nib (customClass=) names is
+// framework_registered; a #selector binds to a method an extension of a framework
+// type declares; and a metatype parameter (T.Type) has T's members.
+const cacheVersion = "v732"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

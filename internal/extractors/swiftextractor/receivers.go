@@ -45,6 +45,9 @@ func statedType(node *sitter.Node, src []byte) string {
 	if t == "" || strings.ContainsAny(t[:1], "[(") {
 		return ""
 	}
+	// A metatype, T.Type, is a value whose members are T's: a static method call,
+	// or a #selector naming T's method in a swizzle (objcroots.go).
+	t = strings.TrimSuffix(t, ".Type")
 	if name := extractTypeName(t); isTypeName(name) {
 		return name
 	}
