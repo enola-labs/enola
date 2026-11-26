@@ -4085,7 +4085,14 @@ import (
 // v733: TypeScript and JSX files under a test/ directory are ignored and listed as
 // test globs by default, whatever their name, and the TypeScript extractor reads
 // them for test refs, as it already did the JavaScript there.
-const cacheVersion = "v733"
+// v734: Dart: a bare name the file does not bind is resolved through the library's
+// parts and imports: a top-level getter it reads is a call, and a function it
+// names as a value is a tear-off, in function bodies and initializers alike; a
+// library's own top-level variable hides the import. A read of a file getter and
+// `f.call(...)` on a file function in a module initializer are calls, and a
+// file-scope invocation keeps its target through resolution. `.mapper.dart`
+// (dart_mappable) is generated.
+const cacheVersion = "v734"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

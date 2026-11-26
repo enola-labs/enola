@@ -174,7 +174,7 @@ func TestDartModuleInitializerInvocation(t *testing.T) {
 		`var a = 0, b = _handle(null, 1);`,
 	} {
 		t.Run(use, func(t *testing.T) {
-			ff := walkSource(t, "lib/commands.dart", "Object _handle<T>(Object? s, int v) => v;\n"+use)
+			ff := dartReviewFacts(t, map[string]string{"lib/commands.dart": "Object _handle<T>(Object? s, int v) => v;\n" + use})
 			if !fileRefRelation(ff, "lib/commands.dart", facts.RelCalls, "lib._handle") {
 				t.Fatalf("module initializer invocation lost its calls edge")
 			}
@@ -198,8 +198,8 @@ func TestDartModuleInitializerInvocationScope(t *testing.T) {
 		`final a = Event(handler: (_handle) => _handle(1));`,
 		`final a = Event(handler: (s) { final _handle = s; return _handle(1); });`,
 		`final a = external(1);`,
-		`final a = _handle.call(1);`,
 		`final a = other._handle(1);`,
+		`final a = other._handle.call(1);`,
 	} {
 		t.Run(use, func(t *testing.T) {
 			ff := walkSource(t, "lib/commands.dart", "Object _handle(Object? s) => s;\n"+use)

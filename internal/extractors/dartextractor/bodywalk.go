@@ -23,7 +23,10 @@ type bodyWalk struct {
 	instanceCalls    map[string]bool
 	constructedTypes map[string]bool
 	getterReads      map[string]dartGetterRead
-	valueBindings    map[string]dartLocalValue
+	// valueNames are value-position names this file does not bind; the
+	// resolution pass keeps those naming an imported or part-file function.
+	valueNames    map[string]bool
+	valueBindings map[string]dartLocalValue
 
 	cyclomatic int
 	loopCount  int
@@ -72,6 +75,9 @@ func (b *bodyWalk) applyTo(props map[string]any) {
 
 	if len(b.getterReads) > 0 {
 		props["_dart_getter_reads"] = b.getterReads
+	}
+	if len(b.valueNames) > 0 {
+		props["_dart_value_names"] = sortedKeys(b.valueNames)
 	}
 
 	if b.loopCount > 0 {
@@ -168,9 +174,7 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		if w.getterNames[name] && !b.shadows[name] && kindOf(n.Parent()) != "label" && kindOf(n.Parent()) != "cascade_section" && kindOf(n.Parent()) != "cascade_selector" && !strings.HasSuffix(kindOf(n.Parent()), "assignable_selector") {
 			w.recordGetterRead("this."+name, n, b, loopDepth, scalingDepth)
 		}
-		if w.topLevelGetter(n, name, b) {
-			w.recordGetterRead(name, n, b, loopDepth, scalingDepth)
-		}
+		w.recordUnboundValue(n, name, b.shadows, b, loopDepth, scalingDepth)
 	}
 
 	// The call scan and recursive walk inspect the same immutable sibling list.

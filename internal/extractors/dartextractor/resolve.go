@@ -92,6 +92,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				if entry.fact == nil || entry.fact.PropString("accessor") != "getter" {
 					continue
 				}
+				if !strings.Contains(candidate, ".") && entry.fact.File != f.File && !r.libraryValueVisible(candidate, entry.fact, f) {
+					continue
+				}
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
 				if read.Loop {
 					calls, _ := f.Props["calls_in_loop"].([]string)
@@ -103,6 +106,18 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				}
 			}
 		}
+		if names, ok := f.Props["_dart_value_names"].([]string); ok {
+			for _, name := range names {
+				fn := r.members[r.call(name, f, false, true, nil)].fact
+				if fn == nil || fn.PropString("symbol_kind") != facts.SymbolFunc || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
+					continue
+				}
+				if rel := (facts.Relation{Kind: facts.RelNames, Target: fn.Name}); !slices.Contains(f.Relations, rel) {
+					f.Relations = append(f.Relations, rel)
+				}
+			}
+		}
+		delete(f.Props, "_dart_value_names")
 		delete(f.Props, "_dart_value_bindings")
 		delete(f.Props, "_dart_getter_reads")
 		delete(f.Props, "_dart_implicit_calls")
@@ -386,4 +401,15 @@ func disambiguateDartGetters(all []facts.Fact) {
 			f.Name = strings.TrimSuffix(f.File, ".dart") + "." + short
 		}
 	}
+}
+
+// libraryValueVisible reports whether a bare name the walker could not bind
+// reaches target, a top-level declaration found through the library's parts or
+// imports. A top-level variable of the reading library hides any import, and a
+// bundled SDK signature is no node of the graph.
+func (r *dartMemberResolver) libraryValueVisible(name string, target, from *facts.Fact) bool {
+	if r.sdkHosts[r.libraryFile(target.File)] {
+		return false
+	}
+	return len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) == 0
 }

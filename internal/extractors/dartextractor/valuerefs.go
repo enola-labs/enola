@@ -1,6 +1,8 @@
 package dartextractor
 
 import (
+	"maps"
+
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
 	"strings"
@@ -27,14 +29,18 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 	}
 	if kindOf(root) == "identifier" {
 		name := root.Utf8Text(w.src)
-		if dartInvocationTarget(root) {
+		if dartInvocationTarget(root) || dartCallMethodTarget(root, w.src) {
 			// File scope has no call scan, so the invocation is recorded here.
+			// `f.call(...)` on a file function invokes f itself. The target is
+			// already canonical; as a bare dotted name the resolution pass would
+			// read its directory as a receiver and lose it.
 			if target := w.callableValue(name); target != "" && !shadows[name] {
-				b.addRelation(facts.RelCalls, target)
+				b.addRelation(facts.RelCalls, "@lexical:"+target)
 			}
 		} else {
 			w.recordValueReference(root, name, shadows, b)
 		}
+		w.recordUnboundValue(root, name, shadows, b, 0, 0)
 	}
 	kids := namedChildren(root)
 	for i, c := range kids {
@@ -77,21 +83,66 @@ func (w *walker) fileGetterNames(root *sitter.Node) map[string]bool {
 	return getters
 }
 
-// topLevelGetter reports whether an unshadowed identifier reads this file's
-// top-level getter. A same-named class member hides it inside its class.
-func (w *walker) topLevelGetter(n *sitter.Node, name string, b *bodyWalk) bool {
-	if !w.fileGetters[name] || b.shadows[name] {
-		return false
+// recordUnboundValue records an unshadowed read of a top-level getter: this
+// file's, or a name nothing in this file binds, whose declaration only the
+// resolution pass can find in another part of the library or an import. A
+// value-position name of the second kind is also kept as a tear-off candidate.
+// A same-named class member hides both inside its class.
+func (w *walker) recordUnboundValue(n *sitter.Node, name string, shadows map[string]bool, b *bodyWalk, loop, scaling int) {
+	if shadows[name] {
+		return
 	}
 	if _, member := w.memberFunctions[name]; member {
+		return
+	}
+	unbound := w.unboundName(name)
+	if (w.fileGetters[name] || unbound) && dartReadPosition(n) {
+		w.recordGetterRead(name, n, b, loop, scaling)
+	}
+	if unbound && !dartInvocationTarget(n) && dartValuePosition(n) {
+		if b.valueNames == nil {
+			b.valueNames = map[string]bool{}
+		}
+		b.valueNames[name] = true
+	}
+}
+
+// unboundName reports a name this file declares nowhere it can see: not a
+// file function or getter, nor a member, field or getter of the current class.
+func (w *walker) unboundName(name string) bool {
+	if w.fileGetters[name] || w.getterNames[name] || w.valueFunctions[name] != "" {
 		return false
 	}
+	if _, field := w.fieldTypes[name]; field {
+		return false
+	}
+	_, member := w.memberFunctions[name]
+	return !member
+}
+
+// dartReadPosition excludes a label, a cascade target and a member selector,
+// none of which reads a top-level name.
+func dartReadPosition(n *sitter.Node) bool {
 	switch parent := kindOf(n.Parent()); parent {
 	case "label", "cascade_section", "cascade_selector":
 		return false
 	default:
 		return !strings.HasSuffix(parent, "assignable_selector")
 	}
+}
+
+// dartCallMethodTarget reports `name.call(...)`: the base of a `.call`
+// selector that arguments follow.
+func dartCallMethodTarget(n *sitter.Node, src []byte) bool {
+	sel := n.NextNamedSibling()
+	if kindOf(sel) != "selector" || childOfKind(sel, "argument_part") != nil {
+		return false
+	}
+	if identifierChild(childOfKind(sel, "unconditional_assignable_selector"), src) != "call" {
+		return false
+	}
+	args := sel.NextNamedSibling()
+	return kindOf(args) == "selector" && childOfKind(args, "argument_part") != nil
 }
 
 // dartParameterDefaults returns the default value expressions of a signature's
@@ -272,9 +323,43 @@ func (w *walker) moduleValueReferences(root *sitter.Node) {
 			w.valueReferences(n, shadows, b)
 		}
 	}
-	if len(b.relations) > 0 {
-		w.mergeFileReference(nil, b.relations)
+	w.emitInitializerWalk(b)
+}
+
+// emitInitializerWalk moves an initializer region's references onto the file's
+// reference-only fact. Getter reads and tear-off candidates from several
+// regions are unioned, since each region feeds the one fact.
+func (w *walker) emitInitializerWalk(b *bodyWalk) {
+	if len(b.relations) == 0 && len(b.getterReads) == 0 && len(b.valueNames) == 0 {
+		return
 	}
+	props := map[string]any{}
+	if len(b.getterReads) > 0 || len(b.valueNames) > 0 {
+		reads := map[string]dartGetterRead{}
+		names := map[string]bool{}
+		for i := range w.out {
+			f := &w.out[i]
+			if f.Kind == facts.KindFileRef && f.Name == w.relFile && f.File == w.relFile && f.Line == 0 {
+				if prior, ok := f.Props["_dart_getter_reads"].(map[string]dartGetterRead); ok {
+					maps.Copy(reads, prior)
+				}
+				if prior, ok := f.Props["_dart_value_names"].([]string); ok {
+					for _, name := range prior {
+						names[name] = true
+					}
+				}
+			}
+		}
+		maps.Copy(reads, b.getterReads)
+		maps.Copy(names, b.valueNames)
+		if len(reads) > 0 {
+			props["_dart_getter_reads"] = reads
+		}
+		if len(names) > 0 {
+			props["_dart_value_names"] = sortedKeys(names)
+		}
+	}
+	w.mergeFileReference(props, b.relations)
 }
 
 // Class-body field initializers are the third initializer region, beside
@@ -295,8 +380,8 @@ func (w *walker) fieldInitializerReferences(list *sitter.Node) {
 }
 
 func (w *walker) emitFieldInitializerReferences() {
-	if w.fieldValues != nil && len(w.fieldValues.relations) > 0 {
-		w.mergeFileReference(nil, w.fieldValues.relations)
+	if w.fieldValues != nil {
+		w.emitInitializerWalk(w.fieldValues)
 	}
 	w.fieldValues = nil
 }

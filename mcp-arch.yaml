@@ -192,6 +192,7 @@ ignore:
   - "**/*.pbjson.dart"
   - "**/*.pbserver.dart"
   - "**/*.pbgrpc.dart"
+  - "**/*.mapper.dart"
   # Dart/Flutter build and package caches.
   - "**/.dart_tool/**"
   - "**/.pub-cache/**"
