@@ -146,3 +146,44 @@ struct Plain {
 		}
 	}
 }
+
+// A type nested in an extension of a type the project does not declare
+// (`extension Date { struct Style {} }`) is named through that type's path:
+// `Date.Style`, as a property type, a static read and a same-type constraint.
+func TestSwiftTypeInExternalExtensionIsNamedThroughItsPath(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/Lib/Date+Style.swift": `
+import Foundation
+extension Date {
+    struct Style { static let calendar = 1 }
+    struct Strategy {}
+    struct Unused {}
+}
+extension Date.Style {
+    var parseStrategy: Date.Strategy { .init() }
+}
+extension FormatStyle where Self == Date.Style {
+    static var style: Self { .init() }
+}
+func render() -> Int { Date.Style.calendar }
+`,
+	})
+	names := namesOf(ff)
+	if !hasName(names, "Sources/Lib.render", "Sources/Lib.Date.Style") {
+		t.Errorf("render names %v, want Sources/Lib.Date.Style", names["Sources/Lib.render"])
+	}
+	found := false
+	for from, targets := range names {
+		for _, to := range targets {
+			if to == "Sources/Lib.Date.Strategy" {
+				found = true
+			}
+			if to == "Sources/Lib.Date.Unused" {
+				t.Errorf("%s names Date.Unused, which nothing uses", from)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("nothing names Sources/Lib.Date.Strategy: %v", names)
+	}
+}

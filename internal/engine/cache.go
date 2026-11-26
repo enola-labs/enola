@@ -4072,7 +4072,13 @@ import (
 // most characters, and among those to the one with the fewest segments after
 // them; candidates equal on both, or several sharing none, bind nothing. The C and C++
 // test refs bind inherited members through it inside the extractor.
-const cacheVersion = "v730"
+// v731: Swift: a generic metatype or static call through a specialized type
+// (`Box<T>.self`, `Box<T>.make(for:)`, which the grammar parses as two comparisons)
+// names the type and its type argument and calls its method; a path headed by a
+// type the project only extends (`Date.Style`) binds to the type nested in that
+// extension; an implicit member call takes its context type through the right
+// operand of `??` and through the matching target of a tuple assignment.
+const cacheVersion = "v731"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

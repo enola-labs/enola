@@ -145,7 +145,14 @@ func (w *astWalker) noteImplicitCall(member string, call *sitter.Node) {
 
 // implicitContext fills in where the type the context of call infers is stated.
 func (w *astWalker) implicitContext(call *sitter.Node, n *swiftImplicitCall) {
+	// `x ?? .member()`: the right operand has the type of the whole expression.
 	p := call.Parent()
+	for p != nil && kindOf(p) == "nil_coalescing_expression" {
+		if r := p.ChildByFieldName("if_nil"); r == nil || r.StartByte() != call.StartByte() {
+			return
+		}
+		call, p = p, p.Parent()
+	}
 	if p == nil {
 		return
 	}
@@ -174,9 +181,13 @@ func (w *astWalker) implicitContext(call *sitter.Node, n *swiftImplicitCall) {
 				n.typ = selfType(statedType(firstTypeNode(ta), w.src))
 			}
 		}
-	case "assignment":
+	case "assignment", "tuple_expression":
 		r := p.ChildByFieldName("result")
 		t := firstNamedChild(p.ChildByFieldName("target"))
+		if kindOf(p) == "tuple_expression" {
+			// `(a, b) = (x, .member())`: the target of the same position.
+			r, t = call, tupleTarget(p, call)
+		}
 		if r == nil || r.StartByte() != call.StartByte() || t == nil {
 			return
 		}
@@ -228,6 +239,44 @@ func (w *astWalker) implicitContext(call *sitter.Node, n *swiftImplicitCall) {
 		}
 		n.label = label
 	}
+}
+
+// tupleTarget returns the target an element of a tuple assigned to a tuple of
+// targets is assigned to, (a, b) = (x, elem), or nil.
+func tupleTarget(tuple, elem *sitter.Node) *sitter.Node {
+	asg := tuple.Parent()
+	if asg == nil || kindOf(asg) != "assignment" {
+		return nil
+	}
+	if r := asg.ChildByFieldName("result"); r == nil || r.StartByte() != tuple.StartByte() {
+		return nil
+	}
+	targets := firstNamedChild(asg.ChildByFieldName("target"))
+	if targets == nil || kindOf(targets) != "tuple_expression" {
+		return nil
+	}
+	values := tupleValues(tuple)
+	dests := tupleValues(targets)
+	if len(values) != len(dests) {
+		return nil
+	}
+	for i, v := range values {
+		if v.StartByte() == elem.StartByte() && v.EndByte() == elem.EndByte() {
+			return dests[i]
+		}
+	}
+	return nil
+}
+
+// tupleValues returns the elements of a tuple_expression, labelled or not.
+func tupleValues(tuple *sitter.Node) []*sitter.Node {
+	var out []*sitter.Node
+	for i := uint(0); i < tuple.ChildCount(); i++ {
+		if tuple.FieldNameForChild(uint32(i)) == "value" {
+			out = append(out, tuple.Child(i))
+		}
+	}
+	return out
 }
 
 // declaredResultType returns the type the function or computed property enclosing
