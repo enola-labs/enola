@@ -42,7 +42,7 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 		} else {
 			w.recordValueReference(root, name, shadows, b)
 		}
-		w.recordUnboundValue(root, name, shadows, b, 0, 0)
+		w.recordUnboundValue(root, b.siteOf(root), name, shadows, b, 0, 0)
 	}
 	kids := namedChildren(root)
 	for i, c := range kids {
@@ -54,6 +54,7 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 			}
 			dartBoundNames(kids[i-1], w.src, scope)
 		}
+		b.site = dartSiteAt(c, root, kids, i)
 		w.valueReferences(c, scope, b)
 	}
 }
@@ -90,7 +91,7 @@ func (w *walker) fileGetterNames(root *sitter.Node) map[string]bool {
 // resolution pass can find in another part of the library or an import. A
 // value-position name of the second kind is also kept as a tear-off candidate.
 // A same-named class member hides both inside its class.
-func (w *walker) recordUnboundValue(n *sitter.Node, name string, shadows map[string]bool, b *bodyWalk, loop, scaling int) {
+func (w *walker) recordUnboundValue(n *sitter.Node, site dartSite, name string, shadows map[string]bool, b *bodyWalk, loop, scaling int) {
 	if shadows[name] {
 		return
 	}
@@ -98,12 +99,44 @@ func (w *walker) recordUnboundValue(n *sitter.Node, name string, shadows map[str
 		return
 	}
 	unbound := w.unboundName(name)
-	if (w.fileGetters[name] || unbound) && dartReadPosition(n) {
-		w.recordGetterRead(name, n, b, loop, scaling)
+	if (w.fileGetters[name] || unbound) && dartReadKind(kindOf(site.parent)) && !w.assignedName(n, site.parent) {
+		b.markGetterRead(name, loop, scaling)
 	}
-	if unbound && !dartInvocationTarget(n) && dartValuePosition(n) {
+	next := kindOf(site.next)
+	invoked := next == "selector" && childOfKind(site.next, "argument_part") != nil
+	if unbound && !invoked && dartValuePositionAt(n, site.parent, site.next) {
 		b.addValueName(facts.RelNames, name)
 	}
+}
+
+// dartSite is a node's parent and next named sibling.
+type dartSite struct{ node, parent, next *sitter.Node }
+
+func dartSiteAt(c, parent *sitter.Node, kids []*sitter.Node, i int) dartSite {
+	site := dartSite{node: c, parent: parent}
+	if i+1 < len(kids) {
+		site.next = kids[i+1]
+	}
+	return site
+}
+
+// siteOf returns the walk's record of n's site, or asks the tree when n was
+// not reached through a child loop.
+func (b *bodyWalk) siteOf(n *sitter.Node) dartSite {
+	if b.site.node != nil && b.site.node.Id() == n.Id() {
+		return b.site
+	}
+	return dartSite{node: n, parent: n.Parent(), next: n.NextNamedSibling()}
+}
+
+// assignedName reports a bare name written by a plain assignment, `name = v`.
+func (w *walker) assignedName(n, parent *sitter.Node) bool {
+	if kindOf(parent) != "assignable_expression" || parent.EndByte() != n.EndByte() {
+		return false
+	}
+	assignment := parent.Parent()
+	return kindOf(assignment) == "assignment_expression" && dartPlainAssignment(assignment, w.src) &&
+		assignment.NamedChild(0) != nil && assignment.NamedChild(0).Id() == parent.Id()
 }
 
 func (b *bodyWalk) addValueName(kind, name string) {
@@ -126,10 +159,10 @@ func (w *walker) unboundName(name string) bool {
 	return !member
 }
 
-// dartReadPosition excludes a label, a cascade target and a member selector,
+// dartReadKind excludes a label, a cascade target and a member selector,
 // none of which reads a top-level name.
-func dartReadPosition(n *sitter.Node) bool {
-	switch parent := kindOf(n.Parent()); parent {
+func dartReadKind(parent string) bool {
+	switch parent {
 	case "label", "cascade_section", "cascade_selector":
 		return false
 	default:
@@ -212,10 +245,17 @@ func dartValuePosition(n *sitter.Node) bool {
 	if p == nil {
 		return false
 	}
+	return dartValuePositionAt(n, p, n.NextNamedSibling())
+}
+
+func dartValuePositionAt(n, p, next *sitter.Node) bool {
+	if p == nil {
+		return false
+	}
 	// A selector's base is a receiver, not a bare callback value. Invocations in
 	// function bodies have calls edges from scanCallChain; file-scope ones are
 	// recorded by valueReferences.
-	if next := n.NextNamedSibling(); kindOf(next) == "selector" {
+	if kindOf(next) == "selector" {
 		return false
 	}
 	switch kindOf(p) {

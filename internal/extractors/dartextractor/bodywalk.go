@@ -27,7 +27,11 @@ type bodyWalk struct {
 	// "<relation>:<name>": a tear-off (names) anywhere, an invocation (calls) at
 	// file scope. The resolution pass keeps those reaching an imported or
 	// part-file function.
-	valueNames    map[string]bool
+	valueNames map[string]bool
+	// site is where the child about to be walked sits: the walk knows its
+	// parent and next named sibling, which tree-sitter finds only by descending
+	// from the root.
+	site          dartSite
 	valueBindings map[string]dartLocalValue
 
 	cyclomatic int
@@ -176,7 +180,7 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		if w.getterNames[name] && !b.shadows[name] && kindOf(n.Parent()) != "label" && kindOf(n.Parent()) != "cascade_section" && kindOf(n.Parent()) != "cascade_selector" && !strings.HasSuffix(kindOf(n.Parent()), "assignable_selector") {
 			w.recordGetterRead("this."+name, n, b, loopDepth, scalingDepth)
 		}
-		w.recordUnboundValue(n, name, b.shadows, b, loopDepth, scalingDepth)
+		w.recordUnboundValue(n, b.siteOf(n), name, b.shadows, b, loopDepth, scalingDepth)
 	}
 
 	// The call scan and recursive walk inspect the same immutable sibling list.
@@ -194,7 +198,7 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		// `.map((e) => f(e))` — and every call inside one was missing, which inflates
 		// the dead-code report with functions that are plainly used.
 		w.scanCallChain(kids, b, selfShort, 0, 0)
-		w.walkChildren(kind, kids, b, selfShort, 0, 0)
+		w.walkChildren(n, kids, b, selfShort, 0, 0)
 		return
 	}
 
@@ -221,7 +225,7 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 			nextScaling++
 		}
 		b.observeDepth(nextLoop, nextScaling)
-		w.walkChildren(kind, kids, b, selfShort, nextLoop, nextScaling)
+		w.walkChildren(n, kids, b, selfShort, nextLoop, nextScaling)
 		return
 	}
 
@@ -229,11 +233,13 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 	// models `api.fetch(id)` as three siblings (identifier, `.fetch` selector, `(id)`
 	// selector) rather than as a nested call expression.
 	w.scanCallChain(kids, b, selfShort, loopDepth, scalingDepth)
-	w.walkChildren(kind, kids, b, selfShort, loopDepth, scalingDepth)
+	w.walkChildren(n, kids, b, selfShort, loopDepth, scalingDepth)
 }
 
-func (w *walker) walkChildren(kind string, kids []*sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
+func (w *walker) walkChildren(parent *sitter.Node, kids []*sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
+	kind := kindOf(parent)
 	for i, c := range kids {
+		b.site = dartSiteAt(c, parent, kids, i)
 		if kind == "try_statement" && kindOf(c) == "block" && i > 0 && kindOf(kids[i-1]) == "catch_clause" {
 			restore := w.enterDartScope(kids[i-1], b)
 			w.walkNode(c, b, selfShort, loopDepth, scalingDepth)
@@ -366,7 +372,7 @@ func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort strin
 			}
 			b.observeDepth(nextLoop, nextScaling)
 			for _, arg := range namedChildren(c) {
-				w.walkChildren(kindOf(arg), namedChildren(arg), b, selfShort, nextLoop, nextScaling)
+				w.walkChildren(arg, namedChildren(arg), b, selfShort, nextLoop, nextScaling)
 			}
 			// The closure has been walked at the loop's depth. Walking it again at this
 			// depth counted its branches twice, and doubled the work at every nested

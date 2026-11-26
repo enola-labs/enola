@@ -30,6 +30,8 @@ bool readPart() => partFlag;
 		"lib/host_part.dart": `part of 'host.dart';
 void partHelper() {}
 bool get partFlag => true;
+set partFlag(bool v) {}
+void writePart(List<Object> l) { partFlag = false; l[0] = partFlag; (partFlag) ? 1 : 2; }
 `,
 	})
 	if !fileRefRelation(all, "lib/use.dart", facts.RelNames, "lib/src.nameBuilder") {
@@ -50,6 +52,13 @@ bool get partFlag => true;
 		if f := findFact(all, facts.KindSymbol, name); !hasRelation(f, rel.Kind, rel.Target) {
 			t.Errorf("%s: no %s edge to %s: %+v", name, rel.Kind, rel.Target, f)
 		}
+	}
+	if f := findFact(all, facts.KindSymbol, "lib.writePart"); f == nil || len(f.Relations) == 0 {
+		t.Errorf("a read beside a write of the getter recorded nothing: %+v", f)
+	}
+	written := dartReviewFacts(t, map[string]string{"lib/w.dart": "bool get flag => true;\nset flag(bool v) {}\nvoid write() { flag = false; }\n"})
+	if f := findFact(written, facts.KindSymbol, "lib.write"); f == nil || hasRelation(f, facts.RelCalls, "lib.flag") {
+		t.Errorf("a write to a top-level getter's name read it: %+v", f)
 	}
 	probe := findFact(all, facts.KindSymbol, "lib.probe")
 	if loops, _ := probe.Props["calls_in_loop"].([]string); len(loops) == 0 || loops[len(loops)-1] != "lib/src.supportsWorkers" {
