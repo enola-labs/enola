@@ -4098,6 +4098,10 @@ import (
 // read. An annotation's arguments record what they name: a type that binds in the
 // library (`@DriftDatabase(tables: [Users])`) as a names edge, a tear-off, and a
 // construction, on the annotated type, or on the file's reference fact otherwise.
+// v736: C++: a member function template reached through a chain of members
+// (a.b.c.Make<T>(), this->a.b), through an auto local bound to such a chain, or
+// through a member the caller's class inherits constructs its type argument; a
+// member template a receiver's class inherits is found on its nearest base.
 // v737: TypeScript: a module-scope enum read as `Enum.Member` in the file that
 // declares it is a names edge to the enum. Python: a method read through self or
 // cls without a call (`return self.test_func`) is a names edge to the class's own
