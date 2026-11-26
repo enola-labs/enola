@@ -2930,6 +2930,11 @@ func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, file
 	return out, nil
 }
 
+// lastDotSeg is the name after a symbol target's last dot.
+func lastDotSeg(target string) string {
+	return target[strings.LastIndex(target, ".")+1:]
+}
+
 // folderIndexFiles returns the index files among tsFiles, the only ones
 // barrelExports reads.
 func folderIndexFiles(tsFiles []string) []string {
@@ -2943,9 +2948,12 @@ func folderIndexFiles(tsFiles []string) []string {
 }
 
 // resolveTestRefBarrels rewrites a test reference to a name a folder's index
-// re-exports to the symbol it re-exports. resolveBarrelCalls also demands that the
-// target exists, which this pass cannot see; a name a barrel re-exports is not
-// declared by the barrel, so the rewrite moves only a reference that named nothing.
+// re-exports from another directory under the same name (`export { X } from
+// '../x'`) to the module that declares it. resolveBarrelCalls also demands that the
+// current target names no symbol and the new one does, which this pass cannot see.
+// A same-name re-export from another directory cannot be declared in the folder as
+// well; a default or renamed re-export can (`export { default as Route } from
+// './route'` beside `export default class Route`), so those are left as written.
 func resolveTestRefBarrels(all []facts.Fact, barrels map[string]string) {
 	if len(barrels) == 0 {
 		return
@@ -2956,9 +2964,11 @@ func resolveTestRefBarrels(all []facts.Fact, barrels map[string]string) {
 			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
 				continue
 			}
-			if t := barrels[r.Target]; t != "" {
-				r.Target = t
+			t := barrels[r.Target]
+			if t == "" || lastDotSeg(t) != lastDotSeg(r.Target) || t == r.Target {
+				continue
 			}
+			r.Target = t
 		}
 	}
 }
