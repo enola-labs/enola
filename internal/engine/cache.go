@@ -4139,7 +4139,11 @@ import (
 // foreach or a collection callback, is that model; a closure parameter of declared
 // type and a local assigned a typed property are typed. A binding never displaces
 // what an assignment gives the local.
-const cacheVersion = "v743"
+// v744: Dart: an unnamed extension (`extension on T { ... }`) is a symbol named
+// `_on_<T>@<file>` (`#2`, `#3` for further ones on T in the file), marked anonymous,
+// with members and walked bodies like a named one; a file whose base name has a dot
+// keeps its unnamed extensions unextracted.
+const cacheVersion = "v744"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

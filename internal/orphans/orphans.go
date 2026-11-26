@@ -118,6 +118,10 @@ const (
 	// (Dubbo SPI impls registered only in a META-INF service file are rescued instead
 	// by a KindFileRef reference the Java extractor now emits, not by this prop.)
 	propScannedPlugin = "scanned_plugin"
+	// propAnonymous: symbol fact → a declaration the source leaves unnamed, given a
+	// synthetic name (Dart `extension on T { ... }`). No source can spell that name, so
+	// it is never referenced; its members are the candidates.
+	propAnonymous = "anonymous"
 	// propDynamicSendPrefixes: file-scope fact → static prefixes of interpolated
 	// dispatch symbols (`:"report_#{type}"` → "report_"). Methods with these prefixes
 	// are invoked by computed name (public_send/send) and have no call edge.
@@ -202,6 +206,7 @@ type symInput struct {
 	SpringComponent  string // Spring stereotype role (component/service/…) — container-instantiated
 	DubboActivate    bool   // Apache Dubbo @Activate SPI extension — ExtensionLoader-instantiated
 	ScannedPlugin    bool   // classpath-scanned plugin class (e.g. ThingsBoard @RuleNode)
+	Anonymous        bool   // an unnamed Dart extension under a synthetic name nothing can spell
 	// FrameworkRoot: the framework-roots binder marked the symbol, or one of a class's
 	// own members, as invoked by a framework (a routed action, a job, a registry
 	// contract, …). Its callers are the framework, so no reference is expected.
@@ -717,6 +722,11 @@ func isExcluded(sym symInput, opts options) bool {
 	// protocol, named `Base+Proto`. No source spells that name, so nothing can
 	// reference it; whether the code is used is its base type's question.
 	if sym.Kind == facts.SymbolExtension {
+		return true
+	}
+	// Likewise an unnamed Dart extension: its name is synthetic, and Dart applies it
+	// through the extended type, never by name. Its members are still candidates.
+	if sym.Anonymous {
 		return true
 	}
 	bn := bareName(sym.Name)
@@ -1334,6 +1344,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 		if sp, ok := f.PropAny(propScannedPlugin).(bool); ok && sp {
 			si.ScannedPlugin = true
+		}
+		if an, ok := f.PropAny(propAnonymous).(bool); ok && an && f.PropString(propLanguage) == "dart" {
+			si.Anonymous = true
 		}
 		if f.PropString(facts.PropFrameworkRoot) != "" {
 			si.FrameworkRoot = true
