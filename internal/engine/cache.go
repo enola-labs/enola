@@ -4099,7 +4099,10 @@ import (
 // library (`@DriftDatabase(tables: [Users])`) as a names edge, a tear-off, and a
 // construction, on the annotated type, or on the file's reference fact otherwise.
 // v737: TypeScript: a module-scope enum read as `Enum.Member` in the file that
-// declares it is a names edge to the enum.
+// declares it is a names edge to the enum. Python: a method read through self or
+// cls without a call (`return self.test_func`) is a names edge to the class's own
+// method, and one the class inherits is left to the inherited-calls binder
+// (member_names), which binds it only through the class's bases.
 const cacheVersion = "v737"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

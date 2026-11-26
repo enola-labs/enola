@@ -105,3 +105,39 @@ func TestBind_MemberCallsResolveThroughTheBases(t *testing.T) {
 		t.Error("field_types is kept")
 	}
 }
+
+// A method's reads of its own object's members that its file could not place name
+// the method an ancestor declares; a read landing on no method adds nothing, and the
+// working prop is gone afterwards.
+func TestBind_MemberNamesResolveThroughTheBases(t *testing.T) {
+	handle := symbol("app.Concrete.handle", facts.SymbolMethod)
+	handle.Props[facts.PropMemberNames] = []any{"common", "data", "handle"}
+	s := facts.NewStore()
+	s.Add(
+		symbol("lib.Base", facts.SymbolClass),
+		symbol("lib.Base.common", facts.SymbolMethod),
+		symbol("lib.Other", facts.SymbolClass),
+		symbol("lib.Other.data", facts.SymbolMethod),
+		symbol("app.Concrete", facts.SymbolClass, facts.Relation{Kind: facts.RelImplements, Target: "lib.Base"}),
+		handle,
+	)
+	if err := New().Bind(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	got := one(s, "app.Concrete.handle")
+	var names []string
+	for _, r := range got.Relations {
+		if r.Kind == facts.RelNames {
+			names = append(names, r.Target)
+		}
+	}
+	if want := []string{"lib.Base.common"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("names = %v, want %v", names, want)
+	}
+	if len(targets(got)) != 0 {
+		t.Errorf("a read became a call: %v", targets(got))
+	}
+	if _, ok := got.Prop(facts.PropMemberNames); ok {
+		t.Error("member_names is kept")
+	}
+}

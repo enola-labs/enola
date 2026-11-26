@@ -109,6 +109,9 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 }
 
 type pyWalker struct {
+	// selfRebound counts the nested scopes being walked in which self or cls is
+	// bound anew (see noteSelfMemberRead).
+	selfRebound int
 	// nestedPath is the dotted path of definitions nested below the current owner.
 	nestedPath string
 	// httpClients are the names this file binds to an HTTP client instance, mapped
@@ -2033,6 +2036,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		if name := pyText(attr, w.src); name == "__module__" || name == "__name__" {
 			w.emitNamedValueRef(node.ChildByFieldName("object"))
 		}
+		w.noteSelfMemberRead(node)
 	}
 	if kind == "string" {
 		if rel, ok := w.stringRefRelation(node); ok {
@@ -2265,6 +2269,13 @@ func (w *pyWalker) walkNestedScope(node *sitter.Node) {
 		if def == node {
 			return // malformed decorated_definition with no definition field
 		}
+	}
+
+	// Inside a nested class, or a nested def taking its own self or cls, self is
+	// not the enclosing method's object.
+	if pyRebindsSelf(def, w.src) {
+		w.selfRebound++
+		defer func() { w.selfRebound-- }()
 	}
 
 	savedMetrics := w.metrics
