@@ -335,7 +335,7 @@ var versionCoverage = map[int][]string{
 	738: {"TestGolden"},
 	739: {"TestGolden"},
 	740: {"TestGolden"},
-	741: {"TestSwiftExtensionOfNestedTypeNamesMembersByFullPath", "TestSwiftExtensionWhereClauseNamesItsMembers", "TestSwiftConstructorBindsThroughScope", "TestGolden"},
+	741: {"TestSwiftExtensionOfNestedTypeNamesMembersByFullPath", "TestSwiftExtensionWhereClauseNamesItsMembers", "TestSwiftDotOperatorSidesAreSeparatePaths", "TestSwiftConstructorBindsThroughScope", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

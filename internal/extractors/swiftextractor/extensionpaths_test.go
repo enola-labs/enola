@@ -48,6 +48,7 @@ extension Foundation.URLSessionWebSocketTask.Message {
 extension Lib.Fields {
     func own() {}
 }
+extension Fields.Range: Equatable {}
 `,
 		"Sources/Player/Player.swift": `
 struct Player {}
@@ -65,6 +66,7 @@ struct Fields {}
 		"Sources/Lib.Fields.Range.count",
 		"Sources/Lib.URLSessionWebSocketTask.Message.text",
 		"Sources/Lib.Fields.own",
+		"Sources/Lib.Fields.Range+Equatable",
 		"Sources/Player.Player.Sound.play",
 	} {
 		if _, ok := findFact(ff, want); !ok {
@@ -122,5 +124,36 @@ extension Collection: Codable where Element == Date.RFCStyle {}
 	}
 	if !hasName(names, "Sources/Lib.Collection+Codable", "Sources/Lib.Date.RFCStyle") {
 		t.Errorf("Collection+Codable names %v, want Date.RFCStyle", names["Sources/Lib.Collection+Codable"])
+	}
+}
+
+// A `..` operator (lens composition) is read by the grammar as one navigation chain
+// with an ERROR "." in it; each side is a type path of its own.
+func TestSwiftDotOperatorSidesAreSeparatePaths(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/Lib/Lenses.swift": `
+struct Project {
+  struct Photo { let full: String }
+  enum lens { static let photo = 1 }
+}
+extension Project.Photo {
+  enum lens { static let full = 1 }
+}
+func full() -> Int {
+  return Project.lens.photo .. Project.Photo.lens.full
+}
+func viaSelf() -> Int {
+  return self.base .. Project.Photo.lens.full
+}
+`,
+	})
+	names := namesOf(ff)
+	for _, from := range []string{"Sources/Lib.full", "Sources/Lib.viaSelf"} {
+		if !hasName(names, from, "Sources/Lib.Project.Photo.lens") {
+			t.Errorf("%s names %v, want Project.Photo.lens", from, names[from])
+		}
+	}
+	if !hasName(names, "Sources/Lib.full", "Sources/Lib.Project.lens") {
+		t.Errorf("full names %v, want Project.lens", names["Sources/Lib.full"])
 	}
 }

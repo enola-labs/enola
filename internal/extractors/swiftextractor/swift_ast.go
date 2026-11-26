@@ -847,10 +847,10 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 	w.popOwner()
 }
 
-// handleExtension preserves the legacy behaviour: one symbol fact per adopted
-// protocol named "<dir>.<Base>+<Proto>". It additionally walks the extension body
-// so methods declared in extensions get symbol facts ("<dir>.<Base>.<method>")
-// and contribute call-graph edges.
+// handleExtension emits one symbol fact per adopted protocol, named
+// "<dir>.<Path>+<Proto>" for the type path the extension writes. It additionally
+// walks the extension body so methods declared in extensions get symbol facts
+// ("<dir>.<Path>.<method>") and contribute call-graph edges.
 func (w *astWalker) handleExtension(node *sitter.Node) {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
@@ -860,6 +860,11 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	if base == "" {
 		return
 	}
+	// The extension's facts are named through the path it writes, so a type
+	// declared in `extension A.B` is A.B.Value, as it is when declared inside B,
+	// and its conformance is A.B+P.
+	path, moduleHead := w.extendedPath(nameNode, base)
+	start := len(w.out)
 	for _, spec := range inheritanceSpecs(node, w.src) {
 		rels := []facts.Relation{
 			{Kind: facts.RelDeclares, Target: w.dir},
@@ -872,7 +877,7 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 		}
 		w.out = append(w.out, facts.Fact{
 			Kind:    facts.KindSymbol,
-			Name:    w.dir + "." + base + "+" + spec.name,
+			Name:    w.dir + "." + path + "+" + spec.name,
 			File:    w.relFile,
 			Line:    int(node.StartPosition().Row) + 1,
 			EndLine: tsutil.EndLine(node),
@@ -886,10 +891,7 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	}
 
 	body := typeBody(node)
-	// No single type owner for an extension; methods push their own owner. Its
-	// members are named through the path the extension writes, so a type declared
-	// in `extension A.B` is A.B.Value, as it is when declared inside B.
-	path, moduleHead := w.extendedPath(nameNode, base)
+	// No single type owner for an extension; methods push their own owner.
 	before := len(w.out)
 	w.pushType(path, collectMethodNames(body, w.src))
 	w.pushContainer(swiftContainer{exported: true, memberDefault: accessLevel(findChildByKind(node, "modifiers"), w.src)})
@@ -898,8 +900,8 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	w.popType()
 	w.noteWhereClauseUses(node, w.dir+"."+path+".", before)
 	if moduleHead != "" {
-		for i := before; i < len(w.out); i++ {
-			if strings.HasPrefix(w.out[i].Name, w.dir+"."+path+".") {
+		for i := start; i < len(w.out); i++ {
+			if n := w.out[i].Name; strings.HasPrefix(n, w.dir+"."+path+".") || strings.HasPrefix(n, w.dir+"."+path+"+") {
 				w.out[i].SetProp(propModuleHead, moduleHead)
 			}
 		}
