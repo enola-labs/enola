@@ -196,7 +196,7 @@ func isIdentifier(s string) bool {
 // class the previous relation names (eloquent_target); a morphTo names none, and the
 // path stops there. A receiver that is a query's result is read by eloquentResult.
 func bindRelationReads(allFacts []facts.Fact) {
-	r := relationResolver{relations: map[string]string{}, returns: map[string]string{}, models: map[string]bool{}}
+	r := relationResolver{relations: map[string]string{}, toMany: map[string]bool{}, returns: map[string]string{}, models: map[string]bool{}}
 	reads := false
 	for i := range allFacts {
 		f := &allFacts[i]
@@ -206,6 +206,7 @@ func bindRelationReads(allFacts []facts.Fact) {
 		if f.PropBool(propRelationMethod) {
 			delete(f.Props, propRelationMethod)
 			r.relations[f.Name] = f.PropString(propEloquentTarget)
+			r.toMany[f.Name] = toManyRelations[f.PropString(propEloquentRelation)]
 		}
 		// Read here, removed by bindReceiverCalls.
 		if t, ok := f.Props[propReturnType].(string); ok {
@@ -242,9 +243,10 @@ func bindRelationReads(allFacts []facts.Fact) {
 				if sep <= 0 {
 					continue
 				}
-				class, query := r.eloquentResult(e[:sep], 0)
-				// A property of a query is none of its model's relations.
-				if query && n == 0 {
+				class, kind := r.eloquentResult(e[:sep], 0)
+				// A property of a query or a collection is none of its model's relations;
+				// either loads them.
+				if kind != ofModel && n == 0 {
 					continue
 				}
 				for _, seg := range strings.Split(e[sep+2:], ".") {
@@ -271,10 +273,28 @@ type relationResolver struct {
 	ix *classIndex
 	// relations maps each relation method to the model it names, "" for a morphTo.
 	relations map[string]string
+	// toMany marks the relation methods whose property is a collection.
+	toMany map[string]bool
 	// returns maps a method to the class its return type declares.
 	returns map[string]string
 	models  map[string]bool
 }
+
+// toManyRelations are the relation builders whose property is a collection.
+var toManyRelations = map[string]bool{
+	"hasMany": true, "belongsToMany": true, "hasManyThrough": true,
+	"morphMany": true, "morphToMany": true, "morphedByMany": true,
+}
+
+// What a receiver type names: one model of its class, a query of it, or a
+// collection of its models.
+type resultKind int
+
+const (
+	ofModel resultKind = iota
+	ofQuery
+	ofMany
+)
 
 // queryMethods are the Eloquent builder methods a model class, a model or a query
 // forwards to a query of the same model.
@@ -298,45 +318,114 @@ var resultMethods = map[string]bool{
 	"load": true, "loadMissing": true, "loadCount": true,
 }
 
-// eloquentResult is the class a receiver type names, and whether it is a query of
-// that class rather than one of its models. A marked type (factoryreturns.go) is a
-// method's result: a method the repository declares yields its declared return
-// type, or a query of its model when it is a relation; a method of the Eloquent
-// builder an undeclared one, on a model class or its query, yields a query of the
-// model (a `whereX` or a scope the model declares as `scopeX` included) or one of
-// its models. Anything else, a collection among them, is "".
-func (r relationResolver) eloquentResult(t string, depth int) (string, bool) {
-	if !strings.HasSuffix(t, callMark) {
-		return t, false
+// manyMethods are those that fetch a collection of models.
+var manyMethods = map[string]bool{
+	"get": true, "all": true, "findMany": true, "paginate": true, "simplePaginate": true, "cursorPaginate": true,
+	"cursor": true, "lazy": true, "lazyById": true,
+}
+
+// collectionMethods are the collection methods that keep a collection of the same
+// models, and collectionItems those that take one of them.
+var (
+	collectionMethods = map[string]bool{
+		"filter": true, "reject": true, "where": true, "whereIn": true, "whereNotIn": true, "whereNull": true,
+		"whereNotNull": true, "sortBy": true, "sortByDesc": true, "sortKeys": true, "values": true, "unique": true,
+		"take": true, "skip": true, "slice": true, "reverse": true, "keyBy": true, "shuffle": true,
+		"load": true, "loadMissing": true, "loadCount": true, "fresh": true, "except": true, "only": true,
 	}
-	path := strings.TrimSuffix(t, callMark)
+	collectionItems = map[string]bool{
+		"first": true, "last": true, "firstWhere": true, "firstOrFail": true, "sole": true, "find": true,
+		"pop": true, "shift": true,
+	}
+)
+
+// eloquentResult is the class a receiver type names, and what of it. A plain type
+// is one model of its class. A marked type (factoryreturns.go) is read mark by mark:
+//
+//   - a method's result: a method the repository declares yields its declared return
+//     type, or a query of its model when it is a relation; a method of the Eloquent
+//     builder the model does not declare, called on a model class, a model or its
+//     query, yields a query of the model (a `whereX` or a scope the model declares
+//     as `scopeX` included), one of its models, or a collection of them; a collection
+//     method keeps the collection or takes one model of it;
+//   - a property read: a relation's model, or a collection of them for a to-many
+//     relation;
+//   - an element: one model of a collection or a query.
+//
+// Anything else is "".
+func (r relationResolver) eloquentResult(t string, depth int) (string, resultKind) {
+	if depth > 12 {
+		return "", ofModel
+	}
+	if inner, ok := strings.CutSuffix(t, elementMark); ok {
+		if class, kind := r.eloquentResult(inner, depth+1); kind != ofModel {
+			return class, ofModel
+		}
+		return "", ofModel
+	}
+	mark := ""
+	switch {
+	case strings.HasSuffix(t, callMark):
+		mark = callMark
+	case strings.HasSuffix(t, readMark):
+		mark = readMark
+	default:
+		return t, ofModel
+	}
+	path := strings.TrimSuffix(t, mark)
 	sep := strings.LastIndex(path, "::")
-	if sep <= 0 || depth > 8 {
-		return "", false
+	if sep <= 0 {
+		return "", ofModel
 	}
-	class, _ := r.eloquentResult(path[:sep], depth+1)
+	class, kind := r.eloquentResult(path[:sep], depth+1)
 	method := path[sep+2:]
-	if class == "" || !r.ix.hasClass(class) {
-		return "", false
+	if class == "" || !r.ix.hasClass(class) || method == "" {
+		return "", ofModel
+	}
+	if kind == ofMany {
+		switch {
+		case mark != callMark:
+		case collectionMethods[method]:
+			return class, ofMany
+		case collectionItems[method]:
+			return class, ofModel
+		}
+		return "", ofModel
+	}
+	if mark == readMark {
+		if kind != ofModel {
+			return "", ofModel
+		}
+		decl := r.ix.declaringMethod(class, method)
+		target, ok := r.relations[decl]
+		if !ok || target == "" {
+			return "", ofModel
+		}
+		if r.toMany[decl] {
+			return target, ofMany
+		}
+		return target, ofModel
 	}
 	if decl := r.ix.declaringMethod(class, method); decl != "" {
 		if target, ok := r.relations[decl]; ok {
-			return target, true
+			return target, ofQuery
 		}
-		return r.returns[decl], false
+		return r.returns[decl], ofModel
 	}
 	if !r.isModel(class) {
-		return "", false
+		return "", ofModel
 	}
 	switch {
 	case resultMethods[method]:
-		return class, false
+		return class, ofModel
+	case manyMethods[method]:
+		return class, ofMany
 	case queryMethods[method], eagerLoadMethods[method], strings.HasPrefix(method, "where"), strings.HasPrefix(method, "orWhere"):
-		return class, true
-	case method != "" && r.ix.declaringMethod(class, "scope"+strings.ToUpper(method[:1])+method[1:]) != "":
-		return class, true
+		return class, ofQuery
+	case r.ix.declaringMethod(class, "scope"+strings.ToUpper(method[:1])+method[1:]) != "":
+		return class, ofQuery
 	}
-	return "", false
+	return "", ofModel
 }
 
 func (r relationResolver) isModel(class string) bool {

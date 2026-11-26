@@ -4129,7 +4129,11 @@ import (
 // `$m->relation()->first()`), directly or through a local, is read as that model,
 // and a query built on a model class or a relation method as that model's query, so a
 // relation read on the one or eager loaded on the other is a calls edge. A chain of
-// property reads (`$media->status->poll`) follows each relation's model.
+// property reads (`$media->status->poll`) follows each relation's model. An element
+// of a collection of models (a query's `get()`, a to-many relation read), bound by
+// foreach or a collection callback, is that model; a closure parameter of declared
+// type and a local assigned a typed property are typed. A binding never displaces
+// what an assignment gives the local.
 const cacheVersion = "v743"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

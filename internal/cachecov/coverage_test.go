@@ -339,7 +339,7 @@ var versionCoverage = map[int][]string{
 	742: {"TestCppEmplaceThroughMemberChainInstantiates", "TestCppEmplaceInstantiatesElementType", "TestGolden"},
 	741: {"TestGolden"},
 	742: {"TestGolden"},
-	743: {"TestEloquentQueryResultRelationReadIsAUse", "TestEloquentRelationPropertyReadIsAUse", "TestEloquentRelationNamedInEagerLoadIsAUse"},
+	743: {"TestEloquentQueryResultRelationReadIsAUse", "TestEloquentCollectionElementRelationReadIsAUse", "TestPHPLocalIsTypedByWhatItIsAssigned", "TestEloquentRelationPropertyReadIsAUse", "TestEloquentRelationNamedInEagerLoadIsAUse"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

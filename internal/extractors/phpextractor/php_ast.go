@@ -598,7 +598,7 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 			w.addCall(ownerIdx, seen, target)
 			w.recordEloquentRelation(node, ownerIdx, target)
 			w.recordRelationMethod(node, ownerIdx, target)
-			w.recordEagerLoads(node, ownerIdx, target, w.receiverOf(node.ChildByFieldName("object"), w.localTypes))
+			w.recordEagerLoads(node, ownerIdx, target, w.chainReceiver(node.ChildByFieldName("object"), w.localTypes))
 			w.recordReceiverCall(node, ownerIdx, target)
 			// The edge is the bare method name, because the receiver's type is
 			// unknown. Only `$this->m()` is known to be this class's m: a
