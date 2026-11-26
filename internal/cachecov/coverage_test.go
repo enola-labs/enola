@@ -336,8 +336,6 @@ var versionCoverage = map[int][]string{
 	741: {"TestSwiftExtensionOfNestedTypeNamesMembersByFullPath", "TestSwiftExtensionWhereClauseNamesItsMembers", "TestSwiftDotOperatorSidesAreSeparatePaths", "TestSwiftConstructorBindsThroughScope", "TestGolden"},
 	742: {"TestCppEmplaceThroughMemberChainInstantiates", "TestCppEmplaceInstantiatesElementType", "TestGolden"},
 	743: {"TestEloquentQueryResultRelationReadIsAUse", "TestEloquentCollectionElementRelationReadIsAUse", "TestPHPLocalIsTypedByWhatItIsAssigned", "TestEloquentRelationPropertyReadIsAUse", "TestEloquentRelationNamedInEagerLoadIsAUse"},
-	738: {"TestGolden"},
-	739: {"TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
