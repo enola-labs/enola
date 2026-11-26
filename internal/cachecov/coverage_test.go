@@ -331,6 +331,7 @@ var versionCoverage = map[int][]string{
 	736: {"TestCppChainedReceiverFactoriesInstantiate", "TestCppMemberFactoryTemplatesInstantiate", "TestGolden"},
 	737: {"TestValueRefs_LocalEnumMemberAccess", "TestPyMethodReadAsAValueIsNamed", "TestBind_MemberNamesResolveThroughTheBases", "TestGolden"},
 	738: {"TestDartFileScopeConstructions", "TestDartNamedConstructorConstructions", "TestDartNamedConstructorReceiverScope", "TestDartRedirectingFactory"},
+	739: {"TestDartImportPrefixedTearOffsAndGetterReads", "TestDartImportPrefixedValueScope"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

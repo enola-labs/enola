@@ -117,7 +117,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			sort.Strings(candidates)
 			for _, candidate := range candidates {
 				read := reads[candidate]
-				target := r.call(candidate, f, false, true, constructed)
+				target := r.valueTarget(candidate, f, constructed)
 				entry := r.members[target]
 				if entry.fact == nil || entry.fact.PropString("accessor") != "getter" {
 					continue
@@ -139,7 +139,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		if names, ok := f.Props["_dart_value_names"].([]string); ok {
 			for _, use := range names {
 				kind, name, _ := strings.Cut(use, ":")
-				fn := r.members[r.call(name, f, false, true, nil)].fact
+				fn := r.members[r.valueTarget(name, f, nil)].fact
 				if fn == nil || fn.PropString("symbol_kind") != facts.SymbolFunc || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
 					continue
 				}
@@ -466,6 +466,33 @@ func disambiguateDartGetters(all []facts.Fact) {
 	}
 }
 
+// valueTarget resolves a name read, written or torn off outside a call.
+// `p.name` spelled through an import prefix binds through the library's imports
+// under that prefix alone, as a prefixed call does, and like a bare name never
+// to a bundled SDK signature; anything else resolves as a call.
+func (r *dartMemberResolver) valueTarget(spelled string, from *facts.Fact, constructed map[string]*facts.Fact) string {
+	if qualified, ok := strings.CutPrefix(spelled, dartPrefixedValue); ok {
+		prefix, name, _ := strings.Cut(qualified, ".")
+		if r.importPrefix(prefix, from.File) {
+			if fn := uniqueDartFact(r.importedFunctions(prefix, name, from.File)); fn != nil && !r.sdkHosts[r.libraryFile(fn.File)] {
+				return fn.Name
+			}
+		}
+		return ""
+	}
+	return r.call(spelled, from, false, true, constructed)
+}
+
+// importPrefix reports an `as` prefix of an import of file's library.
+func (r *dartMemberResolver) importPrefix(prefix, file string) bool {
+	for _, dep := range r.imports[r.libraryFile(file)] {
+		if !dep.PropBool("reexport") && dep.PropString("import_prefix") == prefix {
+			return true
+		}
+	}
+	return false
+}
+
 // libraryValueVisible reports whether a bare name the walker could not bind
 // reaches target, a top-level declaration found through the library's parts or
 // imports. A top-level variable of the reading library hides any import, and a
@@ -495,14 +522,14 @@ func (r *dartMemberResolver) setterWrite(spelled string, from *facts.Fact) strin
 	if !own {
 		// Top-level setters emit no symbol of their own, so a written top-level
 		// getter name stands for its setter: a getter alone cannot be assigned.
-		target := r.call(name, from, false, true, nil)
+		target := r.valueTarget(name, from, nil)
 		if entry := r.members[target]; entry.fact != nil && entry.fact.PropString("symbol_kind") == facts.SymbolFunc && entry.fact.PropString("accessor") != "" {
 			if entry.fact.File == from.File || r.libraryValueVisible(name, entry.fact, from) {
 				return entry.fact.Name
 			}
 			return ""
 		}
-		if len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) > 0 {
+		if strings.HasPrefix(name, dartPrefixedValue) || len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) > 0 {
 			return ""
 		}
 	}

@@ -4111,7 +4111,11 @@ import (
 // constructor (`Foo.named()`, `p.Foo.named()`) is a construction of Foo wherever it
 // is written, once it binds to a constructor Foo declares; a redirecting factory
 // (`factory A() = _A;`) is a constructor symbol that builds its target.
-const cacheVersion = "v738"
+// v739: Dart: `p.name` through an import prefix, read or written rather than
+// invoked, binds through that prefix's imports as a prefixed call does (a part
+// uses its library's prefixes): a top-level getter read or setter write is a
+// call, a function in a value position is a names edge; SDK targets are skipped.
+const cacheVersion = "v739"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
