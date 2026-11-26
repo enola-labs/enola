@@ -4082,7 +4082,10 @@ import (
 // *PrincipalClass key) or a storyboard or nib (customClass=) names is
 // framework_registered; a #selector binds to a method an extension of a framework
 // type declares; and a metatype parameter (T.Type) has T's members.
-const cacheVersion = "v732"
+// v733: TypeScript and JSX files under a test/ directory are ignored and listed as
+// test globs by default, whatever their name, and the TypeScript extractor reads
+// them for test refs, as it already did the JavaScript there.
+const cacheVersion = "v733"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
