@@ -4148,6 +4148,9 @@ import (
 // that prefix's imports, and one that binds nothing keeps the bare class name.
 // v746: .vue and .svelte files under a test/ or tests/ directory are ignored and
 // listed as test globs by default, and read for test refs through their script blocks.
+// A folder index's `export * from` is followed to the module that declares the name,
+// in the production and the test-ref pass, unless a file of the folder declares the
+// name or two star sources export it.
 const cacheVersion = "v746"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

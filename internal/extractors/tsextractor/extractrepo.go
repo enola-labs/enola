@@ -157,7 +157,7 @@ func newRepoCtx(fw tsFrameworks, tsFiles []string, sources map[string][]byte, kn
 		// Exported request helpers, read before the parallel pass for the same reason:
 		// a helper and the calls to it live in different files.
 		requestHelpers: buildRequestHelperIndex(tsFiles, sources),
-		barrels:        barrelExports(tsFiles, sources, knownFiles),
+		barrels:        barrelExports(tsFiles, func(f string) []byte { return sources[f] }, knownFiles),
 	}
 	if fw.isNuxt {
 		rc.nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)

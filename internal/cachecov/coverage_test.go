@@ -337,7 +337,7 @@ var versionCoverage = map[int][]string{
 	742: {"TestCppEmplaceThroughMemberChainInstantiates", "TestCppEmplaceInstantiatesElementType", "TestGolden"},
 	744: {"TestGolden"},
 	745: {"TestGolden"},
-	746: {"TestExtractTestRefs_ComponentUnderATestDirectory", "TestTestsDirectoryIsTests", "TestMochaTestDirectoryIsTests", "TestIsTSTestFile", "TestGolden"},
+	746: {"TestBarrelExports_StarReexportFollowedToTheDeclaringModule", "TestExtractTestRefs_StarBarrelResolvesToTheDeclaringModule", "TestExtractTestRefs_ComponentUnderATestDirectory", "TestTestsDirectoryIsTests", "TestMochaTestDirectoryIsTests", "TestIsTSTestFile", "TestGolden"},
 	743: {"TestEloquentQueryResultRelationReadIsAUse", "TestEloquentCollectionElementRelationReadIsAUse", "TestPHPLocalIsTypedByWhatItIsAssigned", "TestEloquentRelationPropertyReadIsAUse", "TestEloquentRelationNamedInEagerLoadIsAUse"},
 	744: {"TestDartUnnamedExtensionIsExtracted", "TestDartUnnamedExtensionNames", "TestDartUnnamedExtensionIsLibraryPrivate", "TestDartUnnamedExtensionInDottedFile", "TestGolden"},
 	745: {"TestDartImportPrefixedStaticMembers", "TestDartImportPrefixedStaticMemberScope", "TestDartImportPrefixedConstructions", "TestDartImportPrefixedConstructionScope"},

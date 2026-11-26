@@ -2908,7 +2908,7 @@ func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, file
 	index := newTSFileIndex(known)
 	index.root = repoPath
 	index.probe = plugin.DiskProber(ctx)
-	barrels := barrelExports(prodTS, readTSSources(ctx, repoPath, folderIndexFiles(prodTS)), known)
+	barrels := barrelExports(prodTS, cachedSourceReader(repoPath), known)
 
 	perFile := parallel.MapFiles(ctx, testFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
@@ -2935,16 +2935,21 @@ func lastDotSeg(target string) string {
 	return target[strings.LastIndex(target, ".")+1:]
 }
 
-// folderIndexFiles returns the index files among tsFiles, the only ones
-// barrelExports reads.
-func folderIndexFiles(tsFiles []string) []string {
-	var out []string
-	for _, f := range tsFiles {
-		if strings.TrimSuffix(path.Base(f), path.Ext(f)) == "index" {
-			out = append(out, f)
+// cachedSourceReader reads a repository file once, for barrelExports, which reads
+// the folder indexes and only the modules their stars and folders reach.
+func cachedSourceReader(repoPath string) func(string) []byte {
+	read := map[string][]byte{}
+	return func(rel string) []byte {
+		if src, ok := read[rel]; ok {
+			return src
 		}
+		src, err := os.ReadFile(filepath.Join(repoPath, rel))
+		if err != nil {
+			src = nil
+		}
+		read[rel] = src
+		return src
 	}
-	return out
 }
 
 // resolveTestRefBarrels rewrites a test reference to a name a folder's index
