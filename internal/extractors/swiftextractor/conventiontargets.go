@@ -49,11 +49,18 @@ type conventionTarget struct {
 type swiftPrescan struct {
 	requestBases map[string]string
 	imported     map[string]bool
+	// declared holds every name a Swift source declares a type of, read from the
+	// text: a type the parser lost (a file that does not parse, a type local to a
+	// function) is still the repository's (resolveTypedCalls).
+	declared map[string]bool
 }
+
+// swiftTypeDeclName matches a type declaration's keyword and name.
+var swiftTypeDeclName = regexp.MustCompile(`\b(?:class|struct|enum|actor|protocol|typealias|associatedtype)\s+` + "`?" + `([A-Za-z_][A-Za-z0-9_]*)`)
 
 // prescanSwift reads every Swift source once.
 func prescanSwift(repoPath string, files []string) swiftPrescan {
-	out := swiftPrescan{requestBases: map[string]string{}, imported: map[string]bool{}}
+	out := swiftPrescan{requestBases: map[string]string{}, imported: map[string]bool{}, declared: map[string]bool{}}
 	for _, relFile := range files {
 		if !isSwiftFile(relFile) {
 			continue
@@ -64,6 +71,11 @@ func prescanSwift(repoPath string, files []string) swiftPrescan {
 		}
 		for _, m := range swiftImportLine.FindAllSubmatch(src, -1) {
 			out.imported[string(m[1])] = true
+		}
+		for _, m := range swiftTypeDeclName.FindAllSubmatch(src, -1) {
+			if name := string(m[1]); !notATypeName[name] {
+				out.declared[name] = true
+			}
 		}
 		if isSwiftTestFile(relFile) || !bytes.Contains(src, []byte("endpoint")) {
 			continue

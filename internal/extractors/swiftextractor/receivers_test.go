@@ -232,6 +232,14 @@ struct Strategy {
     func lookup() {}
     func show() {}
     func run() {}
+    func bootstrap() {}
+}
+
+func makeLive() {
+    actor Session {
+        func bootstrap() {}
+    }
+    _ = Session()
 }
 
 extension TaskRunner {
@@ -270,6 +278,9 @@ struct Address {
     }
     func any(_ target: AnyObject) {
         target.show()
+    }
+    func live(_ session: Session) {
+        session.bootstrap()
     }
     func display(cell: UITableViewCell, other: UITableViewCell, expand: ExpandCell?) {
         if let expand = expand {
@@ -328,6 +339,9 @@ extension Keyed {
 		"Sources/App.Address.generic": "Sources/App.Strategy.lookup",
 		"Sources/App.Address.any":     "Sources/App.Strategy.show",
 		"Sources/App.Keyed.read":      "Sources/App.Strategy.render",
+		// A type the source declares where the parser records no symbol (local to a
+		// function here) is not foreign: the call binds by name as before.
+		"Sources/App.Address.live": "Sources/App.Strategy.bootstrap",
 	} {
 		if got := swCalls(t, ff, fn); !slices.Contains(got, want) {
 			t.Errorf("%s calls %v, want %s", fn, got, want)

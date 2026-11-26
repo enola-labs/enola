@@ -289,8 +289,10 @@ func (w *astWalker) noteStatedReceiverCall(typ, method string) {
 // as before: which of them a foreign value has is not known here, and choosing the
 // one open method bound `engine.run()` to an extension of an unrelated framework
 // class. A generic parameter, an associated type, Any and AnyObject are not
-// foreign: their members are a constraint's or any class's.
-func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies, index *swiftIndexes) {
+// foreign: their members are a constraint's or any class's. Nor is a name any Swift
+// source declares a type of by its text (declared), so a type the parser lost keeps
+// the bare-name binding.
+func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies, index *swiftIndexes, declared map[string]bool) {
 	assoc := associatedTypeSet(allFacts)
 	for i := range allFacts {
 		f := &allFacts[i]
@@ -307,7 +309,7 @@ func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies, index *swi
 				// The bare edge, for resolveMethodCalls to bind by name, unless the
 				// type is foreign and only classes and structs of the repository
 				// declare the name.
-				foreign := len(ix.owners[n.typ]) == 0 && !assoc[n.typ] && !anyType[n.typ]
+				foreign := len(ix.owners[n.typ]) == 0 && !declared[n.typ] && !assoc[n.typ] && !anyType[n.typ]
 				if target == "" && foreign && len(ix.openMethods(n.method)) == 0 {
 					continue
 				}

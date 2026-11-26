@@ -222,7 +222,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// canonicalizeTargets so type-target rewrites are already settled.
 	allFacts = resolveRootedCalls(allFacts, index)
 	hier := &swiftHierarchies{facts: allFacts}
-	resolveTypedCalls(allFacts, hier, index)
+	resolveTypedCalls(allFacts, hier, index, pre.declared)
 	resolveImplicitCalls(allFacts, index)
 	resolveMethodCalls(allFacts, index)
 

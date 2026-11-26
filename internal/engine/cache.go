@@ -4166,7 +4166,10 @@ import (
 // of the repository declare a method of its name; an init's parameters are typed
 // receivers as a method's are; a name an if or guard condition binds has, in the
 // if's body or after the guard, the type of the cast (`if let cell = cell as? T`)
-// or of the name it unwraps (`if let api = api`), any other binding none.
+// or of the name it unwraps (`if let api = api`), any other binding none. A type
+// any Swift source declares by its text is never foreign. A file with `try await`
+// (or `try?`/`try!`) in an if condition, which the grammar read as one error, is
+// parsed again with that `await` blanked, so its types are symbols again.
 const cacheVersion = "v748"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
