@@ -61,6 +61,11 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				} else if len(r.canonicalTypes[rel.Target]) > 0 {
 					rel.Target = "(" + rel.Target + ")"
 				}
+			case relDartTypeRef:
+				// Bound names become uses; the rest stay this kind and are dropped below.
+				if typ := r.typeNamed(rel.Target, f.File); typ != nil {
+					rel.Kind, rel.Target = facts.RelNames, typ.Name
+				}
 			case facts.RelCalls:
 				before := rel.Target
 				rel.Target = resolved[j]
@@ -128,6 +133,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		seen := map[facts.Relation]bool{}
 		relations := f.Relations[:0]
 		for _, rel := range f.Relations {
+			if rel.Kind == relDartTypeRef {
+				continue
+			}
 			if rel.Kind == facts.RelCalls {
 				if seen[rel] {
 					continue

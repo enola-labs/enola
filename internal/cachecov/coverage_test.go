@@ -327,6 +327,7 @@ var versionCoverage = map[int][]string{
 	732: {"TestSelectorOnMetatypeParameter", "TestResourceNamedClassesAreEntered"},
 	733: {"TestMochaTestDirectoryIsTests", "TestIsTSTestFile", "TestGolden"},
 	734: {"TestDartImportedTearOffsAndGetterReads", "TestDartImportedValueScope", "TestDartModuleInitializerGetterReadsAndCallMethod", "TestDartModuleInitializerInvocation", "TestIsGeneratedDartPath", "TestDefaultIgnoresMatchGeneratedDartSuffixes", "TestGolden"},
+	735: {"TestDartDefaultConstructionsAndAbstractDefaults", "TestDartFieldInitializerConstructions", "TestDartAnnotationArgumentReferences"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

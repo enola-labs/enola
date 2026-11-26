@@ -148,9 +148,11 @@ func (w *walker) walkBody(body *sitter.Node, selfName string, signature *sitter.
 	b.shadows = shadows
 	b.receiverTypes, b.receiverGenerics = w.bodyReceiverTypes(signature, shadows, bindings)
 	// Defaults are evaluated outside the parameter scope and are constant, so
-	// only the value pass applies; the declaration's own bindings hide nothing.
+	// only the value pass and the construction scan apply (`= const Opt()`); the
+	// declaration's own bindings hide nothing.
 	for _, d := range dartParameterDefaults(signature) {
 		w.valueReferences(d, map[string]bool{}, b)
+		w.constructionReferences(d, map[string]bool{}, b)
 	}
 	for _, init := range initializers {
 		w.walkNode(init, b, selfShort, 0, 0)
@@ -305,15 +307,7 @@ func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort strin
 
 		sourceReceiver, directReceiver := w.callReceiver(kids, i)
 		target := w.scopedCallTarget(sourceReceiver, directReceiver, name, b)
-		previous := i - 1
-		if previous >= 0 && kindOf(kids[previous]) == "type_arguments" {
-			previous--
-		}
-		constructor := baseIsType && receiver == name && previous >= 0 && kindOf(kids[previous]) != "selector" && !b.shadows[name] && w.callableValue(name) == ""
-		if _, field := w.fieldTypes[name]; field {
-			constructor = false
-		}
-		if constructor {
+		if w.constructorInvocation(kids, i, name, receiver, baseIsType, b.shadows) {
 			target = name
 			b.constructedTypes[name] = true
 			b.addRelation(facts.RelInstantiates, name)

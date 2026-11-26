@@ -4093,7 +4093,12 @@ import (
 // `f.call(...)` on a file function in a module initializer are calls, and a
 // file-scope invocation keeps its target through resolution. `.mapper.dart`
 // (dart_mappable) is generated.
-const cacheVersion = "v734"
+// v735: Dart: a construction in a parameter default (`= const Opt()`) or a class-body
+// field initializer records `instantiates`, and an abstract method's defaults are
+// read. An annotation's arguments record what they name: a type that binds in the
+// library (`@DriftDatabase(tables: [Users])`) as a names edge, a tear-off, and a
+// construction, on the annotated type, or on the file's reference fact otherwise.
+const cacheVersion = "v735"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -423,6 +423,9 @@ func (w *walker) fieldInitializerReferences(list *sitter.Node) {
 	shadows := map[string]bool{}
 	dartBoundNames(list, w.src, shadows)
 	w.valueReferences(list, shadows, w.fieldValues)
+	// `late final _c = Controller()` is the class's only construction site as often
+	// as a method body is.
+	w.constructionReferences(list, shadows, w.fieldValues)
 }
 
 func (w *walker) emitFieldInitializerReferences() {

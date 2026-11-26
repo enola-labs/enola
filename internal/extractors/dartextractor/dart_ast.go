@@ -352,6 +352,12 @@ func (w *walker) walkDeclarations(root *sitter.Node) {
 	for i := 0; i < len(kids); i++ {
 		n := kids[i]
 		switch kindOf(n) {
+		case "class_definition", "mixin_declaration", "extension_declaration", "extension_type_declaration":
+			// classDecl reads its own metadata onto the type.
+		default:
+			w.annotationReferences(n, w.fileValueWalk())
+		}
+		switch kindOf(n) {
 		case "class_definition":
 			w.classDecl(n, "class")
 		case "mixin_declaration":
@@ -435,6 +441,12 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 		}
 	}
 
+	// The class's own metadata names what it registers (`@DriftDatabase(tables:
+	// [...])`), in library scope, so it is read before the member overlay applies.
+	annotated := &bodyWalk{seenRel: map[string]bool{}}
+	w.annotationReferences(n, annotated)
+	rels = append(rels, annotated.relations...)
+
 	body := childOfKind(n, "class_body", "extension_body", "enum_body")
 	members := w.primaryConstructor(n, name)
 	members = append(members, w.memberDecls(body, name)...)
@@ -502,6 +514,13 @@ func (w *walker) memberDecls(body *sitter.Node, typeName string) []memberInfo {
 	kids := namedChildren(body)
 	for i := 0; i < len(kids); i++ {
 		n := kids[i]
+		// Member metadata resolves in class scope, so this runs under the overlay.
+		// Private members have no symbol, so the uses go to the file, as field
+		// initializers' do.
+		switch kindOf(n) {
+		case "annotation", "declaration", "method_signature":
+			w.annotationReferences(n, w.fileValueWalk())
+		}
 		switch kindOf(n) {
 		case "method_signature":
 			// A concrete member: signature here, body in the next sibling.
@@ -660,9 +679,15 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 			if len(annos) > 0 {
 				props["annotations"] = annos
 			}
+			// An abstract method's defaults are still evaluated, by every override
+			// that inherits them.
+			var rels []facts.Relation
+			if len(dartParameterDefaults(c)) > 0 {
+				rels = w.walkBody(nil, full, c).relations
+			}
 			w.out = append(w.out, facts.Fact{
 				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c), EndLine: tsutil.EndLine(c),
-				Props: props,
+				Props: props, Relations: rels,
 			})
 			w.setDoc(n)
 			out = append(out, memberInfo{name: full, isMethod: true, isAbstract: true})
