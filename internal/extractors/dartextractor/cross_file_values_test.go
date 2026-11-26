@@ -176,6 +176,13 @@ class Box extends Base {
   void inherited() { value = 5; }
 }
 class Fragment { Fragment? next; }
+mixin Typed { int get kind => 0; set kind(int v) {} }
+mixin Declares { int get kind; }
+class Decl with Typed, Declares {
+  @override
+  int get kind => 1;
+  void build() { kind = 2; }
+}
 class Lens extends Base {
   @override
   int get value => 1;
@@ -194,6 +201,7 @@ class Sub extends Fragment {
 		"lib.Box.toggle":    "lib.Box.open",
 		"lib.Box.inherited": "lib.Base.value",
 		"lib.Lens.reset":    "lib.Base.value",
+		"lib.Decl.build":    "lib.Typed.kind",
 	} {
 		if f := findFact(all, facts.KindSymbol, name); !hasRelation(f, facts.RelCalls, target) {
 			t.Errorf("%s: no calls edge to %s: %+v", name, target, f)

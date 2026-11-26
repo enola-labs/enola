@@ -471,33 +471,32 @@ func (r *dartMemberResolver) setterWrite(spelled string, from *facts.Fact) strin
 // are separate members: an overriding getter leaves the inherited setter, or
 // field, in force.
 func (r *dartMemberResolver) setterMember(owner *facts.Fact, name string, seen map[*facts.Fact]bool) string {
+	target, _ := r.setterIn(owner, name, seen)
+	return target
+}
+
+// setterIn reports the setter found from owner up, and whether a declaration
+// on the way decided the answer.
+func (r *dartMemberResolver) setterIn(owner *facts.Fact, name string, seen map[*facts.Fact]bool) (string, bool) {
 	if owner == nil || seen[owner] {
-		return ""
+		return "", false
 	}
 	seen[owner] = true
 	if entry, ok := r.members[owner.Name+"."+name]; ok && (entry.fact == nil || r.sameDartLibrary(entry.fact, owner)) {
 		if dartHasSetter(entry) {
-			return entry.fact.Name
+			return entry.fact.Name, true
 		}
 		if entry.count != 1 || entry.fact.PropString("accessor") != "getter" {
-			return ""
+			return "", true
 		}
 	} else if _, field := r.fieldValues[dartMemberKey{owner, name}]; field {
-		return ""
+		return "", true
 	}
 	mixins, _ := owner.Props["mixin_types"].([]string)
 	for i := len(mixins) - 1; i >= 0; i-- {
-		if mixin := r.typeNamed(mixins[i], owner.File); mixin != nil && r.declaresMember(mixin, name) {
-			return r.setterMember(mixin, name, seen)
+		if target, decided := r.setterIn(r.typeNamed(mixins[i], owner.File), name, seen); decided {
+			return target, true
 		}
 	}
-	return r.setterMember(r.typeNamed(owner.PropString("extends_type"), owner.File), name, seen)
-}
-
-func (r *dartMemberResolver) declaresMember(owner *facts.Fact, name string) bool {
-	if _, ok := r.members[owner.Name+"."+name]; ok {
-		return true
-	}
-	_, field := r.fieldValues[dartMemberKey{owner, name}]
-	return field
+	return r.setterIn(r.typeNamed(owner.PropString("extends_type"), owner.File), name, seen)
 }
