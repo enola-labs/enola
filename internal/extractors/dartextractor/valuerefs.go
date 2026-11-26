@@ -99,7 +99,11 @@ func (w *walker) recordUnboundValue(n *sitter.Node, site dartSite, name string, 
 		return
 	}
 	unbound := w.unboundName(name)
-	if (w.fileGetters[name] || unbound) && dartReadKind(kindOf(site.parent)) && !w.assignedName(n, site.parent) {
+	if w.assignedName(n, site.parent) {
+		if unbound || w.fileGetters[name] {
+			b.markSetterWrite(name)
+		}
+	} else if (w.fileGetters[name] || unbound) && dartReadKind(kindOf(site.parent)) {
 		b.markGetterRead(name, loop, scaling)
 	}
 	next := kindOf(site.next)
@@ -137,6 +141,13 @@ func (w *walker) assignedName(n, parent *sitter.Node) bool {
 	assignment := parent.Parent()
 	return kindOf(assignment) == "assignment_expression" && dartPlainAssignment(assignment, w.src) &&
 		assignment.NamedChild(0) != nil && assignment.NamedChild(0).Id() == parent.Id()
+}
+
+func (b *bodyWalk) markSetterWrite(name string) {
+	if b.setterWrites == nil {
+		b.setterWrites = map[string]bool{}
+	}
+	b.setterWrites[name] = true
 }
 
 func (b *bodyWalk) addValueName(kind, name string) {
@@ -232,6 +243,8 @@ func (w *walker) memberCallableValues(body *sitter.Node, typeName string) map[st
 				name := signatureName(c, w.src)
 				if kindOf(c) == "getter_signature" {
 					w.getterNames[name] = true
+				} else {
+					w.setterNames[name] = true
 				}
 				values[name] = ""
 			}
@@ -376,13 +389,14 @@ func (w *walker) moduleValueReferences(root *sitter.Node) {
 // reference-only fact. Getter reads and tear-off candidates from several
 // regions are unioned, since each region feeds the one fact.
 func (w *walker) emitInitializerWalk(b *bodyWalk) {
-	if len(b.relations) == 0 && len(b.getterReads) == 0 && len(b.valueNames) == 0 {
+	if len(b.relations) == 0 && len(b.getterReads) == 0 && len(b.valueNames) == 0 && len(b.setterWrites) == 0 {
 		return
 	}
 	props := map[string]any{}
-	if len(b.getterReads) > 0 || len(b.valueNames) > 0 {
+	if len(b.getterReads) > 0 || len(b.valueNames) > 0 || len(b.setterWrites) > 0 {
 		reads := map[string]dartGetterRead{}
 		names := map[string]bool{}
+		writes := map[string]bool{}
 		for i := range w.out {
 			f := &w.out[i]
 			if f.Kind == facts.KindFileRef && f.Name == w.relFile && f.File == w.relFile && f.Line == 0 {
@@ -394,10 +408,19 @@ func (w *walker) emitInitializerWalk(b *bodyWalk) {
 						names[name] = true
 					}
 				}
+				if prior, ok := f.Props["_dart_setter_writes"].([]string); ok {
+					for _, name := range prior {
+						writes[name] = true
+					}
+				}
 			}
 		}
 		maps.Copy(reads, b.getterReads)
 		maps.Copy(names, b.valueNames)
+		maps.Copy(writes, b.setterWrites)
+		if len(writes) > 0 {
+			props["_dart_setter_writes"] = sortedKeys(writes)
+		}
 		if len(reads) > 0 {
 			props["_dart_getter_reads"] = reads
 		}

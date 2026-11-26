@@ -28,6 +28,10 @@ type bodyWalk struct {
 	// file scope. The resolution pass keeps those reaching an imported or
 	// part-file function.
 	valueNames map[string]bool
+	// setterWrites are names a plain assignment writes: "this.<name>" for the
+	// class's own accessor, a bare name for one the file does not bind. The
+	// resolution pass keeps those reaching a declared setter.
+	setterWrites map[string]bool
 	// site is where the child about to be walked sits: the walk knows its
 	// parent and next named sibling, which tree-sitter finds only by descending
 	// from the root.
@@ -84,6 +88,9 @@ func (b *bodyWalk) applyTo(props map[string]any) {
 	}
 	if len(b.valueNames) > 0 {
 		props["_dart_value_names"] = sortedKeys(b.valueNames)
+	}
+	if len(b.setterWrites) > 0 {
+		props["_dart_setter_writes"] = sortedKeys(b.setterWrites)
 	}
 
 	if b.loopCount > 0 {
@@ -179,10 +186,14 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 	if kind == "identifier" {
 		name := n.Utf8Text(w.src)
 		w.recordValueReference(n, name, b.shadows, b)
-		if w.getterNames[name] && !b.shadows[name] && kindOf(n.Parent()) != "label" && kindOf(n.Parent()) != "cascade_section" && kindOf(n.Parent()) != "cascade_selector" && !strings.HasSuffix(kindOf(n.Parent()), "assignable_selector") {
+		site := b.siteOf(n)
+		if (w.getterNames[name] || w.setterNames[name]) && !b.shadows[name] && w.assignedName(n, site.parent) {
+			// A plain write runs the setter, which the class or a base declares.
+			b.markSetterWrite("this." + name)
+		} else if w.getterNames[name] && !b.shadows[name] && kindOf(n.Parent()) != "label" && kindOf(n.Parent()) != "cascade_section" && kindOf(n.Parent()) != "cascade_selector" && !strings.HasSuffix(kindOf(n.Parent()), "assignable_selector") {
 			w.recordGetterRead("this."+name, n, b, loopDepth, scalingDepth)
 		}
-		w.recordUnboundValue(n, b.siteOf(n), name, b.shadows, b, loopDepth, scalingDepth)
+		w.recordUnboundValue(n, site, name, b.shadows, b, loopDepth, scalingDepth)
 	}
 
 	// The call scan and recursive walk inspect the same immutable sibling list.

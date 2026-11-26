@@ -57,8 +57,8 @@ void writePart(List<Object> l) { partFlag = false; l[0] = partFlag; (partFlag) ?
 		t.Errorf("a read beside a write of the getter recorded nothing: %+v", f)
 	}
 	written := dartReviewFacts(t, map[string]string{"lib/w.dart": "bool get flag => true;\nset flag(bool v) {}\nvoid write() { flag = false; }\n"})
-	if f := findFact(written, facts.KindSymbol, "lib.write"); f == nil || hasRelation(f, facts.RelCalls, "lib.flag") {
-		t.Errorf("a write to a top-level getter's name read it: %+v", f)
+	if f := findFact(written, facts.KindSymbol, "lib.write"); f == nil || !hasRelation(f, facts.RelCalls, "lib.flag") {
+		t.Errorf("a write of a top-level accessor pair did not run its setter: %+v", f)
 	}
 	probe := findFact(all, facts.KindSymbol, "lib.probe")
 	if loops, _ := probe.Props["calls_in_loop"].([]string); len(loops) == 0 || loops[len(loops)-1] != "lib/src.supportsWorkers" {
@@ -144,5 +144,64 @@ final c = other._handle.call(1);
 `})
 	if fileRefRelation(shadowed, "lib/state.dart", facts.RelCalls, "lib._handle") {
 		t.Error("shadowed or member .call bound to the file function")
+	}
+}
+
+func TestDartPlainWriteRunsTheSetter(t *testing.T) {
+	all := dartReviewFacts(t, map[string]string{
+		"lib/src/prefs.dart": `bool get darkMode => false;
+set darkMode(bool v) {}
+`,
+		"lib/state.dart": `import 'src/prefs.dart';
+int _phase = 0;
+int get phase => _phase;
+set phase(int v) { _phase = v; }
+set onlySet(int v) {}
+int plainTop = 0;
+void writeTop() { phase = 1; onlySet = 2; plainTop = 3; darkMode = true; }
+int readTop() => phase;
+class Base {
+  int _value = 0;
+  int get value => _value;
+  set value(int v) { _value = v; }
+  int counter = 0;
+}
+class Box extends Base {
+  bool _open = false;
+  bool get open => _open;
+  set open(bool v) { _open = v; }
+  int size = 0;
+  void toggle() { open = !open; }
+  void resize() { size = 3; counter = 4; }
+  void inherited() { value = 5; }
+}
+`,
+	})
+	for name, target := range map[string]string{
+		"lib.writeTop":      "lib.phase",
+		"lib.readTop":       "lib.phase",
+		"lib.Box.toggle":    "lib.Box.open",
+		"lib.Box.inherited": "lib.Base.value",
+	} {
+		if f := findFact(all, facts.KindSymbol, name); !hasRelation(f, facts.RelCalls, target) {
+			t.Errorf("%s: no calls edge to %s: %+v", name, target, f)
+		}
+	}
+	for name, target := range map[string]string{"lib.writeTop": "lib/src.darkMode"} {
+		if f := findFact(all, facts.KindSymbol, name); !hasRelation(f, facts.RelCalls, target) {
+			t.Errorf("%s: write of an imported setter recorded no call to %s: %+v", name, target, f)
+		}
+	}
+	// A top-level setter with no getter has no symbol to carry the edge.
+	if f := findFact(all, facts.KindSymbol, "lib.writeTop"); f == nil || len(f.Relations) != 2 {
+		t.Errorf("top-level writes: want the two accessor calls only: %+v", f)
+	}
+	for _, name := range []string{"lib.Box.resize"} {
+		if f := findFact(all, facts.KindSymbol, name); f == nil || len(f.Relations) > 1 {
+			t.Errorf("%s: a plain field write recorded a use: %+v", name, f)
+		}
+	}
+	if f := findFact(all, facts.KindSymbol, "lib.writeTop"); hasRelation(f, facts.RelCalls, "lib.plainTop") {
+		t.Errorf("a top-level variable write recorded a use: %+v", f)
 	}
 }

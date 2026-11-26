@@ -124,6 +124,16 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			}
 		}
 		delete(f.Props, "_dart_value_names")
+		if writes, ok := f.Props["_dart_setter_writes"].([]string); ok {
+			for _, name := range writes {
+				if target := r.setterWrite(name, f); target != "" {
+					if rel := (facts.Relation{Kind: facts.RelCalls, Target: target}); !slices.Contains(f.Relations, rel) {
+						f.Relations = append(f.Relations, rel)
+					}
+				}
+			}
+		}
+		delete(f.Props, "_dart_setter_writes")
 		delete(f.Props, "_dart_value_bindings")
 		delete(f.Props, "_dart_getter_reads")
 		delete(f.Props, "_dart_implicit_calls")
@@ -421,4 +431,70 @@ func (r *dartMemberResolver) libraryValueVisible(name string, target, from *fact
 		return false
 	}
 	return len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) == 0
+}
+
+// dartHasSetter reports a member entry that holds a setter: alone, or paired
+// with its getter (a pair is the only two-declaration entry that keeps a fact).
+func dartHasSetter(e dartMemberEntry) bool {
+	if e.fact == nil {
+		return false
+	}
+	return e.fact.PropString("accessor") == "setter" || (e.count == 2 && e.fact.PropString("accessor") == "getter")
+}
+
+// setterWrite resolves a plain assignment to the setter it runs. "this.<name>"
+// is the writing class's own accessor; a bare name is a top-level accessor of
+// the library or an import, else a setter the writing class inherits. A field, or no
+// setter, records nothing: assigning a field runs no code.
+func (r *dartMemberResolver) setterWrite(spelled string, from *facts.Fact) string {
+	name, own := strings.CutPrefix(spelled, "this.")
+	if !own {
+		// Top-level setters emit no symbol of their own, so a written top-level
+		// getter name stands for its setter: a getter alone cannot be assigned.
+		target := r.call(name, from, false, true, nil)
+		if entry := r.members[target]; entry.fact != nil && entry.fact.PropString("symbol_kind") == facts.SymbolFunc && entry.fact.PropString("accessor") != "" {
+			if entry.fact.File == from.File || r.libraryValueVisible(name, entry.fact, from) {
+				return entry.fact.Name
+			}
+			return ""
+		}
+		if len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) > 0 {
+			return ""
+		}
+	}
+	return r.setterMember(r.lexicalOwner(from), name, map[*facts.Fact]bool{})
+}
+
+// setterMember finds the setter a type or its mixins and superclass declare. The
+// nearest declaration of the name decides: a field or method there hides any
+// setter further up.
+func (r *dartMemberResolver) setterMember(owner *facts.Fact, name string, seen map[*facts.Fact]bool) string {
+	if owner == nil || seen[owner] {
+		return ""
+	}
+	seen[owner] = true
+	if entry, ok := r.members[owner.Name+"."+name]; ok && (entry.fact == nil || r.sameDartLibrary(entry.fact, owner)) {
+		if dartHasSetter(entry) {
+			return entry.fact.Name
+		}
+		return ""
+	}
+	if _, field := r.fieldValues[dartMemberKey{owner, name}]; field {
+		return ""
+	}
+	mixins, _ := owner.Props["mixin_types"].([]string)
+	for i := len(mixins) - 1; i >= 0; i-- {
+		if mixin := r.typeNamed(mixins[i], owner.File); mixin != nil && r.declaresMember(mixin, name) {
+			return r.setterMember(mixin, name, seen)
+		}
+	}
+	return r.setterMember(r.typeNamed(owner.PropString("extends_type"), owner.File), name, seen)
+}
+
+func (r *dartMemberResolver) declaresMember(owner *facts.Fact, name string) bool {
+	if _, ok := r.members[owner.Name+"."+name]; ok {
+		return true
+	}
+	_, field := r.fieldValues[dartMemberKey{owner, name}]
+	return field
 }

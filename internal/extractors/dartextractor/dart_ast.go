@@ -56,6 +56,9 @@ type walker struct {
 	fieldTypes      map[string]string
 	callOwner       string
 	getterNames     map[string]bool
+	// setterNames holds the current class's own setters; a plain write of one
+	// runs it.
+	setterNames map[string]bool
 	// fileGetters holds this file's top-level getters. A read of one runs it,
 	// so it is a call even where a function name would be no value position.
 	fileGetters       map[string]bool
@@ -503,14 +506,14 @@ func (w *walker) memberDecls(body *sitter.Node, typeName string) []memberInfo {
 		return nil
 	}
 	previous, previousFields, previousOwner := w.memberFunctions, w.fieldTypes, w.callOwner
-	previousGetters := w.getterNames
-	w.getterNames = map[string]bool{}
+	previousGetters, previousSetters := w.getterNames, w.setterNames
+	w.getterNames, w.setterNames = map[string]bool{}, map[string]bool{}
 	w.memberFunctions = w.memberCallableValues(body, typeName)
 	w.fieldTypes = w.memberReceiverTypes(body)
 	w.callOwner = w.qualify(typeName)
 	defer func() {
 		w.memberFunctions, w.fieldTypes, w.callOwner = previous, previousFields, previousOwner
-		w.getterNames = previousGetters
+		w.getterNames, w.setterNames = previousGetters, previousSetters
 	}()
 	var out []memberInfo
 	kids := namedChildren(body)
