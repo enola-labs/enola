@@ -86,6 +86,8 @@ ignore:
   - "**/test/**/*.jsx"
   - "**/test/**/*.ts"
   - "**/test/**/*.tsx"
+  - "**/test/**/*.vue"
+  - "**/test/**/*.svelte"
   # The same under tests/ (Playwright, Vitest and Deno suites): helpers,
   # fixtures and *_test.ts files there carry no reserved suffix.
   - "**/tests/**/*.js"
@@ -94,6 +96,8 @@ ignore:
   - "**/tests/**/*.jsx"
   - "**/tests/**/*.ts"
   - "**/tests/**/*.tsx"
+  - "**/tests/**/*.vue"
+  - "**/tests/**/*.svelte"
   # Ruby has no co-located test convention (RSpec requires spec/, Minitest
   # defaults to test/), so these demand the directory as well as the filename: a
   # bare "**/*_test.rb" also swallows production code that merely ends in the

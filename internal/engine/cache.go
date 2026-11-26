@@ -4146,7 +4146,9 @@ import (
 // torn off is a use of it, as `p.name` is (v739); a construction through a prefix
 // (`new p.Foo()`, `const p.Foo()`, `p.Foo()` in a body or outside one) binds through
 // that prefix's imports, and one that binds nothing keeps the bare class name.
-const cacheVersion = "v745"
+// v746: .vue and .svelte files under a test/ or tests/ directory are ignored and
+// listed as test globs by default, and read for test refs through their script blocks.
+const cacheVersion = "v746"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
