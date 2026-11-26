@@ -90,9 +90,9 @@ func nameAssociatedTypeWitnesses(allFacts []facts.Fact, vis *swiftTypeVisibility
 }
 
 // witnessOf returns the declared type named assoc nested in the conforming type of
-// f, or "". An extension fact (`<dir>.<Base>+<Proto>`) names its type by the last
-// component only, so a nested extended type is found by that tail, when one
-// declaration of the module ends so.
+// f, or "". An extension fact (`<dir>.<Path>+<Proto>`) names its type by the path
+// the extension writes; when that is not the declared name, a nested extended type
+// is found by its tail, when one declaration of the module ends so.
 func witnessOf(f *facts.Fact, kind, assoc string, set *swiftNamedTypeSet) string {
 	if kind != facts.SymbolExtension {
 		if set.full[f.Name+"."+assoc] {

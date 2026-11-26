@@ -133,6 +133,9 @@ func (w *astWalker) noteStaticPath(nav *sitter.Node) {
 	if p := nav.Parent(); p != nil && kindOf(p) == "navigation_expression" {
 		return // the outermost navigation records the chain
 	}
+	// The grammar reads a `..` operator (a lens composition, `A.lens.b .. B.lens.c`)
+	// as one navigation chain with an ERROR "." in it: each side is a chain of its own.
+	var chains [][]string
 	var segs []string
 	var walk func(n *sitter.Node) bool
 	walk = func(n *sitter.Node) bool {
@@ -146,15 +149,25 @@ func (w *astWalker) noteStaticPath(nav *sitter.Node) {
 			return true
 		case "navigation_expression":
 			target := n.ChildByFieldName("target")
-			if target == nil || !walk(target) {
-				return false
-			}
+			ok := target != nil && walk(target)
 			suffix := n.ChildByFieldName("suffix")
-			if suffix == nil {
-				return false
+			var id *sitter.Node
+			if suffix != nil {
+				id = findChildByKind(suffix, "simple_identifier")
 			}
-			id := findChildByKind(suffix, "simple_identifier")
-			if id == nil {
+			if id != nil && isDotOperatorError(n, w.src) {
+				if ok {
+					chains = append(chains, segs)
+				}
+				segs = nil
+				name := strings.Trim(nodeText(id, w.src), "`")
+				if !isTypeName(name) || name == "Self" {
+					return false
+				}
+				segs = []string{name}
+				return true
+			}
+			if !ok || id == nil {
 				return false
 			}
 			segs = append(segs, strings.Trim(nodeText(id, w.src), "`"))
@@ -163,20 +176,37 @@ func (w *astWalker) noteStaticPath(nav *sitter.Node) {
 		return false
 	}
 	walk(nav)
-	typed := 0
-	for typed < len(segs) && isTypeName(segs[typed]) {
-		typed++
+	if len(segs) > 0 {
+		chains = append(chains, segs)
 	}
-	if typed == 0 || genericParamInScope(nav, segs[0], w.src) {
-		return
+	for i, segs := range chains {
+		typed := 0
+		for typed < len(segs) && isTypeName(segs[typed]) {
+			typed++
+		}
+		if typed == 0 || genericParamInScope(nav, segs[0], w.src) {
+			continue
+		}
+		p := nav.Parent()
+		if typed > 1 || i < len(chains)-1 || p == nil || kindOf(p) != "call_expression" || firstNamedChild(p) != nav {
+			w.addOwnerEdge(facts.RelNames, strings.Join(segs[:typed], "."))
+		}
+		if typed < len(segs) {
+			w.addOwnerEdge(facts.RelNames, strings.Join(segs, "."))
+		}
 	}
-	p := nav.Parent()
-	if typed > 1 || p == nil || kindOf(p) != "call_expression" || firstNamedChild(p) != nav {
-		w.addOwnerEdge(facts.RelNames, strings.Join(segs[:typed], "."))
+}
+
+// isDotOperatorError reports a navigation whose suffix follows an ERROR ".": the
+// grammar's reading of a `..` operator between two chains.
+func isDotOperatorError(nav *sitter.Node, src []byte) bool {
+	for i := uint(0); i < nav.ChildCount(); i++ {
+		c := nav.Child(i)
+		if kindOf(c) == "ERROR" && strings.TrimSpace(nodeText(c, src)) == "." {
+			return true
+		}
 	}
-	if typed < len(segs) {
-		w.addOwnerEdge(facts.RelNames, strings.Join(segs, "."))
-	}
+	return false
 }
 
 // lowerSegment returns the index of the first component of path that is no type
@@ -201,8 +231,9 @@ type swiftNamedTypeSet struct {
 	sites map[string][]swiftTypeDeclSite // simple name -> declaring modules
 	full  map[string]bool                // declared type names
 	// tails maps ".Outer.Inner" (two or more trailing components) to the declared
-	// names ending so: an extension of a qualified type (`extension A.B`) names its
-	// members after B alone, so its scope is found by that tail.
+	// names ending so: an extension of a qualified type names its members after the
+	// path it writes, which may not be the declared name, so its scope is found by
+	// that tail.
 	tails map[string][]string
 }
 

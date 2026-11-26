@@ -40,6 +40,7 @@ class Api {
   public function chained(): void { EngineFactory::make()->session()->commit(); }
   public function fluent(): int { $e = EngineFactory::make()->tuned(); return $e->run(); }
   public function conflicting(bool $f): int { $e = new Engine(); if ($f) { $e = new Session(); } return $e->run(); }
+  public function looped(array $all): void { $e = EngineFactory::make(); foreach ($all as $e) { $e->run(); } foreach (new \ArrayObject([]) as $e) {} }
 }
 `,
 	}
@@ -62,7 +63,8 @@ class Api {
 		t.Fatalf("no symbol %s", name)
 		return facts.Fact{}
 	}
-	for _, name := range []string{"Acme\\Api::viaStatic", "Acme\\Api::viaNew", "Acme\\Api::viaProperty", "Acme\\Api::fluent"} {
+	// A foreach binding never displaces what an assignment gives the local.
+	for _, name := range []string{"Acme\\Api::viaStatic", "Acme\\Api::viaNew", "Acme\\Api::viaProperty", "Acme\\Api::fluent", "Acme\\Api::looped"} {
 		if f := calls(name); !f.HasRelation(facts.RelCalls, "Acme\\Engine::run") {
 			t.Errorf("%s must call Engine::run; relations: %v", name, f.Relations)
 		}

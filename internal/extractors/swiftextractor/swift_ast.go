@@ -56,13 +56,16 @@ type astWalker struct {
 	// out[currentOwner()].Relations. -1 means no owner (top level / extension).
 	ownerStack []int
 
-	// typeStack holds the simple names of the enclosing class/struct/.../extension
+	// typeStack holds the names of the enclosing class/struct/.../extension
+	// (an extension's entry is the dotted path it extends, `A.B`)
 	// declarations, so members are named "<dir>.<Type>.<member>" (parity with the
 	// Go/Kotlin extractors). methodStack is parallel and holds the set of method
 	// names declared directly in each enclosing type, used to resolve same-type
 	// bare/self calls to "<dir>.<Type>.<method>".
 	typeStack   []string
 	methodStack []map[string]bool
+	// imported holds the modules the file's import declarations name.
+	imported map[string]bool
 	// containers parallels typeStack: the access the walked types and extensions
 	// give their members (access.go).
 	containers []swiftContainer
@@ -671,6 +674,10 @@ func (w *astWalker) ensureFileRefFact() int {
 func (w *astWalker) handleImport(node *sitter.Node) {
 	if m := importRe.FindStringSubmatch(nodeText(node, w.src)); m != nil {
 		name := m[1]
+		if w.imported == nil {
+			w.imported = map[string]bool{}
+		}
+		w.imported[name] = true
 		w.out = append(w.out, facts.Fact{
 			Kind: facts.KindDependency,
 			Name: w.dir + " -> " + name,
@@ -840,10 +847,10 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 	w.popOwner()
 }
 
-// handleExtension preserves the legacy behaviour: one symbol fact per adopted
-// protocol named "<dir>.<Base>+<Proto>". It additionally walks the extension body
-// so methods declared in extensions get symbol facts ("<dir>.<Base>.<method>")
-// and contribute call-graph edges.
+// handleExtension emits one symbol fact per adopted protocol, named
+// "<dir>.<Path>+<Proto>" for the type path the extension writes. It additionally
+// walks the extension body so methods declared in extensions get symbol facts
+// ("<dir>.<Path>.<method>") and contribute call-graph edges.
 func (w *astWalker) handleExtension(node *sitter.Node) {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
@@ -853,6 +860,11 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	if base == "" {
 		return
 	}
+	// The extension's facts are named through the path it writes, so a type
+	// declared in `extension A.B` is A.B.Value, as it is when declared inside B,
+	// and its conformance is A.B+P.
+	path, moduleHead := w.extendedPath(nameNode, base)
+	start := len(w.out)
 	for _, spec := range inheritanceSpecs(node, w.src) {
 		rels := []facts.Relation{
 			{Kind: facts.RelDeclares, Target: w.dir},
@@ -865,7 +877,7 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 		}
 		w.out = append(w.out, facts.Fact{
 			Kind:    facts.KindSymbol,
-			Name:    w.dir + "." + base + "+" + spec.name,
+			Name:    w.dir + "." + path + "+" + spec.name,
 			File:    w.relFile,
 			Line:    int(node.StartPosition().Row) + 1,
 			EndLine: tsutil.EndLine(node),
@@ -880,11 +892,77 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 
 	body := typeBody(node)
 	// No single type owner for an extension; methods push their own owner.
-	w.pushType(base, collectMethodNames(body, w.src))
+	before := len(w.out)
+	w.pushType(path, collectMethodNames(body, w.src))
 	w.pushContainer(swiftContainer{exported: true, memberDefault: accessLevel(findChildByKind(node, "modifiers"), w.src)})
 	w.walkTypeBody(body, "")
 	w.popContainer()
 	w.popType()
+	w.noteWhereClauseUses(node, w.dir+"."+path+".", before)
+	if moduleHead != "" {
+		for i := start; i < len(w.out); i++ {
+			if n := w.out[i].Name; strings.HasPrefix(n, w.dir+"."+path+".") || strings.HasPrefix(n, w.dir+"."+path+"+") {
+				w.out[i].SetProp(propModuleHead, moduleHead)
+			}
+		}
+	}
+}
+
+// extendedPath is the dotted type path an extension names, less its generic
+// arguments; base when the path is not a plain type path. moduleHead is its first
+// component when that may be a module rather than a type (a module the file
+// imports, or its own: `extension Foundation.URLSessionWebSocketTask.Message`):
+// a type of that name shadows the module, which only the whole repository tells
+// (dropModuleHeads).
+func (w *astWalker) extendedPath(nameNode *sitter.Node, base string) (path, moduleHead string) {
+	if kindOf(nameNode) != "user_type" {
+		return base, ""
+	}
+	path = userTypePath(nameNode, w.src)
+	if path == "" || lastDotComponent(path) != base {
+		return base, ""
+	}
+	if head, _, ok := strings.Cut(path, "."); ok && (head == "Swift" || w.imported[head] || head == w.ownModule()) {
+		moduleHead = head
+	}
+	return path, moduleHead
+}
+
+// ownModule is the name the file's module is imported by: its target directory's.
+func (w *astWalker) ownModule() string {
+	return swiftModuleName(w.dir[strings.LastIndex(w.dir, "/")+1:])
+}
+
+// noteWhereClauseUses records the types an extension's where-clause states
+// (`extension FormatStyle where Self == Date.RFC1123FormatStyle`) as names of the
+// members it declares: the extension has no fact of its own to carry them, and
+// when the extended type is not the project's, nothing else does. Only the
+// right-hand sides are types; the constrained names are generic parameters,
+// associated types or Self. The conformance facts of the extension (from its
+// first fact before the body) carry them too, for an extension with no members.
+func (w *astWalker) noteWhereClauseUses(node *sitter.Node, memberPrefix string, bodyStart int) {
+	tc := findChildByKind(node, "type_constraints")
+	if tc == nil {
+		return
+	}
+	var owners []int
+	for i := bodyStart; i < len(w.out); i++ {
+		f := &w.out[i]
+		if f.Kind != facts.KindSymbol || !strings.HasPrefix(f.Name, memberPrefix) ||
+			strings.Contains(f.Name[len(memberPrefix):], ".") {
+			continue
+		}
+		owners = append(owners, i)
+	}
+	for i := bodyStart - 1; i >= 0 && w.out[i].Line == int(node.StartPosition().Row)+1 &&
+		w.out[i].PropAny("symbol_kind") == facts.SymbolExtension; i-- {
+		owners = append(owners, i)
+	}
+	for _, i := range owners {
+		w.pushOwner(i)
+		w.noteTypeUsesIn(tc)
+		w.popOwner()
+	}
 }
 
 // walkTypeBody iterates the direct members of a type body, emitting member symbol

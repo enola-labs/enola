@@ -27,9 +27,29 @@ func TestMochaTestDirectoryIsTests(t *testing.T) {
 		"src/testing/harness.ts":                                        "indexed",
 		"src/test.ts":                                                   "indexed",
 		"src/contest/entry.ts":                                          "indexed",
-		"tests/e2e/helpers.ts":                                          "indexed",
 		"src/testing/harness.js":                                        "indexed",
 		"src/test.js":                                                   "indexed",
 		"src/airflow/models/connection_test.py":                         "indexed",
+	})
+}
+
+// TestTestsDirectoryIsTests pins the same rule for a tests/ directory, the name
+// Playwright, Vitest and Deno suites use: page objects, fixtures, setup files and
+// Deno's *_test.ts carry no reserved suffix there. A file merely named tests, or a
+// directory that only contains the word, stays indexed.
+func TestTestsDirectoryIsTests(t *testing.T) {
+	testWalkFates(t, map[string]string{
+		"tests/e2e/helpers.ts":                      "test refs",
+		"tests/unit/test_util.ts":                   "test refs",
+		"packages/tests/src/api/videos.ts":          "test refs",
+		"apps/gauzy-e2e/tests/pages/login.page.tsx": "test refs",
+		"frontend/discourse/tests/helpers/qunit.js": "test refs",
+		"tests/fixtures/app.mjs":                    "test refs",
+		"tests/setup.cjs":                           "test refs",
+		"tests/components/Button.jsx":               "test refs",
+		"src/tests.ts":                              "indexed",
+		"src/e2e-tests/helpers.ts":                  "indexed",
+		"src/contests/entry.ts":                     "indexed",
+		"src/tests.js":                              "indexed",
 	})
 }

@@ -4107,7 +4107,39 @@ import (
 // cls without a call (`return self.test_func`) is a names edge to the class's own
 // method, and one the class inherits is left to the inherited-calls binder
 // (member_names), which binds it only through the class's bases.
-const cacheVersion = "v737"
+// v738: Dart: a file-scope initializer records the classes it builds; a named
+// constructor (`Foo.named()`, `p.Foo.named()`) is a construction of Foo wherever it
+// is written, once it binds to a constructor Foo declares; a redirecting factory
+// (`factory A() = _A;`) is a constructor symbol that builds its target.
+// v739: Dart: `p.name` through an import prefix, read or written rather than
+// invoked, binds through that prefix's imports as a prefixed call does (a part
+// uses its library's prefixes): a top-level getter read or setter write is a
+// call, a function in a value position is a names edge; SDK targets are skipped.
+// v740: TypeScript and JavaScript files under a tests/ directory are ignored and
+// listed as test globs by default, whatever their name, and read for test refs, as
+// under test/. A test ref resolves its imports against the indexed files, so an
+// import of a folder names the folder's index module, and a name a folder's index
+// re-exports names the module that declares it.
+// v741: Swift: a declaration in an extension of a qualified type is named through
+// the path the extension writes (`extension A.B { struct C }` declares A.B.C, its
+// members A.B.m, its conformance A.B+P), less a leading module (imported or the
+// file's own) no top-level type of the repository shadows; the types an extension's
+// where-clause states are names of the members it declares and of its
+// conformances; each side of a `..` operator, which the grammar reads as one
+// navigation chain, is a type path of its own.
+// v742: C++: an emplace on a container reached through a chain of members
+// (in.items.emplace_back(), this->a.b->items, param.state.items, an inherited
+// member or an auto alias of a chain) constructs the container's element type.
+// v743: PHP: a model an Eloquent query fetches (`M::whereX($v)->findOrFail($id)`,
+// `$m->relation()->first()`), directly or through a local, is read as that model,
+// and a query built on a model class or a relation method as that model's query, so a
+// relation read on the one or eager loaded on the other is a calls edge. A chain of
+// property reads (`$media->status->poll`) follows each relation's model. An element
+// of a collection of models (a query's `get()`, a to-many relation read), bound by
+// foreach or a collection callback, is that model; a closure parameter of declared
+// type and a local assigned a typed property are typed. A binding never displaces
+// what an assignment gives the local.
+const cacheVersion = "v743"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

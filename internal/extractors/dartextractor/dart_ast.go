@@ -661,6 +661,25 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 			w.setDoc(n)
 			out = append(out, memberInfo{name: full, isCtor: ctor, isMethod: !ctor, isAbstract: !ctor})
 
+		case "redirecting_factory_constructor_signature":
+			// `factory A() = _A;` is a constructor of A whose body is a construction
+			// of its target: a private implementation class is often built only here.
+			name := constructorName(c, typeName, w.src)
+			full := w.qualify(typeName + "." + name)
+			props := map[string]any{
+				"language": "dart", "symbol_kind": facts.SymbolMethod,
+				"constructor": true, "exported": !strings.HasPrefix(name, "_"),
+			}
+			if len(annos) > 0 {
+				props["annotations"] = annos
+			}
+			w.out = append(w.out, facts.Fact{
+				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c), EndLine: tsutil.EndLine(c),
+				Props: props, Relations: append(w.injectRelations(c), w.redirectRelations(c)...),
+			})
+			w.setDoc(n)
+			out = append(out, memberInfo{name: full, isCtor: true})
+
 		case "function_signature", "getter_signature", "setter_signature":
 			// No body sibling inside a `declaration` means this is abstract.
 			name := signatureName(c, w.src)
@@ -728,6 +747,38 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 		}
 	}
 	return out
+}
+
+// redirectRelations is what a redirecting factory builds. The grammar spells the
+// target as type_identifiers after the parameters, so `_A.named` and `p.B` read
+// alike; the first is an import prefix only when this file declares it as one, and
+// then stays in the name so the prefix's import resolves it. A named target is kept
+// as a constructor reference, bound after indexing.
+func (w *walker) redirectRelations(sig *sitter.Node) []facts.Relation {
+	var names []string
+	params := false
+	for _, c := range namedChildren(sig) {
+		switch kindOf(c) {
+		case "formal_parameter_list":
+			params = true
+		case "type_identifier":
+			if params {
+				names = append(names, c.Utf8Text(w.src))
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	class := names[0]
+	if len(names) > 1 && w.importPrefix(sig, names[0]) {
+		class, names = names[0]+"."+names[1], names[1:]
+	}
+	rels := []facts.Relation{{Kind: facts.RelInstantiates, Target: class}}
+	if len(names) > 1 {
+		rels = append(rels, facts.Relation{Kind: relDartCtorRef, Target: class + "." + names[1]})
+	}
+	return rels
 }
 
 // methodDecl emits a concrete method/getter/setter and walks its body.

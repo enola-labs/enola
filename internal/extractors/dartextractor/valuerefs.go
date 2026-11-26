@@ -42,7 +42,9 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 		} else {
 			w.recordValueReference(root, name, shadows, b)
 		}
-		w.recordUnboundValue(root, b.siteOf(root), name, shadows, b, 0, 0)
+		site := b.siteOf(root)
+		w.recordUnboundValue(root, site, name, shadows, b, 0, 0)
+		w.recordPrefixedValue(root, site, name, shadows, b, 0, 0)
 	}
 	kids := namedChildren(root)
 	for i, c := range kids {
@@ -110,6 +112,52 @@ func (w *walker) recordUnboundValue(n *sitter.Node, site dartSite, name string, 
 	invoked := next == "selector" && childOfKind(site.next, "argument_part") != nil
 	if unbound && !invoked && dartValuePositionAt(n, site.parent, site.next) {
 		b.addValueName(facts.RelNames, name)
+	}
+}
+
+// dartPrefixedValue marks `p.name` spelled through a possible import prefix, so
+// the resolution pass binds it through that prefix's imports alone and never
+// reads p as a receiver.
+const dartPrefixedValue = "@prefix:"
+
+// recordPrefixedValue records `p.name` read or written through an import
+// prefix, as recordUnboundValue does for a bare name: a read is a getter-read
+// candidate, a plain write a setter write, and a read in a value position also
+// a tear-off candidate. A part's prefixes are its library's, which only the
+// resolution pass knows. An invocation is the call scan's, and a local or
+// member named like the prefix hides it.
+func (w *walker) recordPrefixedValue(n *sitter.Node, site dartSite, prefix string, shadows map[string]bool, b *bodyWalk, loop, scaling int) {
+	if shadows[prefix] || !w.unboundName(prefix) || !dartReadKind(kindOf(site.parent)) || (w.partOf == "" && !w.importPrefix(n, prefix)) {
+		return
+	}
+	if kindOf(site.parent) == "assignable_expression" {
+		// `p.name = v` runs the setter; `p.name += v` reads the getter too.
+		sel := site.next
+		if kindOf(sel) != "unconditional_assignable_selector" || sel.EndByte() != site.parent.EndByte() {
+			return
+		}
+		name := identifierChild(sel, w.src)
+		if name == "" {
+			return
+		}
+		if w.assignedName(sel, site.parent) {
+			b.markSetterWrite(dartPrefixedValue + prefix + "." + name)
+		} else {
+			b.markGetterRead(dartPrefixedValue+prefix+"."+name, loop, scaling)
+		}
+		return
+	}
+	if kindOf(site.next) != "selector" {
+		return
+	}
+	name := identifierChild(childOfKind(site.next, "unconditional_assignable_selector"), w.src)
+	after := site.next.NextNamedSibling()
+	if name == "" || (kindOf(after) == "selector" && childOfKind(after, "argument_part") != nil) {
+		return
+	}
+	b.markGetterRead(dartPrefixedValue+prefix+"."+name, loop, scaling)
+	if dartValuePositionAt(n, site.parent, after) {
+		b.addValueName(facts.RelNames, dartPrefixedValue+prefix+"."+name)
 	}
 }
 
@@ -371,7 +419,8 @@ func dartBoundNames(root *sitter.Node, src []byte, out map[string]bool, receiver
 	}
 }
 
-// Module initializers have no enclosing function, but still use callback values.
+// Module initializers have no enclosing function, but still use callback values
+// and build classes.
 func (w *walker) moduleValueReferences(root *sitter.Node) {
 	b := &bodyWalk{seenRel: map[string]bool{}}
 	for _, n := range namedChildren(root) {
@@ -380,6 +429,9 @@ func (w *walker) moduleValueReferences(root *sitter.Node) {
 			shadows := map[string]bool{}
 			dartBoundNames(n, w.src, shadows)
 			w.valueReferences(n, shadows, b)
+			// `final router = Router();` builds the class at file scope, with the
+			// construction rule field initializers use.
+			w.constructionReferences(n, shadows, b)
 		}
 	}
 	w.emitInitializerWalk(b)

@@ -152,3 +152,38 @@ func TestExtractTestRefs_ReferenceFreeFileYieldsNoFact(t *testing.T) {
 		t.Fatalf("want no fact for a reference-free test file, got %+v", ff)
 	}
 }
+
+// TestExtractTestRefs_FolderImportResolvesLikeProduction pins that a test's import
+// of a folder (`from 'src/schema'`, read through its index) and of a barrel that
+// re-exports from another directory name the symbol's declaring module, as the production
+// pass names it. A default re-exported by name keeps the name the folder declares. Without the indexed files the folder read as a file of its parent
+// (`src.DB`, a name no fact has).
+func TestExtractTestRefs_FolderImportResolvesLikeProduction(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		"tsconfig.json":               `{"compilerOptions":{"baseUrl":"."}}`,
+		"src/schema/index.ts":         `export interface DB { id: string }` + "\n" + `export function connect(): DB { return { id: '' }; }`,
+		"src/repos/index.ts":          `export { UserRepo } from './user/user.repo';`,
+		"src/repos/user/user.repo.ts": `export class UserRepo {}`,
+		"src/routes/index.ts":         `export { default as RouteThing } from './route';`,
+		"src/routes/route.ts":         `export default class RouteThing {}`,
+		"src/app.ts":                  `import { connect } from './schema';` + "\n" + `import { UserRepo } from './repos';` + "\n" + `connect(); new UserRepo();`,
+		"tests/factory.ts":            `import { connect } from '../src/schema';` + "\n" + `import { UserRepo } from '../src/repos';` + "\n" + `import { RouteThing } from '../src/routes';` + "\n" + `export const f = () => { connect(); new RouteThing(); return new UserRepo(); };`,
+	}, false)
+
+	ff, err := New().ExtractTestRefs(context.Background(), dir, []string{"tests/factory.ts"},
+		[]string{"src/schema/index.ts", "src/repos/index.ts", "src/repos/user/user.repo.ts", "src/routes/index.ts", "src/routes/route.ts", "src/app.ts", "tsconfig.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := testRefTargets(t, ff, "tests/factory.ts")
+	for _, want := range []string{"src/schema.connect", "src/repos/user.UserRepo", "src/routes.RouteThing"} {
+		if !got[want] {
+			t.Errorf("missing target %s; got %v", want, got)
+		}
+	}
+	for _, wrong := range []string{"src.connect", "src.UserRepo", "src/repos.UserRepo", "src/routes.RoutesRoute"} {
+		if got[wrong] {
+			t.Errorf("target %s names the folder's parent; got %v", wrong, got)
+		}
+	}
+}

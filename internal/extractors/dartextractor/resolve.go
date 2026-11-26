@@ -22,12 +22,17 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 	disambiguateDartGetters(all)
 	all, count := withSDKIndex(all)
 	r := newDartMemberResolver(all)
+	repoFiles := map[string]bool{}
+	for i := 0; i < count; i++ {
+		repoFiles[all[i].File] = true
+	}
 	for i := 0; i < count; i++ {
 		f := &all[i]
 		r.currentValues, _ = f.Props["_dart_value_bindings"].(map[string]dartLocalValue)
 		implicit := dartCallSet(f.Props["_dart_implicit_calls"])
 		instances := dartCallSet(f.Props["_dart_instance_calls"])
 		constructed := map[string]*facts.Fact{}
+		var builds []string
 		if names, ok := f.Props["_dart_constructed_types"].([]string); ok {
 			for _, name := range names {
 				if typ := r.typeNamed(name, f.File); typ != nil {
@@ -48,6 +53,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			if ctor := r.members[target].fact; ctor != nil && ctor.PropBool("constructor") {
 				if typ := r.lexicalOwner(ctor); typ != nil {
 					constructed[rel.Target+"()"] = typ
+					if built := r.namedConstruction(rel.Target, typ, repoFiles); built != "" {
+						builds = append(builds, built)
+					}
 				}
 			}
 		}
@@ -60,6 +68,18 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 					rel.Target = typ.Name
 				} else if len(r.canonicalTypes[rel.Target]) > 0 {
 					rel.Target = "(" + rel.Target + ")"
+				}
+			case relDartCtorRef:
+				// Bound constructors become calls of them; the rest stay this kind and
+				// are dropped below.
+				target := r.call(rel.Target, f, false, false, nil)
+				if ctor := r.members[target].fact; ctor != nil && ctor.PropBool("constructor") {
+					if typ := r.lexicalOwner(ctor); typ != nil {
+						if built := r.namedConstruction(rel.Target, typ, repoFiles); built != "" {
+							rel.Kind, rel.Target = facts.RelCalls, target
+							builds = append(builds, built)
+						}
+					}
 				}
 			case relDartTypeRef:
 				// Bound names become uses; the rest stay this kind and are dropped below.
@@ -84,6 +104,11 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			}
 		}
 		rewriteDartCallMetrics(f, replacements)
+		for _, built := range builds {
+			if rel := (facts.Relation{Kind: facts.RelInstantiates, Target: built}); !slices.Contains(f.Relations, rel) {
+				f.Relations = append(f.Relations, rel)
+			}
+		}
 		if reads, ok := f.Props["_dart_getter_reads"].(map[string]dartGetterRead); ok {
 			candidates := make([]string, 0, len(reads))
 			for candidate := range reads {
@@ -92,7 +117,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			sort.Strings(candidates)
 			for _, candidate := range candidates {
 				read := reads[candidate]
-				target := r.call(candidate, f, false, true, constructed)
+				target := r.valueTarget(candidate, f, constructed)
 				entry := r.members[target]
 				if entry.fact == nil || entry.fact.PropString("accessor") != "getter" {
 					continue
@@ -114,7 +139,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		if names, ok := f.Props["_dart_value_names"].([]string); ok {
 			for _, use := range names {
 				kind, name, _ := strings.Cut(use, ":")
-				fn := r.members[r.call(name, f, false, true, nil)].fact
+				fn := r.members[r.valueTarget(name, f, nil)].fact
 				if fn == nil || fn.PropString("symbol_kind") != facts.SymbolFunc || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
 					continue
 				}
@@ -143,7 +168,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		seen := map[facts.Relation]bool{}
 		relations := f.Relations[:0]
 		for _, rel := range f.Relations {
-			if rel.Kind == relDartTypeRef {
+			if rel.Kind == relDartTypeRef || rel.Kind == relDartCtorRef {
 				continue
 			}
 			if rel.Kind == facts.RelCalls {
@@ -163,6 +188,25 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		}
 	}
 	return all[:count]
+}
+
+// namedConstruction is the class a call spelled `Foo.named` builds once it bound to a
+// constructor of typ: typ's name when the receiver spells the class itself (or the
+// class behind an import prefix), so `super.named()` and `this.named()` in an
+// initializer list, which run a constructor without building a new object, are not
+// constructions. A class from the bundled SDK index is not in the graph and records
+// nothing, as with no index.
+func (r *dartMemberResolver) namedConstruction(spelled string, typ *facts.Fact, repoFiles map[string]bool) string {
+	dot := strings.LastIndexByte(spelled, '.')
+	if dot < 0 {
+		return ""
+	}
+	receiver := spelled[:dot]
+	receiver = receiver[strings.LastIndexByte(receiver, '.')+1:]
+	if receiver != typ.Name[strings.LastIndexByte(typ.Name, '.')+1:] || !repoFiles[typ.File] {
+		return ""
+	}
+	return typ.Name
 }
 
 func recordInheritedCall(r *dartMemberResolver, f *facts.Fact, spelled, target string) {
@@ -422,6 +466,33 @@ func disambiguateDartGetters(all []facts.Fact) {
 	}
 }
 
+// valueTarget resolves a name read, written or torn off outside a call.
+// `p.name` spelled through an import prefix binds through the library's imports
+// under that prefix alone, as a prefixed call does, and like a bare name never
+// to a bundled SDK signature; anything else resolves as a call.
+func (r *dartMemberResolver) valueTarget(spelled string, from *facts.Fact, constructed map[string]*facts.Fact) string {
+	if qualified, ok := strings.CutPrefix(spelled, dartPrefixedValue); ok {
+		prefix, name, _ := strings.Cut(qualified, ".")
+		if r.importPrefix(prefix, from.File) {
+			if fn := uniqueDartFact(r.importedFunctions(prefix, name, from.File)); fn != nil && !r.sdkHosts[r.libraryFile(fn.File)] {
+				return fn.Name
+			}
+		}
+		return ""
+	}
+	return r.call(spelled, from, false, true, constructed)
+}
+
+// importPrefix reports an `as` prefix of an import of file's library.
+func (r *dartMemberResolver) importPrefix(prefix, file string) bool {
+	for _, dep := range r.imports[r.libraryFile(file)] {
+		if !dep.PropBool("reexport") && dep.PropString("import_prefix") == prefix {
+			return true
+		}
+	}
+	return false
+}
+
 // libraryValueVisible reports whether a bare name the walker could not bind
 // reaches target, a top-level declaration found through the library's parts or
 // imports. A top-level variable of the reading library hides any import, and a
@@ -451,14 +522,14 @@ func (r *dartMemberResolver) setterWrite(spelled string, from *facts.Fact) strin
 	if !own {
 		// Top-level setters emit no symbol of their own, so a written top-level
 		// getter name stands for its setter: a getter alone cannot be assigned.
-		target := r.call(name, from, false, true, nil)
+		target := r.valueTarget(name, from, nil)
 		if entry := r.members[target]; entry.fact != nil && entry.fact.PropString("symbol_kind") == facts.SymbolFunc && entry.fact.PropString("accessor") != "" {
 			if entry.fact.File == from.File || r.libraryValueVisible(name, entry.fact, from) {
 				return entry.fact.Name
 			}
 			return ""
 		}
-		if len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) > 0 {
+		if strings.HasPrefix(name, dartPrefixedValue) || len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) > 0 {
 			return ""
 		}
 	}
