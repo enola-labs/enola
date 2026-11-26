@@ -4155,7 +4155,12 @@ import (
 // a const bound to one, a union of string literal types or `keyof typeof ns`; with
 // any other key it draws no edge and marks each export of the module
 // reached_dynamically, with the files of the lookups.
-const cacheVersion = "v746"
+// v747: PHP: a method call on a model an Eloquent query fetches (`M::find($id)`,
+// `M::whereX($v)->firstOrFail()`), directly, through a local, through a relation read
+// or as an element of a query's collection, binds to the method the model, a parent
+// or a trait declares, read as v743 reads relation reads; a framework method on it
+// binds nothing.
+const cacheVersion = "v747"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

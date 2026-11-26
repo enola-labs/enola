@@ -341,6 +341,7 @@ var versionCoverage = map[int][]string{
 	743: {"TestEloquentQueryResultRelationReadIsAUse", "TestEloquentCollectionElementRelationReadIsAUse", "TestPHPLocalIsTypedByWhatItIsAssigned", "TestEloquentRelationPropertyReadIsAUse", "TestEloquentRelationNamedInEagerLoadIsAUse"},
 	744: {"TestDartUnnamedExtensionIsExtracted", "TestDartUnnamedExtensionNames", "TestDartUnnamedExtensionIsLibraryPrivate", "TestDartUnnamedExtensionInDottedFile", "TestGolden"},
 	745: {"TestDartImportPrefixedStaticMembers", "TestDartImportPrefixedStaticMemberScope", "TestDartImportPrefixedConstructions", "TestDartImportPrefixedConstructionScope"},
+	747: {"TestReceiverCalls_EloquentQueryResult", "TestReceiverCalls_FrameworkMethodOnAModel", "TestEloquentQueryResultRelationReadIsAUse"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

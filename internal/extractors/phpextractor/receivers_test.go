@@ -15,7 +15,7 @@ func boundCalls(t *testing.T, name string, sources ...string) []string {
 	for i, src := range sources {
 		all = append(all, extractFileAST([]byte(src), "app/f"+string(rune('a'+i))+".php")...)
 	}
-	bindReceiverCalls(all)
+	bindReceiverCalls(all, bindRelationReads(all))
 	for _, f := range all {
 		if f.Kind != facts.KindSymbol || f.Name != name {
 			continue
@@ -213,4 +213,61 @@ class Signer {
 	if !recursiveBySuffix(t, ff, "Tree::walk") {
 		t.Error("Tree::walk calls itself through ?-> and is not flagged recursive_self")
 	}
+}
+
+// TestReceiverCalls_EloquentQueryResult: a model fetched by a query
+// (`Story::find($id)`, `Story::whereProfileId($pid)->firstOrFail()`), directly, through
+// a local or as an element of a query's collection, is that model, and a method call
+// on it runs the method the model, a parent or a trait declares. A collection or a
+// query is no model, a class that is no model has no query, and a framework method
+// (`save`) or a name no class declares binds nothing.
+func TestReceiverCalls_EloquentQueryResult(t *testing.T) {
+	got := boundCalls(t, `App\Http\Resources\AdminReport::toArray`, `<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+trait HasSeen {
+    public function markSeen() {}
+}
+abstract class BaseStory extends Model {
+    public function archive() {}
+}
+class Story extends BaseStory {
+    use HasSeen;
+    public function toAdminEntity(): array { return []; }
+    public function toSummary(): array { return []; }
+    public function toList(): array { return []; }
+    public function toQuery(): array { return []; }
+    public function toEach(): array { return []; }
+}
+class Plain {
+    public function describe() {}
+}
+`, `<?php
+namespace App\Http\Resources;
+use App\Models\Story;
+use App\Models\Plain;
+class AdminReport {
+    public function toArray($id, $pid) {
+        $story = Story::find($id);
+        $res = $story->toAdminEntity();
+        Story::whereProfileId($pid)->firstOrFail()->toSummary();
+        $story->archive();
+        $story->markSeen();
+        $story->save();
+        $story->missing();
+        foreach (Story::where('active', true)->get() as $s) {
+            $s->toEach();
+        }
+        Story::where('a', 1)->get()->toList();
+        Story::where('a', 1)->toQuery();
+        Plain::first()->describe();
+        return $res;
+    }
+}
+`)
+	wantRelationCalls(t, got,
+		[]string{`App\Models\Story::toAdminEntity`, `App\Models\Story::toSummary`, `App\Models\BaseStory::archive`,
+			`App\Models\HasSeen::markSeen`, `App\Models\Story::toEach`},
+		[]string{`App\Models\Story::toList`, `App\Models\Story::toQuery`, `App\Models\Plain::describe`,
+			`App\Models\Story::save`, `App\Models\Story::missing`})
 }

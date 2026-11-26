@@ -195,7 +195,9 @@ func isIdentifier(s string) bool {
 // name with no relation of its own. A path's later segments are looked up on the
 // class the previous relation names (eloquent_target); a morphTo names none, and the
 // path stops there. A receiver that is a query's result is read by eloquentResult.
-func bindRelationReads(allFacts []facts.Fact) {
+// The resolver is returned for bindReceiverCalls, which reads query results the same
+// way; its class index is nil when no relation is declared.
+func bindRelationReads(allFacts []facts.Fact) relationResolver {
 	r := relationResolver{relations: map[string]string{}, toMany: map[string]bool{}, returns: map[string]string{}, models: map[string]bool{}}
 	reads := false
 	for i := range allFacts {
@@ -220,7 +222,7 @@ func bindRelationReads(allFacts []facts.Fact) {
 		}
 	}
 	if !reads {
-		return
+		return r
 	}
 	if len(r.relations) > 0 {
 		r.ix = newClassIndex(allFacts)
@@ -266,6 +268,7 @@ func bindRelationReads(allFacts []facts.Fact) {
 			}
 		}
 	}
+	return r
 }
 
 // relationResolver holds what bindRelationReads looks receivers up in.
