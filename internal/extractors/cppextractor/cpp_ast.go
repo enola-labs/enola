@@ -201,8 +201,10 @@ type astWalker struct {
 	valueScope struct {
 		fdecl, body *sitter.Node
 		locals      map[string]bool
-		// protos holds the functions the body declares by prototype
-		// (`int helper(int);` in a block), which name functions, not values.
+		// protos holds the names a call may still mean a function by: the
+		// functions the body declares by prototype (`int helper(int);` in a block),
+		// and locals declared under a preprocessor conditional, which a
+		// configuration may leave out (bison's `char *yymsg` beside `yymsg(...)`).
 		protos map[string]bool
 	}
 	// templateParams holds the enclosing templates' parameter names, and
@@ -1947,19 +1949,39 @@ func (w *astWalker) valueLocal(name string) bool {
 				decl := referencedDeclarator(w.kinds, d.Child(i))
 				if n := declaratorLeafName(w.kinds, decl, w.src); n != "" {
 					sc.locals[n] = true
-					if di >= params && kindOf(w.kinds, decl) == "function_declarator" {
-						if inner := declaratorChild(w.kinds, decl); inner != nil && kindOf(w.kinds, inner) != "parenthesized_declarator" {
-							if sc.protos == nil {
-								sc.protos = map[string]bool{}
-							}
-							sc.protos[n] = true
+					if di >= params && (isBlockPrototype(w.kinds, decl) || underPreprocessorConditional(w.kinds, d, sc.body)) {
+						if sc.protos == nil {
+							sc.protos = map[string]bool{}
 						}
+						sc.protos[n] = true
 					}
 				}
 			}
 		}
 	}
 	return sc.locals[name]
+}
+
+// isBlockPrototype reports whether decl declares a function, `helper(int)`, not
+// a pointer to one, `(*helper)(int)`.
+func isBlockPrototype(kinds *tsutil.KindTable, decl *sitter.Node) bool {
+	if kindOf(kinds, decl) != "function_declarator" {
+		return false
+	}
+	inner := declaratorChild(kinds, decl)
+	return inner != nil && kindOf(kinds, inner) != "parenthesized_declarator"
+}
+
+// underPreprocessorConditional reports whether node sits in an #if, #ifdef or
+// #else branch between it and stop.
+func underPreprocessorConditional(kinds *tsutil.KindTable, node, stop *sitter.Node) bool {
+	for p := node.Parent(); p != nil && p.Id() != stop.Id(); p = p.Parent() {
+		switch kindOf(kinds, p) {
+		case "preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif", "preproc_elifdef":
+			return true
+		}
+	}
+	return false
 }
 
 // callsThroughValue reports whether a bare call to name calls a parameter or

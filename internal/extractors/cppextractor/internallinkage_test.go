@@ -433,3 +433,23 @@ func TestCStaticPrototypeFusesThroughATransitiveInclude(t *testing.T) {
 		t.Error("a header outside the unit keeps its prototype")
 	}
 }
+
+// A local declared under a preprocessor conditional may not exist in the
+// configuration that builds the call, so it hides no function of its name.
+func TestCLocalUnderAConditionalHidesNoFunction(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"parser/gram.c": `
+void yymsg(int level, const char *fmt);
+int yyparse(void) {
+#if YYERROR_VERBOSE
+	char *yymsg = 0;
+#endif
+	yymsg(0, "error");
+	return 0;
+}
+`,
+	})
+	if !hasRelation(mustFact(t, ff, "parser.yyparse"), facts.RelCalls, "parser.yymsg") {
+		t.Errorf("yyparse calls yymsg, got %+v", mustFact(t, ff, "parser.yyparse").Relations)
+	}
+}
