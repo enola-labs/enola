@@ -373,7 +373,8 @@ func (idx internalIndex) sharer(decls []internalDecl, file string, includedSourc
 // definition it declares: the one static of that name, with a body, in a source
 // file that shares the prototype's translation unit through quoted includes (the
 // source includes the prototype's file, the other way round, or a third file
-// includes both, as a driver including its core `.c` and that core's header).
+// includes both, as a driver including its core `.c` and that core's header), in
+// the prototype's directory.
 // References to the prototype follow it, and dedupeSymbols then fuses the two, as
 // it fuses an extern prototype with its definition.
 func fuseStaticPrototypes(allFacts []facts.Fact) {
@@ -402,6 +403,9 @@ func fuseStaticPrototypes(allFacts []facts.Fact) {
 	}
 	shareUnit := func(a, b string) bool {
 		ba, bb := path.Base(a), path.Base(b)
+		if ba == bb {
+			return false // a file name cannot tell the two apart
+		}
 		if includes[a][bb] || includes[b][ba] {
 			return true
 		}
@@ -412,6 +416,13 @@ func fuseStaticPrototypes(allFacts []facts.Fact) {
 		}
 		return false
 	}
+	// A prototype in the file that defines it is that definition already.
+	defined := map[string]bool{}
+	for _, list := range defs {
+		for _, j := range list {
+			defined[allFacts[j].Name] = true
+		}
+	}
 	rename := map[string]string{}
 	for i := range allFacts {
 		f := &allFacts[i]
@@ -419,13 +430,13 @@ func fuseStaticPrototypes(allFacts []facts.Fact) {
 			continue
 		}
 		base, ok := splitInternal(f.Name)
-		if !ok {
+		if !ok || defined[f.Name] {
 			continue
 		}
 		def := ""
 		for _, j := range defs[lastScopeComponent(base)] {
 			d := &allFacts[j]
-			if d.File == f.File || !sameUnqualified(d.Name, base) || !shareUnit(f.File, d.File) {
+			if factpath.Dir(d.File) != factpath.Dir(f.File) || !sameUnqualified(d.Name, base) || !shareUnit(f.File, d.File) {
 				continue
 			}
 			if def != "" && def != d.Name {

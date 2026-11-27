@@ -305,3 +305,16 @@ func TestCStaticPrototypeInOneUnitFusesWithItsDefinition(t *testing.T) {
 		t.Errorf("the header's table references the definition, got %+v", mustFact(t, ff, "cam.st_ops@st_h").Relations)
 	}
 }
+
+// A static's prototype in the file that defines it stays that definition, though
+// another directory's file of the same name defines a static of that name.
+func TestCStaticPrototypeStaysWithItsOwnFile(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"kernel/signal.c":  "static void *sig_handler(int sig);\nint do_sigaction(int sig) { return sig_handler(sig) != 0; }\nstatic void *sig_handler(int sig) { return 0; }\n",
+		"arch/um/signal.c": "static void sig_handler(int sig) {}\n",
+		"arch/um/main.c":   "#include \"signal.c\"\n",
+	})
+	if !hasRelation(mustFact(t, ff, "kernel.do_sigaction"), facts.RelCalls, "kernel.sig_handler@signal_c") {
+		t.Errorf("do_sigaction calls its own file's sig_handler, got %+v", mustFact(t, ff, "kernel.do_sigaction").Relations)
+	}
+}
