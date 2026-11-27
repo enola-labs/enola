@@ -22,7 +22,7 @@ void setup() {
 `,
 	})
 	setup := mustFact(t, ff, "src.setup")
-	for _, want := range []string{"src.DeclCbUpper", "src.DeclCbLower"} {
+	for _, want := range []string{"src.DeclCbUpper@a_cpp", "src.DeclCbLower@a_cpp"} {
 		if !hasRelation(setup, facts.RelCalls, want) {
 			t.Errorf("setup should reference %s, got %+v", want, setup.Relations)
 		}
@@ -80,7 +80,7 @@ void init() {
 `,
 	})
 	init := mustFact(t, ff, "src.init")
-	for _, want := range []string{"src.match_a", "src.combine_a"} {
+	for _, want := range []string{"src.match_a@a_cpp", "src.combine_a@a_cpp"} {
 		if !hasRelation(init, facts.RelCalls, want) {
 			t.Errorf("init should reference %s, got %+v", want, init.Relations)
 		}

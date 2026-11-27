@@ -2,6 +2,7 @@ package orphans
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1960,5 +1961,53 @@ func TestTestEntryNamesOnlyInTheirFileKind(t *testing.T) {
 		if _, ok := got[name]; !ok {
 			t.Errorf("%s is production code and should be reported", name)
 		}
+	}
+}
+
+// A declaration named with its file (a member of a Swift constrained extension)
+// matches a reference by its own name too, and its bare name drops the qualifier, so
+// an init so named is still an entry point.
+func TestFileQualifiedNameMatchesItsBareName(t *testing.T) {
+	got := candidateNames("KsApi/Sources/KsApi.Lens.id@ProjectLenses_swift@2", facts.SymbolMethod)
+	want := []string{"id@ProjectLenses_swift@2", "Lens.id@ProjectLenses_swift@2", "id", "Lens.id"}
+	if !slices.Equal(got, want) {
+		t.Errorf("candidateNames = %v, want %v", got, want)
+	}
+	if got := bareName("GraphAPI/Mocks.Mock.init@Project+Mock_graphql_swift"); got != "init" {
+		t.Errorf("bareName = %q, want init", got)
+	}
+	// A conditional conformance's witness (`extension P: Hashable where T: Hashable`).
+	var st swiftStore
+	st.add("Protected+Hashable", facts.SymbolExtension, nil, implements("Hashable"))
+	st.method("Protected", "hash@Protected_swift")
+	st.method("Protected", "helper@Protected_swift")
+	wantReported(t, st.reported(), map[string]bool{"Protected.hash@Protected_swift": false, "Protected.helper@Protected_swift": true})
+	for _, name := range []string{"app/models.@decorated", "pkg.x@", "web/node_modules.pkg@scope/x"} {
+		if got := bareName(name); got != lastSeg(name) {
+			t.Errorf("bareName(%q) = %q, want it unchanged", name, got)
+		}
+	}
+}
+
+// C statics named for their file: a main so named, because its directory holds
+// several programs, is an entry point; a static nothing references is an orphan,
+// and one its own file calls is not.
+func TestFileQualifiedCStaticsAndMain(t *testing.T) {
+	syms := []symInput{
+		{Name: "tools.main@one_c", Kind: facts.SymbolFunc, Package: "tools", File: "tools/one.c"},
+		{Name: "drv.to_state@a_c", Kind: facts.SymbolFunc, Package: "drv", File: "drv/a.c"},
+		{Name: "drv.to_state@b_c", Kind: facts.SymbolFunc, Package: "drv", File: "drv/b.c"},
+		{Name: "drv.probe_b", Kind: facts.SymbolFunc, Package: "drv", File: "drv/b.c"},
+	}
+	refs := refsFrom(map[string][]string{"drv.probe_b": {"drv.to_state@b_c"}})
+	def := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if _, ok := def["tools.main@one_c"]; ok {
+		t.Error("a file-qualified main is an entry point, not an orphan")
+	}
+	if _, ok := def["drv.to_state@b_c"]; ok {
+		t.Error("a static its own file calls is used")
+	}
+	if _, ok := def["drv.to_state@a_c"]; !ok {
+		t.Error("a static nothing calls is an orphan, whatever its namesake in another file does")
 	}
 }

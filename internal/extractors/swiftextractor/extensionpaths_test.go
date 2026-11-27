@@ -113,13 +113,13 @@ extension Collection: Codable where Element == Date.RFCStyle {}
 `,
 	})
 	names := namesOf(ff)
-	if !hasName(names, "Sources/Lib.FormatStyle.rfc", "Sources/Lib.Date.RFCStyle") {
-		t.Errorf("FormatStyle.rfc names %v, want Date.RFCStyle", names["Sources/Lib.FormatStyle.rfc"])
+	if !hasName(names, "Sources/Lib.FormatStyle.rfc@Style_swift", "Sources/Lib.Date.RFCStyle") {
+		t.Errorf("FormatStyle.rfc names %v, want Date.RFCStyle", names["Sources/Lib.FormatStyle.rfc@Style_swift"])
 	}
-	if !hasName(names, "Sources/Lib.Array.marked", "Sources/Lib.Marker") {
-		t.Errorf("Array.marked names %v, want Marker", names["Sources/Lib.Array.marked"])
+	if !hasName(names, "Sources/Lib.Array.marked@Style_swift", "Sources/Lib.Marker") {
+		t.Errorf("Array.marked names %v, want Marker", names["Sources/Lib.Array.marked@Style_swift"])
 	}
-	if hasName(names, "Sources/Lib.Array.marked", "Sources/Lib.Element") {
+	if hasName(names, "Sources/Lib.Array.marked@Style_swift", "Sources/Lib.Element") {
 		t.Errorf("the constrained associated type Element bound to the project's Element")
 	}
 	if !hasName(names, "Sources/Lib.Collection+Codable", "Sources/Lib.Date.RFCStyle") {

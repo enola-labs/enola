@@ -107,6 +107,10 @@ type astWalker struct {
 	// grammar emits directives as flat sibling `directive` nodes, not containers,
 	// so depth is tracked by the ordered walk loops (walkSourceFile, walkTypeBody).
 	condDepth int
+
+	// constrainedMembers counts, per member name, the file's constrained extensions
+	// declaring it (constrainedext.go).
+	constrainedMembers map[string]int
 }
 
 // swiftBodyMetrics accumulates per-function complexity signals during the single
@@ -899,6 +903,9 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	w.popContainer()
 	w.popType()
 	w.noteWhereClauseUses(node, w.dir+"."+path+".", before)
+	if isConstrainedExtension(node, nameNode) {
+		w.markConstrainedMembers(node, w.dir+"."+path+".", before)
+	}
 	if moduleHead != "" {
 		for i := start; i < len(w.out); i++ {
 			if n := w.out[i].Name; strings.HasPrefix(n, w.dir+"."+path+".") || strings.HasPrefix(n, w.dir+"."+path+"+") {

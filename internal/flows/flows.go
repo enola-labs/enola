@@ -939,9 +939,13 @@ func moduleOf(f facts.Fact) string {
 // isMain reports whether a symbol is a program's main: a member called main, as
 // in Go's `cmd/tool.main` and Python's `pkg/cli.main`, or Main on .NET, where
 // the runtime looks for that spelling. Main elsewhere is an ordinary exported
-// name and is no entry.
+// name and is no entry. A C main is file-qualified when one directory holds
+// several programs (`tools.main@one_c`).
 func isMain(f facts.Fact) bool {
 	if f.Name == "main" || strings.HasSuffix(f.Name, ".main") {
+		return true
+	}
+	if base, _, ok := strings.Cut(f.Name, "@"); ok && strings.HasSuffix(base, ".main") {
 		return true
 	}
 	switch f.PropString("language") {

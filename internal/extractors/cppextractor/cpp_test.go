@@ -255,7 +255,7 @@ namespace { void anon() {} }
 	})
 	mustFact(t, ff, "src.a::b::f")
 	mustFact(t, ff, "src.c::d::g")
-	mustFact(t, ff, "src.anon") // anonymous namespace contributes no scope component
+	mustFact(t, ff, "src.anon@n_cpp") // anonymous namespace contributes no scope component
 }
 
 func TestNamespacedFunctionMergesAcrossFiles(t *testing.T) {
@@ -658,8 +658,8 @@ static const struct ops_t ops = {
 };
 `,
 	})
-	ops := mustFact(t, ff, "src.ops")
-	if !hasRelation(ops, facts.RelCalls, "src.reader") || !hasRelation(ops, facts.RelCalls, "src.writer") {
+	ops := mustFact(t, ff, "src.ops@ops_cpp")
+	if !hasRelation(ops, facts.RelCalls, "src.reader@ops_cpp") || !hasRelation(ops, facts.RelCalls, "src.writer@ops_cpp") {
 		t.Errorf("ops should reference reader and writer, got %+v", ops.Relations)
 	}
 }
@@ -672,8 +672,8 @@ static int onEvent() { return 0; }
 static int setup() { return subscribe(onEvent); }
 `,
 	})
-	setup := mustFact(t, ff, "src.setup")
-	if !hasRelation(setup, facts.RelCalls, "src.onEvent") {
+	setup := mustFact(t, ff, "src.setup@reg_cpp")
+	if !hasRelation(setup, facts.RelCalls, "src.onEvent@reg_cpp") {
 		t.Errorf("setup should reference onEvent passed as a callback arg, got %+v", setup.Relations)
 	}
 }

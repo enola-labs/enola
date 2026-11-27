@@ -237,7 +237,7 @@ func swiftWitnesses(symbols []facts.Fact) (witnesses, entered map[string]bool) {
 			if recv == "" {
 				continue
 			}
-			name := lastDotComponent(f.Name)
+			name := trimFileQualifier(lastDotComponent(f.Name)) // `==` of a conditional conformance
 			for _, p := range conforms[[2]string{f.Repo, recv}] {
 				if !declared[p] && swiftRequires(p, name) {
 					witnesses[f.Name] = true

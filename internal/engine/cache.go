@@ -4170,7 +4170,24 @@ import (
 // any Swift source declares by its text is never foreign. A file with `try await`
 // (or `try?`/`try!`) in an if condition, which the grammar read as one error, is
 // parsed again with that `await` blanked, so its types are symbols again.
-const cacheVersion = "v748"
+// v749: C/C++: a declaration with internal linkage (a `static` free function or
+// file-scope variable, or one in an anonymous namespace) is named for its file,
+// `<dir>.<name>@<file>` with the file's dots as `_`, so two of one name in one
+// directory stay two facts; a file's references bind to its own. A static in a
+// header is named for the header and found from the files that can see it (one
+// several headers of a directory define stays the directory's, unqualified); a
+// source's static only from a source sharing its translation unit by a quoted
+// include. Several files of one directory defining `main` name each main the same
+// way.
+// v750: Swift: a member of a constrained extension (`extension X where ...`,
+// `extension X<A>`) is named with its file's base name, `X.m@File_swift`, and `@2`,
+// `@3` for a further constrained extension of X in the file declaring m again, so
+// same-named members under different constraints are one fact each. An edge to the
+// shared name binds to the declaration in the referring declaration's extension,
+// else its file, else the only one; none when the name leaves it ambiguous. Beside
+// a member of the same name the type or a plain extension declares, the constrained
+// ones are overloads and the edge stays on the plain one.
+const cacheVersion = "v750"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

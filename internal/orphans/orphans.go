@@ -353,11 +353,31 @@ func candidateNames(name, kind string) []string {
 			out = append(out, strings.TrimPrefix(parts[n-2], "::")+"."+base)
 		}
 	}
+	// A declaration named with its file (`Lens.id@ProjectLenses_swift`, a member of a
+	// Swift constrained extension) is referenced by its own name, which a use the
+	// extractor could not tell apart from its namesakes arrives as. Additive, as above.
+	if base := trimFileQualifier(final); base != final {
+		out = append(out, base)
+		if kind == facts.SymbolMethod && n >= 2 {
+			out = append(out, strings.TrimPrefix(parts[n-2], "::")+"."+base)
+		}
+	}
 	return out
 }
 
-// bareName returns a symbol's unqualified name (its final '.'-segment).
-func bareName(name string) string { return lastSeg(name) }
+// trimFileQualifier returns a final name segment less the `@<file>` qualifier a
+// same-named declaration distinct per file carries (`id@ProjectLenses_swift`,
+// `id@ProjectLenses_swift@2`); a segment without one, or led by `@`, unchanged.
+func trimFileQualifier(seg string) string {
+	if i := strings.IndexByte(seg, '@'); i > 0 && i < len(seg)-1 && !strings.Contains(seg[i:], "/") {
+		return seg[:i]
+	}
+	return seg
+}
+
+// bareName returns a symbol's unqualified name (its final '.'-segment), less a
+// file qualifier.
+func bareName(name string) string { return trimFileQualifier(lastSeg(name)) }
 
 // refCandidates returns the forms a reference to sym may take. It is candidateNames
 // for every symbol but one kind: a Go package-level function, which is matched by its

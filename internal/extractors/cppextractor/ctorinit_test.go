@@ -43,7 +43,7 @@ Bench::Bench(int v) : group(ParseGroup(v)) {}
 `,
 	})
 	ctor := mustFact(t, ff, "src.db::Bench::Bench")
-	if !hasRelation(ctor, facts.RelCalls, "src.db::ParseGroup") {
+	if !hasRelation(ctor, facts.RelCalls, "src.db::ParseGroup@b_cpp") {
 		t.Errorf("Bench::Bench should call ParseGroup, got %+v", ctor.Relations)
 	}
 }

@@ -215,6 +215,7 @@ func (e *CppExtractor) extract(ctx context.Context, repoPath string, files, test
 		}
 		return extractFileAST(src, relFile, langByFile[relFile], macros)
 	})
+	qualifyMains(perFileFacts, cppFiles)
 
 	for i, fileFacts := range perFileFacts {
 		relFile := cppFiles[i]
@@ -284,6 +285,8 @@ func (e *CppExtractor) extract(ctx context.Context, repoPath string, files, test
 	resolveFuncPtrRefs(allFacts, funcNames)
 
 	// Merge header method declarations with source definitions.
+	foldHeaderAlternatives(allFacts)
+	fuseStaticPrototypes(allFacts)
 	allFacts = dedupeSymbols(allFacts)
 
 	// Canonicalise edge targets. A bare call is initially scoped to its caller's
@@ -571,6 +574,11 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 			case facts.RelCalls:
 				stats.total++
 				if known[r.Target] {
+					stats.exact++
+					break
+				}
+				if canonical := functions.internals.resolve(&allFacts[i], r.Target, functions.includedSources); canonical != "" {
+					r.Target = canonical
 					stats.exact++
 					break
 				}
@@ -1025,6 +1033,10 @@ type functionNames struct {
 	// scoped is qualified restricted to one directory, keyed "<dir>.<suffix>": the
 	// lookup for a call whose directory is already known.
 	scoped map[string]string
+	// internals finds the internal-linkage declaration a file outside its own may
+	// call (internallinkage.go); includedSources is what that depends on.
+	internals       internalIndex
+	includedSources map[string]bool
 }
 
 // indexFunctionNames maps both short names and namespace/class-qualified suffixes
@@ -1032,6 +1044,20 @@ type functionNames struct {
 // that spelling once; an empty value marks ambiguity.
 func indexFunctionNames(allFacts []facts.Fact) functionNames {
 	out := functionNames{short: map[string]string{}, qualified: map[string]string{}, scoped: map[string]string{}}
+	out.includedSources = includedSourceNames(allFacts)
+	out.internals = newInternalIndex(allFacts, out.includedSources)
+	// A source file's static function is never found by name from another file,
+	// but its name still counts: a header's static of a name some source also
+	// declares static (a libc shim beside a tool's own helper) is not the one meant.
+	sourceStatics := map[string]bool{}
+	for i := range allFacts {
+		f := &allFacts[i]
+		if name, internal := splitInternal(f.Name); internal && f.Kind == facts.KindSymbol && !isHeaderExt(f.File) {
+			if sk := f.PropString("symbol_kind"); sk == facts.SymbolFunc || sk == facts.SymbolMethod {
+				sourceStatics[lastScopeComponent(name)] = true
+			}
+		}
+	}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol {
@@ -1041,13 +1067,19 @@ func indexFunctionNames(allFacts []facts.Fact) functionNames {
 		if kind != facts.SymbolFunc && kind != facts.SymbolMethod {
 			continue
 		}
-		short := lastScopeComponent(f.Name)
-		if short == "" {
+		// An internal declaration is found by the name it qualifies, and only a
+		// header's, which every file including it sees.
+		name, internal := splitInternal(f.Name)
+		if internal && !isHeaderExt(f.File) {
+			continue
+		}
+		short := lastScopeComponent(name)
+		if short == "" || internal && sourceStatics[short] {
 			continue
 		}
 		indexUniqueName(out.short, short, f.Name)
-		if dot := strings.Index(f.Name, "."); dot >= 0 && dot+1 < len(f.Name) {
-			qualified := f.Name[dot+1:]
+		if dot := strings.Index(name, "."); dot >= 0 && dot+1 < len(name) {
+			qualified := name[dot+1:]
 			if strings.Contains(qualified, "::") {
 				// A call site can omit enclosing namespaces that are active through
 				// its lexical context or a using declaration. Index every qualified
@@ -1056,7 +1088,7 @@ func indexFunctionNames(allFacts []facts.Fact) functionNames {
 				for candidate := qualified; strings.Contains(candidate, "::"); {
 					indexUniqueName(out.qualified, candidate, f.Name)
 					if candidate != qualified {
-						indexUniqueName(out.scoped, f.Name[:dot+1]+candidate, f.Name)
+						indexUniqueName(out.scoped, name[:dot+1]+candidate, f.Name)
 					}
 					i := strings.Index(candidate, "::")
 					candidate = candidate[i+2:]
@@ -1168,10 +1200,11 @@ func (index headerPathIndex) resolve(sourceFile, include, style string) string {
 // lastScopeComponent returns the final "::"-separated component of a "<dir>.<...>"
 // fact name (e.g. "Geo.gmsh::Base" -> "Base").
 func lastScopeComponent(name string) string {
-	// Drop the "<dir>." prefix.
+	// Drop the "<dir>." prefix, and the file qualifier of an internal declaration.
 	if idx := strings.Index(name, "."); idx >= 0 {
 		name = name[idx+1:]
 	}
+	name, _ = splitInternal(name)
 	if idx := strings.LastIndex(name, "::"); idx >= 0 {
 		return name[idx+2:]
 	}

@@ -62,6 +62,7 @@ func extractFileAST(src []byte, relFile, lang string, macros macroTable) []facts
 	// Recover callbacks from macro-opened struct initializers (machine_desc), which
 	// tree-sitter can't parse and scatters as `.field = fn` assignment debris.
 	w.salvageMacroStructAssigns(tree.RootNode())
+	qualifyInternals(w.out, w.internal, relFile, w.dir)
 	return w.out
 }
 
@@ -209,6 +210,10 @@ type astWalker struct {
 	// first use (construct.go).
 	root      *sitter.Node
 	fileTypes map[string]bool
+	// anonDepth is non-zero inside an anonymous namespace, and internal holds the
+	// names this file declares with internal linkage (internallinkage.go).
+	anonDepth int
+	internal  map[string]bool
 }
 
 // cppBodyMetrics accumulates per-function complexity signals during the single
@@ -783,7 +788,12 @@ func (w *astWalker) handleNamespace(node *sitter.Node) {
 			pushed++
 		}
 	}
-	// nameNode == nil ⇒ anonymous namespace: push nothing.
+	// nameNode == nil ⇒ anonymous namespace: push nothing, and what it declares
+	// has internal linkage.
+	if nameNode == nil {
+		w.anonDepth++
+		defer func() { w.anonDepth-- }()
+	}
 	w.walkDeclList(node.ChildByFieldName("body"))
 	w.nsStack = w.nsStack[:len(w.nsStack)-pushed]
 }
@@ -983,6 +993,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 		f.SetProp(facts.PropFrameworkRoot, rootMacro)
 	}
 	w.applyFuncQualifiers(&f, node, fdecl)
+	w.noteInternal(&f, receiver)
 	if t := returnTypeName(node, w.src); t != "" {
 		f.SetProp(propReturnType, t)
 	}
@@ -1355,6 +1366,7 @@ func (w *astWalker) handleDeclaration(node *sitter.Node) {
 		f.SetProp("receiver", receiver)
 	}
 	w.applyFuncQualifiers(&f, node, fdecl)
+	w.noteInternal(&f, receiver)
 	w.out = append(w.out, f)
 }
 
@@ -1388,6 +1400,9 @@ func (w *astWalker) handleVarInitializers(node *sitter.Node) bool {
 		kind := facts.SymbolVariable
 		if constVar {
 			kind = facts.SymbolConstant
+		}
+		if len(w.typeStack) == 0 && (w.anonDepth > 0 || w.hasStaticSpecifier(node)) {
+			w.markInternal(w.factName(leaf))
 		}
 		w.out = append(w.out, facts.Fact{
 			Kind:    facts.KindSymbol,
@@ -2130,6 +2145,35 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 			}
 		}
 	}
+}
+
+// noteInternal records f's name as internal to this file when it is a free
+// function declared `static` or inside an anonymous namespace.
+func (w *astWalker) noteInternal(f *facts.Fact, receiver string) {
+	if receiver != "" || len(w.typeStack) > 0 {
+		return
+	}
+	if w.anonDepth > 0 || f.PropBool("static") {
+		w.markInternal(f.Name)
+	}
+}
+
+func (w *astWalker) markInternal(name string) {
+	if w.internal == nil {
+		w.internal = map[string]bool{}
+	}
+	w.internal[name] = true
+}
+
+// hasStaticSpecifier reports whether a declaration carries the `static` storage class.
+func (w *astWalker) hasStaticSpecifier(node *sitter.Node) bool {
+	for i := uint(0); i < node.ChildCount(); i++ {
+		c := node.Child(i)
+		if kindOf(w.kinds, c) == "storage_class_specifier" && nodeText(c, w.src) == "static" {
+			return true
+		}
+	}
+	return false
 }
 
 // errorSpecifierKeywords returns the C/C++ specifier keywords that error
