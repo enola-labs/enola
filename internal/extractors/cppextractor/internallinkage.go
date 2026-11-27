@@ -33,8 +33,9 @@ import (
 // header is its qualifier (`include/linux.foo@bar_h`), and the files that see it
 // resolve to that one fact: by name in the header's directory, and by its short
 // name from elsewhere only while no source file declares a static of that name
-// too (internalIndex, indexFunctionNames). Where several headers define one
-// (alternatives a configuration picks), a file calls the one it includes itself. A source file's static is seen only by
+// too (internalIndex, indexFunctionNames). Where several headers of the caller's
+// own directory define one (alternatives a configuration picks), a file calls the
+// one it includes itself. A source file's static is seen only by
 // a source sharing its translation unit through a quoted include, either way
 // round (`#include "impl.c"`, a unit test included at the end of its file).
 // A prototype of a static that a source sharing its translation unit defines
