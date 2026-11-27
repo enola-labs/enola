@@ -1976,6 +1976,12 @@ func TestFileQualifiedNameMatchesItsBareName(t *testing.T) {
 	if got := bareName("GraphAPI/Mocks.Mock.init@Project+Mock_graphql_swift"); got != "init" {
 		t.Errorf("bareName = %q, want init", got)
 	}
+	// A conditional conformance's witness (`extension P: Hashable where T: Hashable`).
+	var st swiftStore
+	st.add("Protected+Hashable", facts.SymbolExtension, nil, implements("Hashable"))
+	st.method("Protected", "hash@Protected_swift")
+	st.method("Protected", "helper@Protected_swift")
+	wantReported(t, st.reported(), map[string]bool{"Protected.hash@Protected_swift": false, "Protected.helper@Protected_swift": true})
 	for _, name := range []string{"app/models.@decorated", "pkg.x@", "web/node_modules.pkg@scope/x"} {
 		if got := bareName(name); got != lastSeg(name) {
 			t.Errorf("bareName(%q) = %q, want it unchanged", name, got)
