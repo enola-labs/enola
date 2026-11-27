@@ -234,7 +234,11 @@ func stringLiteral(s string) string {
 // `keyof typeof ns` uses every export of the module, and a lookup by a dynamic key
 // marks every export reached_dynamically, with the files of the lookups, and draws
 // no edge. The transient props are removed.
-func bindNamespaceLookups(all []facts.Fact) {
+//
+// An export the module re-exports (`export { A } from './a'`, `export * from './b'`)
+// is the declaration it names, so the lookup reaches that declaration in its own
+// file; stars reads which.
+func bindNamespaceLookups(all []facts.Fact, stars *starExports) {
 	allBy := map[string][]int{} // module file -> file_refs looking up every export
 	dynBy := map[string][]string{}
 	seen := false
@@ -263,21 +267,57 @@ func bindNamespaceLookups(all []facts.Fact) {
 	if !seen {
 		return
 	}
+	// A re-exported declaration, keyed by its file and name, takes the lookups of
+	// every module that passes it on.
+	type decl struct{ file, name string }
+	reAll := map[decl][]int{}
+	reDyn := map[decl][]string{}
+	follow := func(module string, add func(decl)) {
+		if stars == nil {
+			return
+		}
+		for _, e := range stars.exportsOf(module) {
+			if e.file != module {
+				add(decl{e.file, e.target})
+			}
+		}
+	}
+	for m, refs := range allBy {
+		follow(m, func(d decl) {
+			for _, ref := range refs {
+				if !slices.Contains(reAll[d], ref) {
+					reAll[d] = append(reAll[d], ref)
+				}
+			}
+		})
+	}
+	for m, from := range dynBy {
+		follow(m, func(d decl) {
+			for _, file := range from {
+				if !slices.Contains(reDyn[d], file) {
+					reDyn[d] = append(reDyn[d], file)
+				}
+			}
+		})
+	}
 	for i := range all {
 		f := &all[i]
 		if f.Kind != facts.KindSymbol || !isModuleExport(*f) {
 			continue
 		}
-		for _, ref := range allBy[f.File] {
+		d := decl{f.File, f.Name}
+		refs := append(slices.Clone(allBy[f.File]), reAll[d]...)
+		slices.Sort(refs)
+		for _, ref := range slices.Compact(refs) {
 			if !hasRel(all[ref], facts.RelCalls, f.Name) {
 				all[ref].Relations = append(all[ref].Relations, facts.Relation{Kind: facts.RelCalls, Target: f.Name})
 			}
 		}
-		if from := dynBy[f.File]; len(from) > 0 {
-			from = slices.Clone(from)
+		from := append(slices.Clone(dynBy[f.File]), reDyn[d]...)
+		if len(from) > 0 {
 			slices.Sort(from)
 			f.SetProp(propReachedDynamically, true)
-			f.SetProp(propReachedDynamicallyFrom, from)
+			f.SetProp(propReachedDynamicallyFrom, slices.Compact(from))
 		}
 	}
 }

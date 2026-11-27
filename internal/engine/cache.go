@@ -4196,7 +4196,15 @@ import (
 // assigned through one conditional import (or a plain import of a library that
 // conditionally re-exports it), which each of its files declares once, gets an edge
 // to each of them rather than none.
-const cacheVersion = "v751"
+// v752: TS/JS: any module that re-exports is a barrel, not only a folder index: a
+// name it passes on from another directory binds to its declaration unless a file
+// of its folder declares the name, an index's entry wins, and two such modules of a
+// folder disagreeing leave the name as written. A re-export written with a `.js`
+// specifier for a `.ts` file is followed. A names edge to a barrel name is
+// rewritten like a call. A namespace module looked up by a dynamic key marks the
+// declarations it re-exports reached_dynamically, and `keyof typeof` uses them.
+// The test-ref pass resolves imports with the SvelteKit alias fallbacks too.
+const cacheVersion = "v752"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

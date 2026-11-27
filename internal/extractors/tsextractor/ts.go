@@ -2903,7 +2903,7 @@ func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, file
 	for _, relFile := range testFiles {
 		known[filepath.ToSlash(relFile)] = true
 	}
-	aliasRoots := withWorkspacePackages(repoPath, collectTSAliasRoots(repoPath))
+	aliasRoots := repoAliasRoots(repoPath, svelteKitFrameworks(repoPath))
 	bindAliasFiles(aliasRoots, known)
 	index := newTSFileIndex(known)
 	index.root = repoPath

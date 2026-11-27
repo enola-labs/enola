@@ -20,32 +20,59 @@ var (
 	barrelDeclRe = regexp.MustCompile(`(?m)^(export\s+)?(?:declare\s+)?(default\s+)?(?:async\s+)?(?:abstract\s+)?(?:function\s*\*?|class|const\s+enum|enum|interface|type|const|let|var|namespace)\s+([A-Za-z_$][\w$]*)`)
 )
 
-// barrelExports maps "<folder>.<Name>" to the symbol a folder's index file
-// re-exports under that name: `export { A } from './a'`, or a binding imported and
-// then exported (`import V from './v.vue'; export { V }`). An import of the folder
-// binds to "<folder>.<Name>", which no fact declares, so without this a barrel
-// leaves every import through it dangling.
+// barrelExports maps "<folder>.<Name>" to the symbol a module re-exports under that
+// name. A folder's index file passes names on with `export { A } from './a'`, or a
+// binding imported and then exported (`import V from './v.vue'; export { V }`). An
+// import of the folder binds to "<folder>.<Name>", which no fact declares, so without
+// this a barrel leaves every import through it dangling.
 //
 // A name the index passes on with `export * from './x'` binds to where x declares it,
 // followed through nested stars (see starExports). A name any file of the folder
 // declares stays the folder's, so only a name that would otherwise name nothing moves.
+//
+// Any other module that re-exports (`src/public-api.ts` with `export * from
+// './impl/x'`) is a barrel too: an import of it binds to "<its folder>.<Name>" the
+// same way. Its names move under the same rule, an index's entry wins over it, and a
+// name two such modules of one folder pass on from different declarations moves for
+// neither.
 func barrelExports(tsFiles []string, read func(string) []byte, knownFiles map[string]bool) map[string]string {
+	return newStarExports(tsFiles, read, knownFiles).barrels(tsFiles)
+}
+
+func (s *starExports) barrels(tsFiles []string) map[string]string {
 	out := map[string]string{}
-	stars := newStarExports(tsFiles, read, knownFiles)
+	side := map[string]string{} // entries of modules other than an index
+	clash := map[string]bool{}
 	for _, file := range tsFiles {
-		if strings.TrimSuffix(path.Base(file), path.Ext(file)) != "index" || facts.IsTestPath(file) {
+		if facts.IsTestPath(file) {
 			continue
 		}
-		src := string(read(file))
+		src := string(s.read(file))
 		if !strings.Contains(src, "export") {
 			continue
 		}
 		folder := factpath.Dir(file)
+		if strings.TrimSuffix(path.Base(file), path.Ext(file)) != "index" {
+			if !barrelStarRe.MatchString(src) && !barrelExportFromRe.MatchString(src) {
+				continue
+			}
+			for name, e := range s.exportsOf(file) {
+				key := folder + "." + name
+				if e.file == file || e.target == key || s.folderDeclares(folder, name) {
+					continue
+				}
+				if prev, ok := side[key]; ok && prev != e.target {
+					clash[key] = true
+				}
+				side[key] = e.target
+			}
+			continue
+		}
 		target := func(spec, name string) string {
 			if !strings.HasPrefix(spec, ".") {
 				return ""
 			}
-			idx, dir, ok := resolveModuleFile(factpath.Clean(path.Join(folder, spec)), knownFiles)
+			idx, dir, ok := resolveReexportSource(factpath.Clean(path.Join(folder, spec)), s.known)
 			if !ok {
 				return ""
 			}
@@ -84,15 +111,32 @@ func barrelExports(tsFiles []string, read func(string) []byte, knownFiles map[st
 		if !barrelStarRe.MatchString(src) {
 			continue
 		}
-		for name, e := range stars.exportsOf(file) {
+		for name, e := range s.exportsOf(file) {
 			key := folder + "." + name
-			if !e.viaStar || e.target == key || out[key] != "" || stars.folderDeclares(folder, name) {
+			if !e.viaStar || e.target == key || out[key] != "" || s.folderDeclares(folder, name) {
 				continue
 			}
 			out[key] = e.target
 		}
 	}
+	for key, t := range side {
+		if !clash[key] && out[key] == "" {
+			out[key] = t
+		}
+	}
 	return out
+}
+
+// resolveReexportSource resolves the path a re-export names to its module, including
+// a `.js` specifier for the `.ts` file it compiles from, as TypeScript ESM spells it.
+func resolveReexportSource(resolved string, known map[string]bool) (idx, dir string, ok bool) {
+	if idx, dir, ok = resolveModuleFile(resolved, known); ok {
+		return idx, dir, true
+	}
+	if stem, cut := stripEmittedExt(resolved); cut {
+		return resolveModuleFile(stem, known)
+	}
+	return "", "", false
 }
 
 // starExport is where a name a module exports is declared: the symbol it names and
@@ -154,7 +198,7 @@ func (s *starExports) resolve(from, spec string) string {
 	if !strings.HasPrefix(spec, ".") {
 		return ""
 	}
-	idx, _, ok := resolveModuleFile(factpath.Clean(path.Join(factpath.Dir(from), spec)), s.known)
+	idx, _, ok := resolveReexportSource(factpath.Clean(path.Join(factpath.Dir(from), spec)), s.known)
 	if !ok {
 		return ""
 	}
@@ -246,8 +290,8 @@ func splitSpecifiers(list string) [][2]string {
 	return out
 }
 
-// resolveBarrelCalls rewrites a dangling call target to the symbol a barrel
-// re-exports under that name, when that symbol exists.
+// resolveBarrelCalls rewrites a dangling call or names target to the symbol a
+// barrel re-exports under that name, when that symbol exists.
 func resolveBarrelCalls(all []facts.Fact, barrels map[string]string) {
 	if len(barrels) == 0 {
 		return
@@ -261,7 +305,7 @@ func resolveBarrelCalls(all []facts.Fact, barrels map[string]string) {
 	for i := range all {
 		for j := range all[i].Relations {
 			r := &all[i].Relations[j]
-			if r.Kind != facts.RelCalls || exists[r.Target] {
+			if (r.Kind != facts.RelCalls && r.Kind != facts.RelNames) || exists[r.Target] {
 				continue
 			}
 			if t := barrels[r.Target]; t != "" && exists[t] {
