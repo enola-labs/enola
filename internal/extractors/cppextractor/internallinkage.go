@@ -276,7 +276,8 @@ type internalIndex struct {
 	// another source shares only by including it (`#include "impl.c"`), or by being
 	// included by it (a unit test included at the end of the file it tests).
 	sources map[string][]internalDecl
-	// includes maps a file to the base names of the files it includes.
+	// includes maps a file to what its quoted includes name: each include's base
+	// name, and its path resolved against the including file's directory.
 	includes map[string]map[string]bool
 }
 
@@ -288,11 +289,12 @@ func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) in
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency && f.PropString("include_style") == "quoted" {
-			inc := path.Base(strings.ReplaceAll(f.PropString("include"), "\\", "/"))
+			inc := strings.ReplaceAll(f.PropString("include"), "\\", "/")
 			if idx.includes[f.File] == nil {
 				idx.includes[f.File] = map[string]bool{}
 			}
-			idx.includes[f.File][inc] = true
+			idx.includes[f.File][path.Base(inc)] = true
+			idx.includes[f.File][path.Join(path.Dir(f.File), inc)] = true
 			continue
 		}
 		if f.Kind != facts.KindSymbol {
@@ -334,20 +336,33 @@ func (idx internalIndex) resolve(caller *facts.Fact, target string, includedSour
 	if caller.Kind != facts.KindSymbol || isHeaderExt(caller.File) || len(idx.sources) == 0 {
 		return ""
 	}
-	callerBase, hit := path.Base(caller.File), ""
-	for _, d := range idx.sources[lastScopeComponent(target)] {
-		if d.file == caller.File {
+	decls := idx.sources[lastScopeComponent(target)]
+	// The include as written resolves to the file first; a base name alone, which
+	// another directory's file of the same name shares, only when none does.
+	if hit, found := idx.sharer(decls, caller.File, includedSources, func(f string) string { return f }); found {
+		return hit
+	}
+	hit, _ := idx.sharer(decls, caller.File, includedSources, path.Base)
+	return hit
+}
+
+// sharer is the one declaration of decls whose file shares file's translation
+// unit through a quoted include, either way round, naming files by key; found
+// reports whether any did.
+func (idx internalIndex) sharer(decls []internalDecl, file string, includedSources map[string]bool, key func(string) string) (hit string, found bool) {
+	for _, d := range decls {
+		if d.file == file {
 			continue
 		}
-		callerIncludes := idx.includes[caller.File][path.Base(d.file)]
-		includesCaller := includedSources[callerBase] && idx.includes[d.file][callerBase]
+		callerIncludes := idx.includes[file][key(d.file)]
+		includesCaller := includedSources[path.Base(file)] && idx.includes[d.file][key(file)]
 		if !callerIncludes && !includesCaller {
 			continue
 		}
-		if hit != "" && hit != d.name {
-			return ""
+		if found && hit != d.name {
+			return "", true
 		}
-		hit = d.name
+		hit, found = d.name, true
 	}
-	return hit
+	return hit, found
 }

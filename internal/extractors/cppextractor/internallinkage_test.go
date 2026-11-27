@@ -244,3 +244,20 @@ int leftover(int n) { return copy_bytes(n); }
 		t.Error("a file not including the source does not see its static")
 	}
 }
+
+// Two directories each include their own copy of a source by one file name; each
+// copy's code sees the statics of the file that includes it.
+func TestCIncludedSourceCopiesSeeTheirOwnIncluder(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"mesh/recover.cpp": "static int orient(int x) { return x; }\n#include \"tetgen.cxx\"\n",
+		"mesh/tetgen.cxx":  "int tet_mesh(int x) { return orient(x); }\n",
+		"hxt/recover2.cpp": "static int orient(int x) { return x; }\n#include \"tetgen.cxx\"\n",
+		"hxt/tetgen.cxx":   "int tet_hxt(int x) { return orient(x); }\n",
+	})
+	if !hasRelation(mustFact(t, ff, "mesh.tet_mesh"), facts.RelCalls, "mesh.orient@recover_cpp") {
+		t.Errorf("mesh's copy calls mesh's static, got %+v", mustFact(t, ff, "mesh.tet_mesh").Relations)
+	}
+	if !hasRelation(mustFact(t, ff, "hxt.tet_hxt"), facts.RelCalls, "hxt.orient@recover2_cpp") {
+		t.Errorf("hxt's copy calls hxt's static, got %+v", mustFact(t, ff, "hxt.tet_hxt").Relations)
+	}
+}
