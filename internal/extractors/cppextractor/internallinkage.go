@@ -33,7 +33,8 @@ import (
 // header is its qualifier (`include/linux.foo@bar_h`), and the files that see it
 // resolve to that one fact: by name in the header's directory, and by its short
 // name from elsewhere only while no source file declares a static of that name
-// too (internalIndex, indexFunctionNames). A source file's static is seen only by
+// too (internalIndex, indexFunctionNames). Where several headers define one
+// (alternatives a configuration picks), a file calls the one it includes itself. A source file's static is seen only by
 // a source sharing its translation unit through a quoted include, either way
 // round (`#include "impl.c"`, a unit test included at the end of its file).
 // A prototype of a static that a source sharing its translation unit defines
@@ -278,8 +279,12 @@ type internalIndex struct {
 	// another source shares only by including it (`#include "impl.c"`), or by being
 	// included by it (a unit test included at the end of the file it tests).
 	sources map[string][]internalDecl
-	// includes maps a file to what its quoted includes name: each include's base
-	// name, and its path resolved against the including file's directory.
+	// headerDecls holds the statics of headers by leaf, each with its header, for
+	// a name several headers define (alternatives a configuration picks between):
+	// the one a caller's file includes itself is the one it calls.
+	headerDecls map[string][]internalDecl
+	// includes maps a file to what its includes name: each include's base name,
+	// and a quoted include's path resolved against the including file's directory.
 	includes map[string]map[string]bool
 }
 
@@ -287,16 +292,22 @@ type internalDecl struct{ name, file string }
 
 func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) internalIndex {
 	idx := internalIndex{headers: map[string]string{}, headersLeaf: map[string]string{},
-		sources: map[string][]internalDecl{}, includes: map[string]map[string]bool{}}
+		sources: map[string][]internalDecl{}, headerDecls: map[string][]internalDecl{},
+		includes: map[string]map[string]bool{}}
 	for i := range allFacts {
 		f := &allFacts[i]
-		if f.Kind == facts.KindDependency && f.PropString("include_style") == "quoted" {
+		if f.Kind == facts.KindDependency {
 			inc := strings.ReplaceAll(f.PropString("include"), "\\", "/")
+			if inc == "" {
+				continue
+			}
 			if idx.includes[f.File] == nil {
 				idx.includes[f.File] = map[string]bool{}
 			}
 			idx.includes[f.File][path.Base(inc)] = true
-			idx.includes[f.File][path.Join(path.Dir(f.File), inc)] = true
+			if f.PropString("include_style") == "quoted" {
+				idx.includes[f.File][path.Join(path.Dir(f.File), inc)] = true
+			}
 			continue
 		}
 		if f.Kind != facts.KindSymbol {
@@ -315,6 +326,8 @@ func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) in
 			continue
 		}
 		indexUniqueName(idx.headers, base, f.Name)
+		short := lastScopeComponent(base)
+		idx.headerDecls[short] = append(idx.headerDecls[short], internalDecl{name: f.Name, file: f.File})
 		if dot := strings.IndexByte(base, '.'); dot >= 0 {
 			if i := strings.LastIndex(base, "::"); i > dot {
 				indexUniqueName(idx.headersLeaf, base[:dot+1]+base[i+2:], f.Name)
@@ -330,7 +343,10 @@ func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) in
 // the caller's translation unit through a quoted include, either way round.
 func (idx internalIndex) resolve(caller *facts.Fact, target string, includedSources map[string]bool) string {
 	if n, ok := idx.headers[target]; ok {
-		return n // "" when the directory's headers declare several
+		if n == "" { // the directory's headers declare several
+			return idx.includedHeader(caller, lastScopeComponent(target))
+		}
+		return n
 	}
 	if n := idx.headersLeaf[target]; n != "" {
 		return n
@@ -345,6 +361,25 @@ func (idx internalIndex) resolve(caller *facts.Fact, target string, includedSour
 		return hit
 	}
 	hit, _ := idx.sharer(decls, caller.File, includedSources, path.Base)
+	return hit
+}
+
+// includedHeader is the one static named leaf of a header that caller's file
+// includes itself, by the include's file name, or "".
+func (idx internalIndex) includedHeader(caller *facts.Fact, leaf string) string {
+	if caller.Kind != facts.KindSymbol {
+		return ""
+	}
+	seen, hit := idx.includes[caller.File], ""
+	for _, d := range idx.headerDecls[leaf] {
+		if !seen[path.Base(d.file)] {
+			continue
+		}
+		if hit != "" && hit != d.name {
+			return ""
+		}
+		hit = d.name
+	}
 	return hit
 }
 
@@ -380,7 +415,7 @@ func (idx internalIndex) sharer(decls []internalDecl, file string, includedSourc
 func fuseStaticPrototypes(allFacts []facts.Fact) {
 	includes := map[string]map[string]bool{}
 	includers := map[string][]string{} // base name -> files including it
-	defs := map[string][]int{}         // "<dir>.<name>" leaf key -> source definitions
+	defs := map[string][]int{}         // leaf -> definitions
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency && f.PropString("include_style") == "quoted" {
@@ -394,7 +429,7 @@ func fuseStaticPrototypes(allFacts []facts.Fact) {
 			}
 			continue
 		}
-		if f.Kind != facts.KindSymbol || isHeaderExt(f.File) || !f.PropBool("has_body") {
+		if f.Kind != facts.KindSymbol || !f.PropBool("has_body") {
 			continue
 		}
 		if base, ok := splitInternal(f.Name); ok {

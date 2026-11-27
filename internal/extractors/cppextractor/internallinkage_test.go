@@ -318,3 +318,27 @@ func TestCStaticPrototypeStaysWithItsOwnFile(t *testing.T) {
 		t.Errorf("do_sigaction calls its own file's sig_handler, got %+v", mustFact(t, ff, "kernel.do_sigaction").Relations)
 	}
 }
+
+// Two headers of one directory define a static of one name, alternatives a
+// configuration picks between: a file calls the one it includes itself. A header's
+// prototype of a static another header of its directory defines, and includes, is
+// that definition.
+func TestCHeaderStaticAlternativesBindByTheCallersInclude(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"asm/msr.h":             "static inline void wrmsrq(int m) {}\n",
+		"asm/paravirt.h":        "static inline void wrmsrq(int m) {}\n",
+		"lib/msr_user.c":        "#include <asm/msr.h>\nvoid set_msr(int m) { wrmsrq(m); }\n",
+		"mm/highmem.h":          "#include \"highmem-internal.h\"\nstatic inline void *kmap_local_page(int page);\n",
+		"mm/highmem-internal.h": "static inline void *kmap_local_page(int page) { return 0; }\n",
+		"fs/read.c":             "#include \"../mm/highmem.h\"\nvoid *map(int p) { return kmap_local_page(p); }\n",
+	})
+	if !hasRelation(mustFact(t, ff, "lib.set_msr"), facts.RelCalls, "asm.wrmsrq@msr_h") {
+		t.Errorf("set_msr calls the wrmsrq of the header it includes, got %+v", mustFact(t, ff, "lib.set_msr").Relations)
+	}
+	if _, ok := findFact(ff, "mm.kmap_local_page@highmem_h"); ok {
+		t.Error("the prototype is no fact of its own")
+	}
+	if !hasRelation(mustFact(t, ff, "fs.map"), facts.RelCalls, "mm.kmap_local_page@highmem-internal_h") {
+		t.Errorf("map calls the definition behind the prototype, got %+v", mustFact(t, ff, "fs.map").Relations)
+	}
+}

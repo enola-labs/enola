@@ -661,6 +661,15 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 									stats.noIncludePath++
 								}
 							}
+							if !resolved {
+								// A static several headers define, alternatives a
+								// configuration picks: the one the file includes.
+								if canonical := functions.internals.includedHeader(&allFacts[i], candidate); canonical != "" {
+									r.Target = canonical
+									stats.uniqueShort++
+									resolved = true
+								}
+							}
 						}
 					}
 				}
