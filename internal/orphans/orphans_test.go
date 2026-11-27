@@ -1982,3 +1982,26 @@ func TestFileQualifiedNameMatchesItsBareName(t *testing.T) {
 		}
 	}
 }
+
+// C statics named for their file: a main so named, because its directory holds
+// several programs, is an entry point; a static nothing references is an orphan,
+// and one its own file calls is not.
+func TestFileQualifiedCStaticsAndMain(t *testing.T) {
+	syms := []symInput{
+		{Name: "tools.main@one_c", Kind: facts.SymbolFunc, Package: "tools", File: "tools/one.c"},
+		{Name: "drv.to_state@a_c", Kind: facts.SymbolFunc, Package: "drv", File: "drv/a.c"},
+		{Name: "drv.to_state@b_c", Kind: facts.SymbolFunc, Package: "drv", File: "drv/b.c"},
+		{Name: "drv.probe_b", Kind: facts.SymbolFunc, Package: "drv", File: "drv/b.c"},
+	}
+	refs := refsFrom(map[string][]string{"drv.probe_b": {"drv.to_state@b_c"}})
+	def := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if _, ok := def["tools.main@one_c"]; ok {
+		t.Error("a file-qualified main is an entry point, not an orphan")
+	}
+	if _, ok := def["drv.to_state@b_c"]; ok {
+		t.Error("a static its own file calls is used")
+	}
+	if _, ok := def["drv.to_state@a_c"]; !ok {
+		t.Error("a static nothing calls is an orphan, whatever its namesake in another file does")
+	}
+}
