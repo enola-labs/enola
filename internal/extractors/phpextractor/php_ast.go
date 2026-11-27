@@ -42,7 +42,7 @@ func extractFileAST(src []byte, relFile string) []facts.Fact {
 	} else {
 		w.emitFileScopeNames(tree.RootNode())
 	}
-	return w.out
+	return append(w.out, w.callSitesFact()...)
 }
 
 type phpWalker struct {
@@ -88,6 +88,8 @@ type phpWalker struct {
 	// fileScope is set while walking the code outside any declaration onto the
 	// file's reference fact (emitFileScopeNames).
 	fileScope bool
+	// callSites are the file's method calls with arguments (paramcallers.go).
+	callSites []string
 }
 
 // phpBodyMetrics accumulates per-function complexity signals during the single
@@ -409,6 +411,9 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 	w.selfName = fullName
 	w.selfShort = name
 	w.paramTypes = w.parameterTypes(node.ChildByFieldName("parameters"), nil)
+	if isMethod {
+		w.markUntypedParams(fullName, node.ChildByFieldName("parameters"), node.ChildByFieldName("body"))
+	}
 	w.localTypes = w.callableLocalTypes(node.ChildByFieldName("body"))
 	w.walkForCalls(node.ChildByFieldName("body"), ownerIdx, seen)
 	w.paramTypes, w.localTypes = nil, nil
@@ -462,6 +467,9 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		}
 	}
 
+	if kindOf(node) == "array_creation_expression" {
+		w.noteCallableArray(node)
+	}
 	switch kindOf(node) {
 	case "function_definition", "method_declaration", "class_declaration",
 		"interface_declaration", "trait_declaration", "enum_declaration":
@@ -578,6 +586,13 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 				w.bladeDirectiveCode(node, ownerIdx, seen)
 			}
 			w.recordEagerLoads(node, ownerIdx, phpText(method, w.src), w.scopeRef(scope))
+			if kindOf(method) == "name" {
+				recv := ""
+				if phpText(scope, w.src) != "parent" {
+					recv = w.scopeRef(scope)
+				}
+				w.recordCallSite(node, phpText(method, w.src), recv)
+			}
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
 		return
@@ -590,6 +605,9 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if w.fileScope {
 			// File scope has no $this and no declared types: the bare name would
 			// stand for every method of that name.
+			if method != nil && kindOf(method) == "name" {
+				w.recordCallSite(node, phpText(method, w.src), "")
+			}
 			w.walkChildrenExcept(node, ownerIdx, seen, method)
 			return
 		}
@@ -600,6 +618,7 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 			w.recordRelationMethod(node, ownerIdx, target)
 			w.recordEagerLoads(node, ownerIdx, target, w.chainReceiver(node.ChildByFieldName("object"), w.localTypes))
 			w.recordReceiverCall(node, ownerIdx, target)
+			w.recordCallSite(node, target, w.chainReceiver(node.ChildByFieldName("object"), w.localTypes))
 			// The edge is the bare method name, because the receiver's type is
 			// unknown. Only `$this->m()` is known to be this class's m: a
 			// decorator's `$this->inner->handle()` or `$container->extend()` inside

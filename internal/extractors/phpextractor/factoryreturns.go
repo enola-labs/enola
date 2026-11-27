@@ -32,6 +32,9 @@ const (
 	// propReturnType holds, on a method, the class its return type declares. It
 	// does not leave the extractor.
 	propReturnType = "php_return_type"
+	// maxMarkDepth bounds how many marks a type is read through, by returnMarks and
+	// eloquentResult alike, so a chain binds or not whichever reads it.
+	maxMarkDepth = 12
 )
 
 // callableLocalTypes maps the locals a callable body assigns to the type of what
@@ -260,7 +263,7 @@ func (r returnMarks) typeOf(t string, depth int) string {
 	if !strings.HasSuffix(t, callMark) {
 		return t
 	}
-	if depth > 8 {
+	if depth > maxMarkDepth {
 		return ""
 	}
 	path := strings.TrimSuffix(t, callMark)

@@ -4204,7 +4204,14 @@ import (
 // rewritten like a call. A namespace module looked up by a dynamic key marks the
 // declarations it re-exports reached_dynamically, and `keyof typeof` uses them.
 // The test-ref pass resolves imports with the SvelteKit alias fallbacks too.
-const cacheVersion = "v752"
+// v753: PHP: an untyped method parameter is the class every call site of its method
+// passes, when each site of the name has a receiver of known type and each one
+// naming the method passes the same class there (no default, no assignment, no
+// callable array, parent:: call, spread or named argument, not a route or hook
+// handler); a relation read and a call on it bind as on a query result. A call on a
+// relation read in place (`$story->author->foo()`) binds as through a local. A
+// declared-return chain is read 12 marks deep by both walks, not 8 by one.
+const cacheVersion = "v753"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

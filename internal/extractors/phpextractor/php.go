@@ -207,6 +207,7 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// An instance call names its method only once the receiver's class is known, and
 	// that class is declared in another file.
 	bindReceiverCalls(allFacts, relations)
+	allFacts = dropCallSites(allFacts)
 
 	// File-scope code calls helper functions declared in another file.
 	allFacts = bindFileScopeCalls(allFacts)

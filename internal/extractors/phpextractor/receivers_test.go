@@ -271,3 +271,98 @@ class AdminReport {
 		[]string{`App\Models\Story::toList`, `App\Models\Story::toQuery`, `App\Models\Plain::describe`,
 			`App\Models\Story::save`, `App\Models\Story::missing`})
 }
+
+// TestReceiverCalls_ChainAsDeepAsAnEloquentResult: a declared-return chain is read
+// to the depth eloquentResult reads one, so a fluent chain of eleven calls ending in
+// an interface reaches the interface's method and its only implementer.
+func TestReceiverCalls_ChainAsDeepAsAnEloquentResult(t *testing.T) {
+	got := boundCalls(t, `App\Support\Chain::go`, `<?php
+namespace App\Support;
+interface Runner { public function run(); }
+class Engine implements Runner { public function run() { return 1; } }
+class Criteria {
+    public function add(): Criteria { return $this; }
+    public function runner(): Runner { return new Engine(); }
+}
+class Chain {
+    public function go(Criteria $c) {
+        return $c->add()->add()->add()->add()->add()->add()->add()->add()->add()->add()->runner()->run();
+    }
+}
+`)
+	wantRelationCalls(t, got, []string{`App\Support\Runner::run`, `App\Support\Engine::run`, `App\Support\Criteria::runner`}, nil)
+}
+
+// TestReceiverCalls_OnARelationReadInPlace: a call on a relation read with no local
+// in between, `$story->author->foo()`, runs on the relation's model, as it does
+// through a local. A to-many relation is a collection, a framework method binds
+// nothing, and an untyped `$this->prop` keeps its member call.
+func TestReceiverCalls_OnARelationReadInPlace(t *testing.T) {
+	models := `<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+class Story extends Model {
+    public function author() { return $this->belongsTo(User::class); }
+    public function comments() { return $this->hasMany(User::class); }
+    public function authorName() { return $this->author->displayName(); }
+}
+class User extends Model {
+    public function foo() { return 1; }
+    public function bar() { return 1; }
+    public function displayName() { return ''; }
+}
+`
+	got := boundCalls(t, `App\Http\StoryController::show`, models, `<?php
+namespace App\Http;
+use App\Models\Story;
+class StoryController {
+    private $svc;
+    public function show(Story $story) {
+        $story->author->foo();
+        $story?->author->bar();
+        $story->comments->foo();
+        $story->author->save();
+        $this->svc->handle();
+        return 1;
+    }
+}
+`)
+	wantRelationCalls(t, got, []string{`App\Models\User::foo`, `App\Models\User::bar`, `App\Models\Story::author`},
+		[]string{`App\Models\User::save`})
+	if n := countCalls(got, `App\Models\User::foo`); n != 1 {
+		t.Errorf("User::foo bound %d times", n)
+	}
+	got = boundCalls(t, `App\Models\Story::authorName`, models)
+	wantRelationCalls(t, got, []string{`App\Models\User::displayName`}, nil)
+}
+
+func countCalls(got []string, name string) int {
+	n := 0
+	for _, g := range got {
+		if g == name {
+			n++
+		}
+	}
+	return n
+}
+
+// TestReceiverCalls_MemberCallOnUntypedPropertyIsKept: the in-place relation read
+// leaves an untyped `$this->prop` call to the inherited-calls binder.
+func TestReceiverCalls_MemberCallOnUntypedPropertyIsKept(t *testing.T) {
+	all := extractFileAST([]byte(`<?php
+namespace App\Http;
+class C {
+    private $svc;
+    public function show() { $this->svc->handle(); }
+}
+`), "app/c.php")
+	for _, f := range all {
+		if f.Name == `App\Http\C::show` {
+			if got := f.PropStrings(facts.PropMemberCalls); len(got) != 1 || got[0] != "svc.handle" {
+				t.Fatalf("member calls = %q", got)
+			}
+			return
+		}
+	}
+	t.Fatal("no C::show")
+}
