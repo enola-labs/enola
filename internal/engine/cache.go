@@ -4179,7 +4179,13 @@ import (
 // source's static only from a source sharing its translation unit by a quoted
 // include. Several files of one directory defining `main` name each main the same
 // way.
-const cacheVersion = "v749"
+// v750: Swift: a member of a constrained extension (`extension X where ...`,
+// `extension X<A>`) is named with its file's base name, `X.m@File_swift`, and `@2`,
+// `@3` for a further constrained extension of X in the file declaring m again, so
+// same-named members under different constraints are one fact each. An edge to the
+// shared name binds to the declaration in the referring declaration's extension,
+// else its file, else the only one; none when the name leaves it ambiguous.
+const cacheVersion = "v750"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

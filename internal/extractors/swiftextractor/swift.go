@@ -363,6 +363,10 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// classify stdlib/external, now that all module facts exist.
 	resolveImports(allFacts)
 
+	// Members of constrained extensions take their file-qualified names, now that
+	// every edge to them is bound (constrainedext.go).
+	fileQualifyConstrainedMembers(allFacts)
+
 	return allFacts, nil
 }
 
