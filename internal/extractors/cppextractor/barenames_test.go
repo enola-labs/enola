@@ -18,10 +18,10 @@ func TestCBareNameDoesNotBindAStructMember(t *testing.T) {
 			"static int helper(int x) { return x; }\n" +
 			"int entry(struct ctl *c) { return do_cmd(c, 0) + helper(2); }\n",
 	})
-	if !hasRelation(mustFact(t, ff, "drv.entry"), facts.RelCalls, "drv.helper") {
+	if !hasRelation(mustFact(t, ff, "drv.entry"), facts.RelCalls, "drv.helper@core_c") {
 		t.Errorf("a bare call to a function still binds")
 	}
-	for _, r := range mustFact(t, ff, "drv.do_cmd").Relations {
+	for _, r := range mustFact(t, ff, "drv.do_cmd@core_c").Relations {
 		if strings.Contains(r.Target, "::") {
 			t.Errorf("do_cmd calls its parameter, not %s", r.Target)
 		}

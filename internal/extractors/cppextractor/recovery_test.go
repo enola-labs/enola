@@ -213,7 +213,7 @@ typeof(table->call)(find_entry(unsigned type))
 }
 `,
 	})
-	for _, name := range []string{"src.find_coeffs", "src.find_entry"} {
+	for _, name := range []string{"src.find_coeffs@x_c", "src.find_entry@x_c"} {
 		if def := mustFact(t, ff, name); def.File != "src/x.c" {
 			t.Errorf("%s should be defined in src/x.c, got %s", name, def.File)
 		}
@@ -254,7 +254,7 @@ static int crypt(struct request *req, u8 ghash[], int err)
 	// The calls to fill sit in what the parser took for K&R parameter declarations
 	// and were never seen as calls; that loss is the misparse's, and older than this
 	// rule. The call inside the block is the one this rule must not take away.
-	if crypt := mustFact(t, ff, "src.crypt"); !hasRelation(crypt, facts.RelCalls, "src.finish") {
+	if crypt := mustFact(t, ff, "src.crypt@x_c"); !hasRelation(crypt, facts.RelCalls, "src.finish") {
 		t.Errorf("src.crypt should keep its call to src.finish, got %+v", crypt.Relations)
 	}
 }

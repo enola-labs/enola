@@ -4170,7 +4170,14 @@ import (
 // any Swift source declares by its text is never foreign. A file with `try await`
 // (or `try?`/`try!`) in an if condition, which the grammar read as one error, is
 // parsed again with that `await` blanked, so its types are symbols again.
-const cacheVersion = "v748"
+// v749: C/C++: a declaration with internal linkage (a `static` free function or
+// file-scope variable, or one in an anonymous namespace) is named for its file,
+// `<dir>.<name>@<file>` with the file's dots as `_`, so two of one name in one
+// directory stay two facts; a file's references bind to its own. A static in a
+// header (or in a source another file includes) is named for that file and found
+// from the files that can see it. Several files of one directory defining `main`
+// name each main the same way.
+const cacheVersion = "v749"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

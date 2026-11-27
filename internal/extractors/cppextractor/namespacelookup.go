@@ -30,18 +30,31 @@ type enclosingLookup struct {
 	bases   baseIndex
 	known   map[string]bool
 	vis     *includeVisibility
+	// internal maps "<dir>.<qualified>" to the internal declaration of a header (or
+	// included source) it names, "" when that directory has several.
+	internal map[string]string
 }
 
-func newEnclosingLookup(allFacts []facts.Fact, types typeIndex, bases baseIndex, known map[string]bool, vis *includeVisibility) *enclosingLookup {
+func newEnclosingLookup(allFacts []facts.Fact, types typeIndex, bases baseIndex, known map[string]bool, vis *includeVisibility, includedSources map[string]bool) *enclosingLookup {
 	l := &enclosingLookup{declared: map[string][]string{}, callable: map[string][]string{},
-		byShort: map[string][]string{}, types: types, bases: bases, known: known, vis: vis}
+		byShort: map[string][]string{}, types: types, bases: bases, known: known, vis: vis,
+		internal: map[string]string{}}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
 		dir := sourceDir(f)
-		qualified, ok := strings.CutPrefix(f.Name, dir+".")
+		// An internal declaration is looked up by the name it qualifies, and only
+		// when another file can see it (internallinkage.go).
+		name, internal := splitInternal(f.Name)
+		if internal {
+			if !sharesTranslationUnit(f.File, includedSources) {
+				continue
+			}
+			indexUniqueName(l.internal, name, f.Name)
+		}
+		qualified, ok := strings.CutPrefix(name, dir+".")
 		if !ok || !strings.Contains(qualified, "::") {
 			continue
 		}
@@ -115,6 +128,9 @@ func (l *enclosingLookup) resolve(caller *facts.Fact, source, name string) strin
 			return "" // a using-directive may bring that one in instead
 		}
 		if dir := pickInSight(candidates, len(all), source, l.vis); dir != "" {
+			if canonical, ok := l.internal[dir+"."+key]; ok {
+				return canonical // "" when the directory's headers declare several
+			}
 			return dir + "." + key
 		}
 		return "" // several in sight, none preferred: the name is found but ambiguous

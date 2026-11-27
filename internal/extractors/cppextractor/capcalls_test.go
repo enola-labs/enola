@@ -21,10 +21,10 @@ void Entry() { lower_helper(1); UpperHelper(2); }
 `,
 	})
 	entry := mustFact(t, ff, "src.duckdb::Entry")
-	if !hasRelation(entry, facts.RelCalls, "src.duckdb::UpperHelper") {
+	if !hasRelation(entry, facts.RelCalls, "src.duckdb::UpperHelper@a_cpp") {
 		t.Errorf("Entry should call UpperHelper, got %+v", entry.Relations)
 	}
-	if !hasRelation(entry, facts.RelCalls, "src.duckdb::lower_helper") {
+	if !hasRelation(entry, facts.RelCalls, "src.duckdb::lower_helper@a_cpp") {
 		t.Errorf("Entry should call lower_helper, got %+v", entry.Relations)
 	}
 	for _, r := range entry.Relations {

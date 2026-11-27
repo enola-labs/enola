@@ -131,7 +131,7 @@ int add_virtual_intf(void *priv) { return 0; }
 struct net_device *virtual_addr;
 `,
 	})
-	internal := mustFact(t, ff, "drv.omap_reserve")
+	internal := mustFact(t, ff, "drv.omap_reserve@board_c")
 	if s, _ := internal.Props["static"].(bool); !s {
 		t.Errorf("omap_reserve: static = %v, want true", internal.Props["static"])
 	}
@@ -241,7 +241,7 @@ static int c_gate(int v) { return v; }
 `,
 	})
 
-	grown := mustFact(t, ff, "gated.stack_grows_down")
+	grown := mustFact(t, ff, "gated.stack_grows_down@gate_cpp")
 	if v, _ := grown.Props["static"].(bool); !v {
 		t.Error("stack_grows_down: static = false, want true — specifier buried in an ERROR node must be recovered")
 	}
@@ -252,12 +252,12 @@ static int c_gate(int v) { return v; }
 	if o, ok := poly.Props["override"].(bool); ok && o {
 		t.Error("poly_gate: override = true, want absent — recovered virtual declares, it does not override")
 	}
-	one := mustFact(t, ff, "gated.one_attr_static")
+	one := mustFact(t, ff, "gated.one_attr_static@gate_cpp")
 	if v, _ := one.Props["static"].(bool); !v {
 		t.Error("one_attr_static: static = false, want true — single-attribute form must keep working")
 	}
 
-	cGate := mustFact(t, ff, "gated.c_gate")
+	cGate := mustFact(t, ff, "gated.c_gate@gate_c")
 	if v, _ := cGate.Props["static"].(bool); !v {
 		t.Error("c_gate: static = false, want true — C grammar, same recovery")
 	}

@@ -28,7 +28,7 @@ int Register() { return ParseGroup(1) + helper(2); }
 `,
 	})
 	run := mustFact(t, ff, "bench.db::Run")
-	for _, want := range []string{"bench.db::ParseGroup", "bench.db::helper"} {
+	for _, want := range []string{"bench.db::ParseGroup@runner_cpp", "bench.db::helper@runner_cpp"} {
 		if !hasRelation(run, facts.RelCalls, want) {
 			t.Errorf("Run should call %s, got %+v", want, run.Relations)
 		}
@@ -60,7 +60,7 @@ static int ParseGroupFromPath(int file) { return file; }
 `,
 	})
 	ctor := mustFact(t, ff, "bench.db::Interpreted::Interpreted")
-	if !hasRelation(ctor, facts.RelCalls, "bench.db::ParseGroupFromPath") {
+	if !hasRelation(ctor, facts.RelCalls, "bench.db::ParseGroupFromPath@interpreted_cpp") {
 		t.Errorf("the constructor should call db::ParseGroupFromPath, got %+v", ctor.Relations)
 	}
 }

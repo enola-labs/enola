@@ -150,14 +150,14 @@ static const struct file_operations proc_reg_file_ops = {
 };
 `,
 	})
-	ops := mustFact(t, ff, "src.proc_reg_file_ops")
+	ops := mustFact(t, ff, "src.proc_reg_file_ops@fops_c")
 	if sk, _ := ops.Props["symbol_kind"].(string); sk != facts.SymbolConstant {
 		t.Errorf("ops table should be a constant (has const), got %v", sk)
 	}
-	if !hasRelation(ops, facts.RelCalls, "src.proc_reg_read") {
+	if !hasRelation(ops, facts.RelCalls, "src.proc_reg_read@fops_c") {
 		t.Errorf("ops table should reference proc_reg_read, got %+v", ops.Relations)
 	}
-	if !hasRelation(ops, facts.RelCalls, "src.proc_reg_open") {
+	if !hasRelation(ops, facts.RelCalls, "src.proc_reg_open@fops_c") {
 		t.Errorf("ops table should reference proc_reg_open, got %+v", ops.Relations)
 	}
 }
@@ -172,8 +172,8 @@ static int handler(void) { return 0; }
 static int (*g_cb)(void) = &handler;
 `,
 	})
-	cb := mustFact(t, ff, "src.g_cb")
-	if !hasRelation(cb, facts.RelCalls, "src.handler") {
+	cb := mustFact(t, ff, "src.g_cb@cb_c")
+	if !hasRelation(cb, facts.RelCalls, "src.handler@cb_c") {
 		t.Errorf("g_cb should reference handler via &handler, got %+v", cb.Relations)
 	}
 }
@@ -187,8 +187,8 @@ static int b(void) { return 0; }
 static const struct outer cfg = { .ops = { .x = a, .y = b } };
 `,
 	})
-	cfg := mustFact(t, ff, "src.cfg")
-	if !hasRelation(cfg, facts.RelCalls, "src.a") || !hasRelation(cfg, facts.RelCalls, "src.b") {
+	cfg := mustFact(t, ff, "src.cfg@cfg_c")
+	if !hasRelation(cfg, facts.RelCalls, "src.a@cfg_c") || !hasRelation(cfg, facts.RelCalls, "src.b@cfg_c") {
 		t.Errorf("cfg should reference both a and b, got %+v", cfg.Relations)
 	}
 }
@@ -203,8 +203,8 @@ static int my_show(void) { return 0; }
 static int my_init(void) { return register_thing("x", my_show); }
 `,
 	})
-	init := mustFact(t, ff, "src.my_init")
-	if !hasRelation(init, facts.RelCalls, "src.my_show") {
+	init := mustFact(t, ff, "src.my_init@reg_c")
+	if !hasRelation(init, facts.RelCalls, "src.my_show@reg_c") {
 		t.Errorf("my_init should reference my_show passed as a callback arg, got %+v", init.Relations)
 	}
 }
@@ -217,8 +217,8 @@ static int handler(void) { return 0; }
 static int setup(void) { return request_irq(1, &handler, 0); }
 `,
 	})
-	setup := mustFact(t, ff, "src.setup")
-	if !hasRelation(setup, facts.RelCalls, "src.handler") {
+	setup := mustFact(t, ff, "src.setup@irq_c")
+	if !hasRelation(setup, facts.RelCalls, "src.handler@irq_c") {
 		t.Errorf("setup should reference handler passed via &handler, got %+v", setup.Relations)
 	}
 }
@@ -241,10 +241,10 @@ EXPORT_SYMBOL(read_mem);
 	if mod.Kind != facts.KindModule {
 		t.Fatalf("expected module fact for dir src, got kind %q", mod.Kind)
 	}
-	if !hasRelation(mod, facts.RelCalls, "src.chr_dev_init") {
+	if !hasRelation(mod, facts.RelCalls, "src.chr_dev_init@mem_c") {
 		t.Errorf("module should reference chr_dev_init via fs_initcall, got %+v", mod.Relations)
 	}
-	if !hasRelation(mod, facts.RelCalls, "src.read_mem") {
+	if !hasRelation(mod, facts.RelCalls, "src.read_mem@mem_c") {
 		t.Errorf("module should reference read_mem via EXPORT_SYMBOL, got %+v", mod.Relations)
 	}
 	// The macro name itself must not be emitted as a junk function symbol.
@@ -297,7 +297,7 @@ DEVICE_ATTR(name, 0644, show_fn, store_fn);
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.show_fn") || !hasRelation(mod, facts.RelCalls, "src.store_fn") {
+	if !hasRelation(mod, facts.RelCalls, "src.show_fn@attr_c") || !hasRelation(mod, facts.RelCalls, "src.store_fn@attr_c") {
 		t.Errorf("module should reference show_fn and store_fn, got %+v", mod.Relations)
 	}
 	if hasRelation(mod, facts.RelCalls, "src.name") {
@@ -317,7 +317,7 @@ module_init(real);
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.real") {
+	if !hasRelation(mod, facts.RelCalls, "src.real@p_c") {
 		t.Errorf("module should reference real via module_init, got %+v", mod.Relations)
 	}
 	if hasRelation(mod, facts.RelCalls, "src.not_a_function") {
@@ -344,8 +344,8 @@ static int probe(struct gpio_chip *gc) {
 }
 `,
 	})
-	p := mustFact(t, ff, "src.probe")
-	for _, fn := range []string{"src.xlp_gpio_set", "src.xlp_gpio_get", "src.mvebu_mask"} {
+	p := mustFact(t, ff, "src.probe@gpio_c")
+	for _, fn := range []string{"src.xlp_gpio_set@gpio_c", "src.xlp_gpio_get@gpio_c", "src.mvebu_mask@gpio_c"} {
 		if !hasRelation(p, facts.RelCalls, fn) {
 			t.Errorf("probe should reference %s via field assignment, got %+v", fn, p.Relations)
 		}
@@ -370,7 +370,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(davinci_pm_ops, davinci_suspend, davinci_resume)
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.davinci_suspend") || !hasRelation(mod, facts.RelCalls, "src.davinci_resume") {
+	if !hasRelation(mod, facts.RelCalls, "src.davinci_suspend@pm_c") || !hasRelation(mod, facts.RelCalls, "src.davinci_resume@pm_c") {
 		t.Errorf("module should reference suspend+resume via DEFINE_SIMPLE_DEV_PM_OPS, got %+v", mod.Relations)
 	}
 	if hasRelation(mod, facts.RelCalls, "src.davinci_pm_ops") {
@@ -392,8 +392,8 @@ static int probe(void) {
 }
 `,
 	})
-	p := mustFact(t, ff, "src.probe")
-	if !hasRelation(p, facts.RelCalls, "src.real_cb") {
+	p := mustFact(t, ff, "src.probe@a_c")
+	if !hasRelation(p, facts.RelCalls, "src.real_cb@a_c") {
 		t.Errorf("probe should reference real_cb, got %+v", p.Relations)
 	}
 	if hasRelation(p, facts.RelCalls, "src.some_global") {
@@ -420,8 +420,8 @@ static int probe(void) {
 }
 `,
 	})
-	p := mustFact(t, ff, "src.probe")
-	if !hasRelation(p, facts.RelCalls, "src.dio48e_regmap_lock") || !hasRelation(p, facts.RelCalls, "src.dio48e_regmap_unlock") {
+	p := mustFact(t, ff, "src.probe@r_c")
+	if !hasRelation(p, facts.RelCalls, "src.dio48e_regmap_lock@r_c") || !hasRelation(p, facts.RelCalls, "src.dio48e_regmap_unlock@r_c") {
 		t.Errorf("probe should reference the regmap lock/unlock callbacks, got %+v", p.Relations)
 	}
 	if hasRelation(p, facts.RelCalls, "src.reg_bits") {
@@ -445,7 +445,7 @@ static int helper(void) { return 0; }
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	for _, fn := range []string{"src.helper", "src.____cmpxchg_u16", "src.____cmpxchg_u32"} {
+	for _, fn := range []string{"src.helper@cmpxchg_c", "src.____cmpxchg_u16@cmpxchg_c", "src.____cmpxchg_u32@cmpxchg_c"} {
 		if !hasRelation(mod, facts.RelCalls, fn) {
 			t.Errorf("module should reference %s via macro body, got %+v", fn, mod.Relations)
 		}
@@ -472,7 +472,7 @@ static int bank_irq(void) { return 0; }
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	for _, fn := range []string{"src.bank_set", "src.bank_get", "src.bank_irq"} {
+	for _, fn := range []string{"src.bank_set@bank_c", "src.bank_get@bank_c", "src.bank_irq@bank_c"} {
 		if !hasRelation(mod, facts.RelCalls, fn) {
 			t.Errorf("module should reference %s via macro-body designated init, got %+v", fn, mod.Relations)
 		}
@@ -491,7 +491,7 @@ static int real(void) { return 0; }
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.real") {
+	if !hasRelation(mod, facts.RelCalls, "src.real@m_c") {
 		t.Errorf("module should reference real via WRAP macro, got %+v", mod.Relations)
 	}
 	for _, bad := range []string{"src.SIZE", "src.FLAGS", "src.GFP_KERNEL"} {
@@ -518,7 +518,7 @@ ATTR(cfg_, label);
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.cfg_label_show") || !hasRelation(mod, facts.RelCalls, "src.cfg_label_store") {
+	if !hasRelation(mod, facts.RelCalls, "src.cfg_label_show@d_c") || !hasRelation(mod, facts.RelCalls, "src.cfg_label_store@d_c") {
 		t.Errorf("macro expansion should reference cfg_label_show/store, got %+v", mod.Relations)
 	}
 }
@@ -534,7 +534,7 @@ DEV_ATTR_RO(temp);
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.temp_show") {
+	if !hasRelation(mod, facts.RelCalls, "src.temp_show@s_c") {
 		t.Errorf("DEV_ATTR_RO should reference temp_show, got %+v", mod.Relations)
 	}
 	if hasRelation(mod, facts.RelCalls, "src.dev_attr_temp") {
@@ -557,7 +557,7 @@ static DEVICE_ATTR_RO(cfam_id);
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.cfam_id_show") {
+	if !hasRelation(mod, facts.RelCalls, "src.cfam_id_show@d_c") {
 		t.Errorf("static DEVICE_ATTR_RO(cfam_id) should reference cfam_id_show, got %+v", mod.Relations)
 	}
 }
@@ -576,7 +576,7 @@ DEFINE_SHOW_ATTRIBUTE(component_list);
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.component_list_show") {
+	if !hasRelation(mod, facts.RelCalls, "src.component_list_show@dbg_c") {
 		t.Errorf("DEFINE_SHOW_ATTRIBUTE should reference component_list_show (call arg), got %+v", mod.Relations)
 	}
 }
@@ -591,8 +591,8 @@ static inline int NE_PTR(int x) { return x; }
 static int use(void) { return NE_PTR(3) + ARRAY_SIZE(buf); }
 `,
 	})
-	use := mustFact(t, ff, "src.use")
-	if !hasRelation(use, facts.RelCalls, "src.NE_PTR") {
+	use := mustFact(t, ff, "src.use@n_c")
+	if !hasRelation(use, facts.RelCalls, "src.NE_PTR@n_c") {
 		t.Errorf("use should reference the capitalized static inline NE_PTR, got %+v", use.Relations)
 	}
 	if hasRelation(use, facts.RelCalls, "src.ARRAY_SIZE") || hasRelation(use, facts.RelInstantiates, "ARRAY_SIZE") {
@@ -627,7 +627,7 @@ MACHINE_END
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	for _, fn := range []string{"src.omap_reserve", "src.omap_generic_init", "src.omap2xxx_restart", "src.mvebu_dt_init"} {
+	for _, fn := range []string{"src.omap_reserve@board_c", "src.omap_generic_init@board_c", "src.omap2xxx_restart@board_c", "src.mvebu_dt_init@board_c"} {
 		if !hasRelation(mod, facts.RelCalls, fn) {
 			t.Errorf("machine_desc callback %s should be referenced, got %+v", fn, mod.Relations)
 		}
@@ -644,9 +644,9 @@ static int use(int v) { return v; }
 static int caller(void) { int local = 3; return use(local); }
 `,
 	})
-	caller := mustFact(t, ff, "src.caller")
+	caller := mustFact(t, ff, "src.caller@u_c")
 	// The real call to use() is kept; the data argument `local` is not a function.
-	if !hasRelation(caller, facts.RelCalls, "src.use") {
+	if !hasRelation(caller, facts.RelCalls, "src.use@u_c") {
 		t.Errorf("caller should keep the real call to use, got %+v", caller.Relations)
 	}
 	if hasRelation(caller, facts.RelCalls, "src.local") {
@@ -663,7 +663,7 @@ static int FLAG_fn(void) { return 0; }
 static int caller(void) { return take(FLAG); }
 `,
 	})
-	caller := mustFact(t, ff, "src.caller")
+	caller := mustFact(t, ff, "src.caller@m_c")
 	if hasRelation(caller, facts.RelCalls, "src.FLAG") {
 		t.Errorf("UPPER_SNAKE argument FLAG must not produce a call edge, got %+v", caller.Relations)
 	}
@@ -679,8 +679,8 @@ static int real_fn(void) { return 0; }
 static const struct d cfg = { .fn = real_fn, .data = some_global };
 `,
 	})
-	cfg := mustFact(t, ff, "src.cfg")
-	if !hasRelation(cfg, facts.RelCalls, "src.real_fn") {
+	cfg := mustFact(t, ff, "src.cfg@d_c")
+	if !hasRelation(cfg, facts.RelCalls, "src.real_fn@d_c") {
 		t.Errorf("cfg should reference real_fn, got %+v", cfg.Relations)
 	}
 	if hasRelation(cfg, facts.RelCalls, "src.some_global") {
@@ -697,7 +697,7 @@ func TestCInitializerNoFalseEdges(t *testing.T) {
 static const struct cfg c = { .count = MAX, .name = "hi", .n = 3 };
 `,
 	})
-	cf := mustFact(t, ff, "src.c")
+	cf := mustFact(t, ff, "src.c@c_c")
 	if hasRelation(cf, facts.RelCalls, "src.MAX") {
 		t.Errorf("UPPER_SNAKE macro constant MAX must not produce a call edge, got %+v", cf.Relations)
 	}
@@ -716,7 +716,7 @@ static int hidden(void) { return 0; }
 int visible(void) { return hidden(); }
 `,
 	})
-	h := mustFact(t, ff, "src.hidden")
+	h := mustFact(t, ff, "src.hidden@s_c")
 	if h.Props["exported"] != false {
 		t.Errorf("static C function should have exported=false, got %v", h.Props["exported"])
 	}
@@ -792,7 +792,7 @@ MACHINE_END
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	for _, fn := range []string{"src.example_init", "src.example_restart"} {
+	for _, fn := range []string{"src.example_init@board_c", "src.example_restart@board_c"} {
 		if !hasRelation(mod, facts.RelCalls, fn) {
 			t.Errorf("machine_desc clean-ERROR-node callback %s should be salvaged onto the module, got %+v", fn, mod.Relations)
 		}
@@ -818,14 +818,14 @@ MACHINE_END
 `,
 	})
 	mod := mustFact(t, ff, "src")
-	if !hasRelation(mod, facts.RelCalls, "src.mach_init") {
+	if !hasRelation(mod, facts.RelCalls, "src.mach_init@board_c") {
 		t.Errorf("module should reference mach_init via machine_desc, got %+v", mod.Relations)
 	}
-	if hasRelation(mod, facts.RelCalls, "src.probe_cb") {
+	if hasRelation(mod, facts.RelCalls, "src.probe_cb@board_c") {
 		t.Errorf("in-body field assignment must NOT be attributed to the module (v17 skips function bodies), got %+v", mod.Relations)
 	}
-	p := mustFact(t, ff, "src.probe")
-	if !hasRelation(p, facts.RelCalls, "src.probe_cb") {
+	p := mustFact(t, ff, "src.probe@board_c")
+	if !hasRelation(p, facts.RelCalls, "src.probe_cb@board_c") {
 		t.Errorf("probe should own the in-body probe_cb assignment, got %+v", p.Relations)
 	}
 }
@@ -871,7 +871,7 @@ SYSCALL_DEFINE0(mysys_sigreturn)
 	})
 	mod := mustFact(t, ff, "src")
 	// Every helper reached only from a syscall body must be credited.
-	for _, fn := range []string{"src.copy_helper", "src.only_compat_helper", "src.sigreturn_helper"} {
+	for _, fn := range []string{"src.copy_helper@sys_c", "src.only_compat_helper@sys_c", "src.sigreturn_helper@sys_c"} {
 		if !hasRelation(mod, facts.RelCalls, fn) {
 			t.Errorf("module should reference %s called from a SYSCALL_DEFINE body, got %+v", fn, mod.Relations)
 		}

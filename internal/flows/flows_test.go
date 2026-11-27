@@ -926,3 +926,16 @@ func TestDocument_HoldsEveryFlowAndDescribesTheFirst(t *testing.T) {
 		t.Errorf("summaries %q / %q: want the first described and the last not", doc.Flows[0].Summary, doc.Flows[2].Summary)
 	}
 }
+
+// Several C programs in one directory name their mains by file (`tools.main@one_c`);
+// each is still a program's main.
+func TestAnalyze_FileQualifiedCMainIsAMain(t *testing.T) {
+	in := func(f facts.Fact) facts.Fact { f.Props["language"] = "c"; return f }
+	a := analyze(
+		in(sym("tools.main@one_c", "tools/one.c", "tools.run")),
+		in(sym("tools.run", "tools/run.c")),
+	)
+	if a.Roots[MechanismMain] != 1 {
+		t.Errorf("roots = %v, want one main", a.Roots)
+	}
+}
