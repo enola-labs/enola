@@ -4211,7 +4211,14 @@ import (
 // handler); a relation read and a call on it bind as on a query result. A call on a
 // relation read in place (`$story->author->foo()`) binds as through a local. A
 // declared-return chain is read 12 marks deep by both walks, not 8 by one.
-const cacheVersion = "v753"
+// v754: C/C++: a declaration named for its file for internal linkage is not
+// exported, in C++ as in C. A bare call to a name the calling function declares as
+// a parameter or local (a function pointer) is no call to a function of that
+// name. A static prototype fuses with its definition through an include of an
+// include. A test ref resolves against header statics folded and prototypes fused
+// as production names them. emplace, try_emplace and emplace_hint on a map
+// construct its mapped type.
+const cacheVersion = "v754"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

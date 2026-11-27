@@ -346,6 +346,7 @@ var versionCoverage = map[int][]string{
 	751: {"TestDartBareClassStaticMemberReads", "TestDartBareClassStaticMemberScope", "TestDartStaticSetterWrites", "TestDartPartFileConstructionThroughLibraryPrefix", "TestDartPrefixedParameterTypeInjects", "TestDartConditionalImportCreditsEachAlternative", "TestDartAmbiguityOutsideOneConditionalImportStaysUnbound"},
 	752: {"TestExtractTestRefs_SvelteKitAliasFallbacks", "TestBarrelExports_EmittedExtensionSpecifier", "TestBarrelExports_NonIndexModule", "TestBarrelExports_NamesEdgeRewritten", "TestNamespaceLookup_DynamicKeyFollowsReexports", "TestBarrelExports_StarReexportFollowedToTheDeclaringModule", "TestGolden"},
 	753: {"TestEloquentRelationReadOnAParameterTypedByEveryCaller", "TestReceiverCalls_OnARelationReadInPlace", "TestReceiverCalls_MemberCallOnUntypedPropertyIsKept", "TestReceiverCalls_ChainAsDeepAsAnEloquentResult"},
+	754: {"TestCppInternalLinkageIsNotExported", "TestCCallThroughAFunctionPointerParameterBindsNoFunction", "TestCStaticPrototypeFusesThroughATransitiveInclude", "TestCTestRefBindsAHeaderStaticProductionFolds", "TestCppEmplaceOnAMapInstantiatesTheMappedType", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

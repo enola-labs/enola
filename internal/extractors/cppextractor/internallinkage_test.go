@@ -369,3 +369,67 @@ func TestCHeaderStaticStubOfAnExternStaysFolded(t *testing.T) {
 		}
 	}
 }
+
+// A declaration with internal linkage is not visible outside its translation
+// unit, in C++ as in C: a static free function and an anonymous-namespace one are
+// not exported.
+func TestCppInternalLinkageIsNotExported(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/a.cpp": `
+static int helper() { return 1; }
+namespace { int anon_helper() { return 2; } }
+int run() { return helper() + anon_helper(); }
+`,
+	})
+	for _, name := range []string{"src.helper@a_cpp", "src.anon_helper@a_cpp"} {
+		if f := mustFact(t, ff, name); f.PropBool("exported") {
+			t.Errorf("%s has internal linkage, got exported=true", name)
+		}
+	}
+	if f := mustFact(t, ff, "src.run"); !f.PropBool("exported") {
+		t.Error("run has external linkage and stays exported")
+	}
+}
+
+// A function called through a parameter or local of the same name calls the
+// pointer it holds, not a function that happens to share the name.
+func TestCCallThroughAFunctionPointerParameterBindsNoFunction(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"lib/a.c": `
+long flush(void *b, unsigned long n) { return 0; }
+long unxz(void *buf, long (*flush)(void *, unsigned long)) { return flush(buf, 2); }
+long viaLocal(void *buf) { long (*flush)(void *, unsigned long) = 0; return flush(buf, 1); }
+long direct(void *buf) { return flush(buf, 3); }
+`,
+	})
+	for _, name := range []string{"lib.unxz", "lib.viaLocal"} {
+		if hasRelation(mustFact(t, ff, name), facts.RelCalls, "lib.flush") {
+			t.Errorf("%s calls through its own flush, not lib.flush", name)
+		}
+	}
+	if !hasRelation(mustFact(t, ff, "lib.direct"), facts.RelCalls, "lib.flush") {
+		t.Error("direct calls lib.flush")
+	}
+}
+
+// A source including a source that includes the header shares one unit with that
+// header: the header's static prototype and the outer source's definition are one
+// function, and the table referencing the prototype references the definition.
+func TestCStaticPrototypeFusesThroughATransitiveInclude(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"ac97/ac97_patch.h": "static int put_enum(int k);\nstatic const struct ops enum_ops = { .put = put_enum };\n",
+		"ac97/ac97_patch.c": "#include \"ac97_patch.h\"\n",
+		"ac97/ac97_codec.c": "#include \"ac97_patch.c\"\nstatic int put_enum(int k) { return k; }\n",
+		// A header no unit shares with the definition keeps its own prototype.
+		"ac97/other.h": "static int put_enum(int k);\n",
+	})
+	if _, ok := findFact(ff, "ac97.put_enum@ac97_patch_h"); ok {
+		t.Error("the prototype is no fact of its own")
+	}
+	if !hasRelation(mustFact(t, ff, "ac97.enum_ops@ac97_patch_h"), facts.RelCalls, "ac97.put_enum@ac97_codec_c") {
+		t.Errorf("the header's table references the definition, got %+v", mustFact(t, ff, "ac97.enum_ops@ac97_patch_h").Relations)
+	}
+	if _, ok := findFact(ff, "ac97.put_enum@other_h"); !ok {
+		t.Error("a header outside the unit keeps its prototype")
+	}
+}

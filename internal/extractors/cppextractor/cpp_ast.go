@@ -62,7 +62,7 @@ func extractFileAST(src []byte, relFile, lang string, macros macroTable) []facts
 	// Recover callbacks from macro-opened struct initializers (machine_desc), which
 	// tree-sitter can't parse and scatters as `.field = fn` assignment debris.
 	w.salvageMacroStructAssigns(tree.RootNode())
-	qualifyInternals(w.out, w.internal, relFile, w.dir)
+	qualifyInternals(w.out, w.internal, relFile, w.dir, true)
 	return w.out
 }
 
@@ -201,6 +201,9 @@ type astWalker struct {
 	valueScope struct {
 		fdecl, body *sitter.Node
 		locals      map[string]bool
+		// protos holds the functions the body declares by prototype
+		// (`int helper(int);` in a block), which name functions, not values.
+		protos map[string]bool
 	}
 	// templateParams holds the enclosing templates' parameter names, and
 	// factoryParams the current function template's own (construct.go).
@@ -1032,7 +1035,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	w.factoryParams, w.pendingFactoryParams = w.pendingFactoryParams, nil
 	if body := node.ChildByFieldName("body"); body != nil {
 		w.receiverTypes, w.receiverTemplates, w.receiverChains = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
-		w.valueScope.fdecl, w.valueScope.body, w.valueScope.locals = fdecl, body, nil
+		w.valueScope.fdecl, w.valueScope.body, w.valueScope.locals, w.valueScope.protos = fdecl, body, nil, nil
 		// A constructor's member initializer list (S() : m(helper(x)) {}) runs as
 		// part of the constructor, before its body.
 		if inits := findChildByKind(w.kinds, node, "field_initializer_list"); inits != nil {
@@ -1934,19 +1937,37 @@ func (w *astWalker) valueLocal(name string) bool {
 				decls = append(decls, params.Child(i))
 			}
 		}
+		params := len(decls)
 		decls = append(decls, queryDeclarations(w.lang, sc.body)...)
-		for _, d := range decls {
+		for di, d := range decls {
 			for i := uint(0); i < d.ChildCount(); i++ {
 				if d.FieldNameForChild(uint32(i)) != "declarator" {
 					continue
 				}
-				if n := declaratorLeafName(w.kinds, referencedDeclarator(w.kinds, d.Child(i)), w.src); n != "" {
+				decl := referencedDeclarator(w.kinds, d.Child(i))
+				if n := declaratorLeafName(w.kinds, decl, w.src); n != "" {
 					sc.locals[n] = true
+					if di >= params && kindOf(w.kinds, decl) == "function_declarator" {
+						if inner := declaratorChild(w.kinds, decl); inner != nil && kindOf(w.kinds, inner) != "parenthesized_declarator" {
+							if sc.protos == nil {
+								sc.protos = map[string]bool{}
+							}
+							sc.protos[n] = true
+						}
+					}
 				}
 			}
 		}
 	}
 	return sc.locals[name]
+}
+
+// callsThroughValue reports whether a bare call to name calls a parameter or
+// local of the function being walked (a function pointer, a functor), which
+// hides any function of that name: the call is a value flow, not a call to it.
+// A block-scope prototype declares the function itself and hides nothing.
+func (w *astWalker) callsThroughValue(name string) bool {
+	return w.valueLocal(name) && !w.valueScope.protos[name]
 }
 
 // emitFuncPtrRef attaches a PROVISIONAL func-pointer reference (relFuncPtrCandidate)
@@ -2081,8 +2102,9 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 	applyStatic := func() {
 		f.SetProp("static", true)
 		// In C a `static` function has internal linkage — it is file-private, not
-		// externally visible. (C++ keeps exported=true: file scope there is rare and
-		// visibility is expressed via access specifiers / anonymous namespaces.)
+		// externally visible. In C++ `static` may be a class member's, so a free
+		// function's internal linkage is cleared where it is named for its file
+		// (qualifyInternals).
 		if w.lang == langC {
 			f.SetProp("exported", false)
 		}
@@ -2443,6 +2465,8 @@ func (w *astWalker) handleCall(node *sitter.Node) {
 	switch {
 	case name == "":
 		// unresolved (call through pointer, etc.)
+	case kind == calleePlain && w.callsThroughValue(name):
+		// a call through a parameter or local of that name, not to a function
 	case kind == calleeQualified:
 		if !systemNamespaces[root] {
 			target := root + "::" + name

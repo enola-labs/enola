@@ -296,3 +296,30 @@ static void run(void) { make_fixture(1); local_twin(2); }`,
 		}
 	}
 }
+
+// A test calls a header static the production pass names as its directory's one
+// declaration (alternatives several headers define, a prototype beside the
+// definition another header holds) or fuses with a source's definition: the test
+// ref names the fact production has, as a production caller's edge does.
+func TestCTestRefBindsAHeaderStaticProductionFolds(t *testing.T) {
+	repo := writeCppRepo(t, map[string]string{
+		"asm/msr.h":             "static inline void wrmsrq(int m) {}\n",
+		"asm/paravirt.h":        "static inline void wrmsrq(int m) {}\n",
+		"mm/highmem.h":          "#include \"highmem-internal.h\"\nstatic inline void *kmap_local_page(int page);\n",
+		"mm/highmem-internal.h": "static inline void *kmap_local_page(int page) { return 0; }\n",
+		"tests/msr_test.c":      "#include \"../asm/msr.h\"\n#include \"../mm/highmem.h\"\nvoid t1(int m) { wrmsrq(m); kmap_local_page(m); }\n",
+	})
+	prod := []string{"asm/msr.h", "asm/paravirt.h", "mm/highmem.h", "mm/highmem-internal.h"}
+	got, err := extractTestRefs(t, repo, []string{"tests/msr_test.c"}, prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("one test_ref, got %d", len(got))
+	}
+	for _, want := range []string{"asm.wrmsrq", "mm.kmap_local_page"} {
+		if !hasRelation(got[0], facts.RelCalls, want) {
+			t.Errorf("the test calls %s, got %+v", want, got[0].Relations)
+		}
+	}
+}

@@ -73,19 +73,26 @@ const (
 // them (a project may wrap the standard ones under the same name).
 var smartPointers = map[string]bool{"unique_ptr": true, "shared_ptr": true}
 
-// elementContainers hold values of their first type argument, which emplaceMethods
-// construct in place.
+// elementContainers hold values of their element type, which emplaceMethods
+// construct in place: the first type argument, or a map's mapped type.
 var elementContainers = map[string]bool{
 	"vector": true, "deque": true, "list": true, "forward_list": true,
 	"set": true, "multiset": true, "unordered_set": true, "unordered_multiset": true,
 	"queue": true, "priority_queue": true, "stack": true,
+	"map": true, "multimap": true, "unordered_map": true, "unordered_multimap": true,
 }
 
-var emplaceMethods = map[string]bool{"emplace_back": true, "emplace_front": true, "emplace": true}
+// mapContainers hold key and mapped value; an emplace constructs the mapped type,
+// their second type argument.
+var mapContainers = map[string]bool{"map": true, "multimap": true, "unordered_map": true, "unordered_multimap": true}
 
-// templateArgument returns a template type's leaf name and its first type
-// argument as written ("vector", "Row" for std::vector<Row>), or "" for anything
-// else. An argument with a declarator (Row *) is "".
+var emplaceMethods = map[string]bool{"emplace_back": true, "emplace_front": true, "emplace": true,
+	"try_emplace": true, "emplace_hint": true}
+
+// templateArgument returns a template type's leaf name and its element type
+// argument as written ("vector", "Row" for std::vector<Row>): the first type
+// argument, the second for a map (mapContainers), or "" for anything else. An
+// argument with a declarator (Row *) is "".
 func templateArgument(kinds *tsutil.KindTable, t *sitter.Node, src []byte) (leaf, arg string) {
 	for t != nil && kindOf(kinds, t) == "qualified_identifier" {
 		t = t.ChildByFieldName("name")
@@ -98,9 +105,17 @@ func templateArgument(kinds *tsutil.KindTable, t *sitter.Node, src []byte) (leaf
 	if args == nil {
 		return leaf, ""
 	}
+	skip := 0
+	if mapContainers[leaf] {
+		skip = 1
+	}
 	for i := uint(0); i < args.ChildCount(); i++ {
 		a := args.Child(i)
 		if !a.IsNamed() {
+			continue
+		}
+		if skip > 0 {
+			skip--
 			continue
 		}
 		if kindOf(kinds, a) == "type_descriptor" && a.ChildByFieldName("declarator") == nil {
