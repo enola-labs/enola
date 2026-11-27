@@ -2,6 +2,7 @@ package orphans
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1959,6 +1960,25 @@ func TestTestEntryNamesOnlyInTheirFileKind(t *testing.T) {
 		"lib.test_bit", "pkg.ExampleConfig", "app.engine.test_connection"} {
 		if _, ok := got[name]; !ok {
 			t.Errorf("%s is production code and should be reported", name)
+		}
+	}
+}
+
+// A declaration named with its file (a member of a Swift constrained extension)
+// matches a reference by its own name too, and its bare name drops the qualifier, so
+// an init so named is still an entry point.
+func TestFileQualifiedNameMatchesItsBareName(t *testing.T) {
+	got := candidateNames("KsApi/Sources/KsApi.Lens.id@ProjectLenses_swift@2", facts.SymbolMethod)
+	want := []string{"id@ProjectLenses_swift@2", "Lens.id@ProjectLenses_swift@2", "id", "Lens.id"}
+	if !slices.Equal(got, want) {
+		t.Errorf("candidateNames = %v, want %v", got, want)
+	}
+	if got := bareName("GraphAPI/Mocks.Mock.init@Project+Mock_graphql_swift"); got != "init" {
+		t.Errorf("bareName = %q, want init", got)
+	}
+	for _, name := range []string{"app/models.@decorated", "pkg.x@", "web/node_modules.pkg@scope/x"} {
+		if got := bareName(name); got != lastSeg(name) {
+			t.Errorf("bareName(%q) = %q, want it unchanged", name, got)
 		}
 	}
 }
