@@ -351,3 +351,21 @@ func TestCHeaderStaticAlternativesStayFolded(t *testing.T) {
 		t.Errorf("map calls the definition behind the prototype, got %+v", mustFact(t, ff, "fs.map").Relations)
 	}
 }
+
+// A header's `static inline` stub of a function its directory also declares with
+// external linkage (the configuration that builds it) is that one declaration.
+func TestCHeaderStaticStubOfAnExternStaysFolded(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"sec/integrity.h": "#ifdef CONFIG_AUDIT\nvoid audit_msg(int x);\n#else\nstatic inline void audit_msg(int x) {}\n#endif\n",
+		"sec/audit.c":     "void audit_msg(int x) {}\n",
+		"lib/use.c":       "#include \"../sec/integrity.h\"\nvoid use(int x) { audit_msg(x); }\n",
+	})
+	if !hasRelation(mustFact(t, ff, "lib.use"), facts.RelCalls, "sec.audit_msg") {
+		t.Errorf("the caller binds to the one declaration, got %+v", mustFact(t, ff, "lib.use").Relations)
+	}
+	for _, f := range ff {
+		if strings.HasPrefix(f.Name, "sec.audit_msg@") {
+			t.Errorf("the stub keeps no file qualifier, got %s", f.Name)
+		}
+	}
+}

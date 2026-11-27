@@ -1046,14 +1046,16 @@ func indexFunctionNames(allFacts []facts.Fact) functionNames {
 	out := functionNames{short: map[string]string{}, qualified: map[string]string{}, scoped: map[string]string{}}
 	out.includedSources = includedSourceNames(allFacts)
 	out.internals = newInternalIndex(allFacts, out.includedSources)
-	// A source file's static is never found by name from another file, but its
-	// name still counts: a header's static of a name some source also declares
-	// static (a libc shim beside a tool's own helper) is not the one meant.
+	// A source file's static function is never found by name from another file,
+	// but its name still counts: a header's static of a name some source also
+	// declares static (a libc shim beside a tool's own helper) is not the one meant.
 	sourceStatics := map[string]bool{}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if name, internal := splitInternal(f.Name); internal && f.Kind == facts.KindSymbol && !isHeaderExt(f.File) {
-			sourceStatics[lastScopeComponent(name)] = true
+			if sk := f.PropString("symbol_kind"); sk == facts.SymbolFunc || sk == facts.SymbolMethod {
+				sourceStatics[lastScopeComponent(name)] = true
+			}
 		}
 	}
 	for i := range allFacts {

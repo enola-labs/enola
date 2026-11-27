@@ -526,16 +526,28 @@ func sameUnqualified(name, base string) bool {
 	return a == b
 }
 
-// foldHeaderAlternatives names a static that several headers of one directory
-// define as the directory's one declaration, without a file qualifier, as an
-// extern is: such headers are mostly alternatives a configuration picks between
-// (`asm/msr.h` and `asm/paravirt.h`), the case one declaration across files keeps
-// folded. A static one header of its directory defines keeps its qualifier.
+// foldHeaderAlternatives names a header's static as the directory's one
+// declaration, without a file qualifier, as an extern is, when it is one of
+// several alternatives a configuration picks between: several headers of the
+// directory define it (`asm/msr.h` and `asm/paravirt.h`), or the directory also
+// declares it with external linkage (a `static inline` stub beside the extern a
+// configuration builds). One declaration across files stays folded; a static one
+// header of its directory alone defines keeps its qualifier.
 func foldHeaderAlternatives(allFacts []facts.Fact) {
 	defined := map[string]map[string]bool{} // unqualified name -> headers defining it
+	external := map[string]bool{}           // functions declared with external linkage
 	for i := range allFacts {
 		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol || !isHeaderExt(f.File) || !f.PropBool("has_body") {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		if _, internal := splitInternal(f.Name); !internal {
+			if sk := f.PropString("symbol_kind"); sk == facts.SymbolFunc || sk == facts.SymbolMethod {
+				external[f.Name] = true
+			}
+			continue
+		}
+		if !isHeaderExt(f.File) || !f.PropBool("has_body") {
 			continue
 		}
 		if base, ok := splitInternal(f.Name); ok {
@@ -551,7 +563,7 @@ func foldHeaderAlternatives(allFacts []facts.Fact) {
 		if f.Kind != facts.KindSymbol || !isHeaderExt(f.File) {
 			continue
 		}
-		if base, ok := splitInternal(f.Name); ok && len(defined[base]) > 1 {
+		if base, ok := splitInternal(f.Name); ok && (len(defined[base]) > 1 || external[base]) {
 			rename[f.Name] = base
 			f.Name = base
 		}
