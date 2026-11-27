@@ -88,7 +88,7 @@ func (w *astWalker) markConstrainedMembers(node *sitter.Node, memberPrefix strin
 type constrainedDecl struct {
 	name string
 	file string
-	span [2]int // the declaring constrained extension's lines; zero for a plain one
+	span [2]int // the declaring constrained extension's lines
 }
 
 // fileQualifyConstrainedMembers gives the marked members their file-qualified
@@ -96,6 +96,12 @@ type constrainedDecl struct {
 // the one in the referring declaration's own extension, else the one its file
 // declares, else the only one there is. A reference the name leaves ambiguous draws
 // no edge: an arbitrary one would credit a declaration nobody uses.
+//
+// When the type or a plain extension declares the name too, the constrained ones
+// are overloads of it (`func requestFirstPage()` where the params are Void, beside
+// `requestFirstPage(withParams:)`), and an edge stays on the plain declaration,
+// which keeps the name and applies everywhere: the convenience overload calls the
+// general one, and a reference from its own extension is no call to itself.
 func fileQualifyConstrainedMembers(allFacts []facts.Fact) {
 	decls := map[string][]constrainedDecl{}
 	for i := range allFacts {
@@ -116,7 +122,7 @@ func fileQualifyConstrainedMembers(allFacts []facts.Fact) {
 	for i := range allFacts {
 		f := &allFacts[i]
 		if _, ok := decls[f.Name]; ok && f.Kind == facts.KindSymbol {
-			decls[f.Name] = append(decls[f.Name], constrainedDecl{name: f.Name, file: f.File})
+			delete(decls, f.Name)
 		}
 	}
 	for i := range allFacts {
@@ -142,7 +148,7 @@ func fileQualifyConstrainedMembers(allFacts []facts.Fact) {
 // when nothing tells them apart.
 func pickConstrainedDecl(ds []constrainedDecl, from *facts.Fact) string {
 	inExtension := func(d constrainedDecl) bool {
-		return d.file == from.File && d.span[0] > 0 && d.span[0] <= from.Line && from.Line <= d.span[1]
+		return d.file == from.File && d.span[0] <= from.Line && from.Line <= d.span[1]
 	}
 	sameFile := func(d constrainedDecl) bool { return d.file == from.File }
 	for _, keep := range []func(constrainedDecl) bool{inExtension, sameFile, func(constrainedDecl) bool { return true }} {

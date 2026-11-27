@@ -125,8 +125,25 @@ extension Lens where Whole == User {
 `,
 		"Sources/Lib/C.swift": `
 func useC() -> Int { Lens.shared() + Lens.onlyA() }
+func useP(p: Pager<Int>) { p.first(params: 1) }
+`,
+		"Sources/Lib/Pager.swift": `
+struct Pager<P> {
+    func first(params: P) {}
+}
+extension Pager where P == Void {
+    func first() { self.first(params: ()) }
+}
 `,
 	})
+	// An overload a constrained extension adds beside the type's own member leaves
+	// the edge on the type's member, from its own extension too.
+	if got := targetsFrom(ff, "Sources/Lib.Pager.first@Pager_swift", facts.RelCalls); !slices.Contains(got, "Sources/Lib.Pager.first") {
+		t.Errorf("the Void overload calls %v, want the type's own first", got)
+	}
+	if got := targetsFrom(ff, "Sources/Lib.useP", facts.RelCalls); !slices.Contains(got, "Sources/Lib.Pager.first") {
+		t.Errorf("useP calls %v, want the type's own first", got)
+	}
 	if got := targetsFrom(ff, "Sources/Lib.Lens.run@A_swift", facts.RelCalls); !slices.Contains(got, "Sources/Lib.Lens.shared@A_swift") {
 		t.Errorf("run calls %v, want its own extension's shared", got)
 	}

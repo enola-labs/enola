@@ -4184,7 +4184,9 @@ import (
 // `@3` for a further constrained extension of X in the file declaring m again, so
 // same-named members under different constraints are one fact each. An edge to the
 // shared name binds to the declaration in the referring declaration's extension,
-// else its file, else the only one; none when the name leaves it ambiguous.
+// else its file, else the only one; none when the name leaves it ambiguous. Beside
+// a member of the same name the type or a plain extension declares, the constrained
+// ones are overloads and the edge stays on the plain one.
 const cacheVersion = "v750"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
