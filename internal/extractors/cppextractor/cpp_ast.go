@@ -202,9 +202,11 @@ type astWalker struct {
 		fdecl, body *sitter.Node
 		locals      map[string]bool
 		// protos holds the names a call may still mean a function by: the
-		// functions the body declares by prototype (`int helper(int);` in a block),
-		// and locals declared under a preprocessor conditional, which a
-		// configuration may leave out (bison's `char *yymsg` beside `yymsg(...)`).
+		// functions the body declares by prototype (`int helper(int);` in a block)
+		// or `extern` (a global, not a local), locals declared under a preprocessor
+		// conditional, which a configuration may leave out (bison's `char *yymsg`
+		// beside `yymsg(...)`), and declarations the parser misread (a statement
+		// macro read as a type).
 		protos map[string]bool
 	}
 	// templateParams holds the enclosing templates' parameter names, and
@@ -1949,7 +1951,7 @@ func (w *astWalker) valueLocal(name string) bool {
 				decl := referencedDeclarator(w.kinds, d.Child(i))
 				if n := declaratorLeafName(w.kinds, decl, w.src); n != "" {
 					sc.locals[n] = true
-					if di >= params && (isBlockPrototype(w.kinds, decl) || underPreprocessorConditional(w.kinds, d, sc.body)) {
+					if di >= params && (isBlockPrototype(w.kinds, decl) || d.HasError() || w.hasStorageClassText(d, "extern") || underPreprocessorConditional(w.kinds, d, sc.body)) {
 						if sc.protos == nil {
 							sc.protos = map[string]bool{}
 						}
@@ -2207,6 +2209,17 @@ func (w *astWalker) markInternal(name string) {
 		w.internal = map[string]bool{}
 	}
 	w.internal[name] = true
+}
+
+// hasStorageClassText reports whether a declaration carries the storage class kw.
+func (w *astWalker) hasStorageClassText(node *sitter.Node, kw string) bool {
+	for i := uint(0); i < node.ChildCount(); i++ {
+		c := node.Child(i)
+		if kindOf(w.kinds, c) == "storage_class_specifier" && nodeText(c, w.src) == kw {
+			return true
+		}
+	}
+	return false
 }
 
 // hasStaticSpecifier reports whether a declaration carries the `static` storage class.

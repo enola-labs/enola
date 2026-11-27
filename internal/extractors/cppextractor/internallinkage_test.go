@@ -447,10 +447,27 @@ int yyparse(void) {
 	yymsg(0, "error");
 	return 0;
 }
+void (*flush_page)(int addr);
+void clear_page(int addr) {
+	extern void (*flush_page)(int addr);
+	flush_page(addr);
+}
+int active_pipe(struct dp *d) { return 0; }
+void pipe_reset(struct dp *intel_dp)
+{
+	with_pps_lock(intel_dp)
+		intel_dp->pps.active_pipe = active_pipe(intel_dp);
+}
 `,
 	})
 	if !hasRelation(mustFact(t, ff, "parser.yyparse"), facts.RelCalls, "parser.yymsg") {
 		t.Errorf("yyparse calls yymsg, got %+v", mustFact(t, ff, "parser.yyparse").Relations)
+	}
+	if !hasRelation(mustFact(t, ff, "parser.clear_page"), facts.RelCalls, "parser.flush_page") {
+		t.Errorf("a block-scope extern is the global, got %+v", mustFact(t, ff, "parser.clear_page").Relations)
+	}
+	if !hasRelation(mustFact(t, ff, "parser.pipe_reset"), facts.RelCalls, "parser.active_pipe") {
+		t.Errorf("a statement macro misread as a declaration hides nothing, got %+v", mustFact(t, ff, "parser.pipe_reset").Relations)
 	}
 }
 
