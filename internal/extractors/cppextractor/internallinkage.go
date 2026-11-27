@@ -36,8 +36,8 @@ import (
 // too (internalIndex, indexFunctionNames). A source file's static is seen only by
 // a source sharing its translation unit through a quoted include, either way
 // round (`#include "impl.c"`, a unit test included at the end of its file).
-// A header's prototype of a static that a source including it defines takes the
-// definition's name, so the two fuse (fuseHeaderStaticPrototypes).
+// A prototype of a static that a source sharing its translation unit defines
+// takes the definition's name, so the two fuse (fuseStaticPrototypes).
 //
 // Several programs in one directory (`main` defined in more than one file of it)
 // get the same qualifier for their `main`: separate programs, never one function.
@@ -369,52 +369,93 @@ func (idx internalIndex) sharer(decls []internalDecl, file string, includedSourc
 	return hit, found
 }
 
-// fuseHeaderStaticPrototypes renames a header's prototype of a static, with no
-// body, to the definition it declares: the one static of that name, with a body,
-// in a source file of the header's directory that includes the header. The
-// header's text is part of that file's translation unit, so dedupeSymbols then
-// fuses the two, as it fuses an extern prototype with its definition.
-func fuseHeaderStaticPrototypes(allFacts []facts.Fact) {
+// fuseStaticPrototypes renames a prototype of a static, with no body, to the
+// definition it declares: the one static of that name, with a body, in a source
+// file that shares the prototype's translation unit through quoted includes (the
+// source includes the prototype's file, the other way round, or a third file
+// includes both, as a driver including its core `.c` and that core's header).
+// References to the prototype follow it, and dedupeSymbols then fuses the two, as
+// it fuses an extern prototype with its definition.
+func fuseStaticPrototypes(allFacts []facts.Fact) {
 	includes := map[string]map[string]bool{}
-	defs := map[string][]int{} // "<dir>.<name>" -> indices of source definitions
+	includers := map[string][]string{} // base name -> files including it
+	defs := map[string][]int{}         // "<dir>.<name>" leaf key -> source definitions
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency && f.PropString("include_style") == "quoted" {
+			inc := path.Base(strings.ReplaceAll(f.PropString("include"), "\\", "/"))
 			if includes[f.File] == nil {
 				includes[f.File] = map[string]bool{}
 			}
-			includes[f.File][path.Base(strings.ReplaceAll(f.PropString("include"), "\\", "/"))] = true
+			if !includes[f.File][inc] {
+				includes[f.File][inc] = true
+				includers[inc] = append(includers[inc], f.File)
+			}
 			continue
 		}
 		if f.Kind != facts.KindSymbol || isHeaderExt(f.File) || !f.PropBool("has_body") {
 			continue
 		}
 		if base, ok := splitInternal(f.Name); ok {
-			defs[base] = append(defs[base], i)
+			defs[lastScopeComponent(base)] = append(defs[lastScopeComponent(base)], i)
 		}
 	}
+	shareUnit := func(a, b string) bool {
+		ba, bb := path.Base(a), path.Base(b)
+		if includes[a][bb] || includes[b][ba] {
+			return true
+		}
+		for _, c := range includers[ba] {
+			if includes[c][bb] {
+				return true
+			}
+		}
+		return false
+	}
+	rename := map[string]string{}
 	for i := range allFacts {
 		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol || !isHeaderExt(f.File) || f.PropBool("has_body") {
+		if f.Kind != facts.KindSymbol || f.PropBool("has_body") {
 			continue
 		}
 		base, ok := splitInternal(f.Name)
 		if !ok {
 			continue
 		}
-		header, def := path.Base(f.File), ""
-		for _, j := range defs[base] {
-			if !includes[allFacts[j].File][header] {
+		def := ""
+		for _, j := range defs[lastScopeComponent(base)] {
+			d := &allFacts[j]
+			if d.File == f.File || !sameUnqualified(d.Name, base) || !shareUnit(f.File, d.File) {
 				continue
 			}
-			if def != "" {
+			if def != "" && def != d.Name {
 				def = ""
 				break
 			}
-			def = allFacts[j].Name
+			def = d.Name
 		}
 		if def != "" {
+			rename[f.Name] = def
 			f.Name = def
 		}
 	}
+	if len(rename) == 0 {
+		return
+	}
+	for i := range allFacts {
+		for j := range allFacts[i].Relations {
+			if n, ok := rename[allFacts[i].Relations[j].Target]; ok {
+				allFacts[i].Relations[j].Target = n
+			}
+		}
+	}
+}
+
+// sameUnqualified reports whether name, less its file qualifier and directory,
+// is base less its directory: one declaration's scope and name in two files.
+func sameUnqualified(name, base string) bool {
+	n, _ := splitInternal(name)
+	_, a, _ := strings.Cut(n, ".")
+	_, b, _ := strings.Cut(base, ".")
+	return a == b
 }

@@ -283,3 +283,25 @@ func TestCHeaderPrototypeOfASourceStaticFusesWithIt(t *testing.T) {
 		t.Errorf("the definition is authoritative, got %s", def.File)
 	}
 }
+
+// A driver that includes its core source and two halves of one unit: the
+// prototype one half declares, and the header's table references, are the
+// definition the other half holds.
+func TestCStaticPrototypeInOneUnitFusesWithItsDefinition(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"usb/hcd.c":   "#include \"hub.c\"\n#include \"queue.c\"\n",
+		"usb/hub.c":   "static void unlink_async(int h);\nvoid hub_suspend(int h) { unlink_async(h); }\n",
+		"usb/queue.c": "static void unlink_async(int h) {}\n",
+		"cam/st.h":    "static int st_start(int sd);\nstatic const struct ops st_ops = { .start = st_start };\n",
+		"cam/st.c":    "#include \"st.h\"\nstatic int st_start(int sd) { return sd; }\n",
+	})
+	if !hasRelation(mustFact(t, ff, "usb.hub_suspend"), facts.RelCalls, "usb.unlink_async@queue_c") {
+		t.Errorf("the prototype's caller calls the definition, got %+v", mustFact(t, ff, "usb.hub_suspend").Relations)
+	}
+	if _, ok := findFact(ff, "usb.unlink_async@hub_c"); ok {
+		t.Error("the prototype is no fact of its own")
+	}
+	if !hasRelation(mustFact(t, ff, "cam.st_ops@st_h"), facts.RelCalls, "cam.st_start@st_c") {
+		t.Errorf("the header's table references the definition, got %+v", mustFact(t, ff, "cam.st_ops@st_h").Relations)
+	}
+}
