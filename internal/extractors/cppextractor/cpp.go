@@ -285,6 +285,7 @@ func (e *CppExtractor) extract(ctx context.Context, repoPath string, files, test
 	resolveFuncPtrRefs(allFacts, funcNames)
 
 	// Merge header method declarations with source definitions.
+	foldHeaderAlternatives(allFacts)
 	fuseStaticPrototypes(allFacts)
 	allFacts = dedupeSymbols(allFacts)
 

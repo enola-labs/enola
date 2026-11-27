@@ -320,20 +320,29 @@ func TestCStaticPrototypeStaysWithItsOwnFile(t *testing.T) {
 }
 
 // Two headers of one directory define a static of one name, alternatives a
-// configuration picks between: a file of that directory calls the one it
-// includes itself. A header's prototype of a static another header of its
+// configuration picks between: they stay one declaration of the directory, as an
+// extern's alternatives do. A header's prototype of a static another header of its
 // directory defines, and includes, is that definition.
-func TestCHeaderStaticAlternativesBindByTheCallersInclude(t *testing.T) {
+func TestCHeaderStaticAlternativesStayFolded(t *testing.T) {
 	ff := extractProject(t, map[string]string{
 		"asm/msr.h":             "static inline void wrmsrq(int m) {}\n",
 		"asm/paravirt.h":        "static inline void wrmsrq(int m) {}\n",
 		"asm/msr_user.c":        "#include \"msr.h\"\nvoid set_msr(int m) { wrmsrq(m); }\n",
+		"lib/far.c":             "#include <asm/msr.h>\nvoid far_msr(int m) { wrmsrq(m); }\n",
 		"mm/highmem.h":          "#include \"highmem-internal.h\"\nstatic inline void *kmap_local_page(int page);\n",
 		"mm/highmem-internal.h": "static inline void *kmap_local_page(int page) { return 0; }\n",
 		"fs/read.c":             "#include \"../mm/highmem.h\"\nvoid *map(int p) { return kmap_local_page(p); }\n",
 	})
-	if !hasRelation(mustFact(t, ff, "asm.set_msr"), facts.RelCalls, "asm.wrmsrq@msr_h") {
-		t.Errorf("set_msr calls the wrmsrq of the header it includes, got %+v", mustFact(t, ff, "asm.set_msr").Relations)
+	if !hasRelation(mustFact(t, ff, "asm.set_msr"), facts.RelCalls, "asm.wrmsrq") {
+		t.Errorf("set_msr calls the directory's one wrmsrq, got %+v", mustFact(t, ff, "asm.set_msr").Relations)
+	}
+	if !hasRelation(mustFact(t, ff, "lib.far_msr"), facts.RelCalls, "asm.wrmsrq") {
+		t.Errorf("a caller in another directory still binds, got %+v", mustFact(t, ff, "lib.far_msr").Relations)
+	}
+	for _, f := range ff {
+		if strings.HasPrefix(f.Name, "asm.wrmsrq@") {
+			t.Errorf("no alternative keeps a file qualifier, got %s", f.Name)
+		}
 	}
 	if _, ok := findFact(ff, "mm.kmap_local_page@highmem_h"); ok {
 		t.Error("the prototype is no fact of its own")

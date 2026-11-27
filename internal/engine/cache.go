@@ -4174,7 +4174,8 @@ import (
 // file-scope variable, or one in an anonymous namespace) is named for its file,
 // `<dir>.<name>@<file>` with the file's dots as `_`, so two of one name in one
 // directory stay two facts; a file's references bind to its own. A static in a
-// header is named for the header and found from the files that can see it; a
+// header is named for the header and found from the files that can see it (one
+// several headers of a directory define stays the directory's, unqualified); a
 // source's static only from a source sharing its translation unit by a quoted
 // include. Several files of one directory defining `main` name each main the same
 // way.

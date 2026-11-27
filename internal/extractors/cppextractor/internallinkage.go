@@ -33,9 +33,9 @@ import (
 // header is its qualifier (`include/linux.foo@bar_h`), and the files that see it
 // resolve to that one fact: by name in the header's directory, and by its short
 // name from elsewhere only while no source file declares a static of that name
-// too (internalIndex, indexFunctionNames). Where several headers of the caller's
-// own directory define one (alternatives a configuration picks), a file calls the
-// one it includes itself. A source file's static is seen only by
+// too (internalIndex, indexFunctionNames). A static several headers of one
+// directory define (alternatives a configuration picks) stays the directory's one
+// declaration, unqualified, as base folded it (foldHeaderAlternatives). A source file's static is seen only by
 // a source sharing its translation unit through a quoted include, either way
 // round (`#include "impl.c"`, a unit test included at the end of its file).
 // A prototype of a static that a source sharing its translation unit defines
@@ -524,4 +524,55 @@ func sameUnqualified(name, base string) bool {
 	_, a, _ := strings.Cut(n, ".")
 	_, b, _ := strings.Cut(base, ".")
 	return a == b
+}
+
+// foldHeaderAlternatives names a static that several headers of one directory
+// define as the directory's one declaration, without a file qualifier, as an
+// extern is: such headers are mostly alternatives a configuration picks between
+// (`asm/msr.h` and `asm/paravirt.h`), the case one declaration across files keeps
+// folded. A static one header of its directory defines keeps its qualifier.
+func foldHeaderAlternatives(allFacts []facts.Fact) {
+	defined := map[string]map[string]bool{} // unqualified name -> headers defining it
+	for i := range allFacts {
+		f := &allFacts[i]
+		if f.Kind != facts.KindSymbol || !isHeaderExt(f.File) || !f.PropBool("has_body") {
+			continue
+		}
+		if base, ok := splitInternal(f.Name); ok {
+			if defined[base] == nil {
+				defined[base] = map[string]bool{}
+			}
+			defined[base][f.File] = true
+		}
+	}
+	rename := map[string]string{}
+	for i := range allFacts {
+		f := &allFacts[i]
+		if f.Kind != facts.KindSymbol || !isHeaderExt(f.File) {
+			continue
+		}
+		if base, ok := splitInternal(f.Name); ok && len(defined[base]) > 1 {
+			rename[f.Name] = base
+			f.Name = base
+		}
+	}
+	if len(rename) == 0 {
+		return
+	}
+	for i := range allFacts {
+		for j := range allFacts[i].Relations {
+			if n, ok := rename[allFacts[i].Relations[j].Target]; ok {
+				allFacts[i].Relations[j].Target = n
+			}
+		}
+		for _, key := range [...]string{"calls_in_loop", "calls_in_scaling_loop"} {
+			if calls, ok := allFacts[i].Props[key].([]string); ok {
+				for j, c := range calls {
+					if n, ok := rename[c]; ok {
+						calls[j] = n
+					}
+				}
+			}
+		}
+	}
 }
