@@ -176,3 +176,31 @@ func TestCSeveralMainsInOneDirectoryAreSeparatePrograms(t *testing.T) {
 	mustFact(t, ff, "tools.main@two_c")
 	mustFact(t, ff, "single.main") // one program in its directory keeps its name
 }
+
+// A source another source includes at its end (a unit test, a split-out half)
+// shares the including file's translation unit, so it sees that file's statics; a
+// header's inline code does not, whatever source includes it.
+func TestCIncludedSourceSeesTheIncludingFilesStatics(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"lib/core.c": `
+static int parse(int x) { return x; }
+#include "core_test.c"
+`,
+		"lib/core_test.c": `
+int test_parse(void) { return parse(1); }
+`,
+		"lib/widget.h": `
+static inline int widget_draw(int x) { return draw(x); }
+`,
+		"lib/draw.c": `
+#include "widget.h"
+static int draw(int x) { return x; }
+`,
+	})
+	if !hasRelation(mustFact(t, ff, "lib.test_parse"), facts.RelCalls, "lib.parse@core_c") {
+		t.Errorf("the included test calls the including file's static, got %+v", mustFact(t, ff, "lib.test_parse").Relations)
+	}
+	if hasRelation(mustFact(t, ff, "lib.widget_draw@widget_h"), facts.RelCalls, "lib.draw@draw_c") {
+		t.Error("a header's inline code does not bind to a static of a source including it")
+	}
+}

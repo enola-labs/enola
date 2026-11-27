@@ -271,18 +271,34 @@ func includedSourceNames(allFacts []facts.Fact) map[string]bool {
 // internalIndex maps a name as a call in the declaring directory writes it
 // (`dir.name`) to the one internal declaration another file may mean by it.
 type internalIndex struct {
-	// shared holds the declarations of headers and included sources; inDir the
-	// rest, which only a file sharing their translation unit can call. Each is
-	// keyed by the name qualified (`dir.ns::name`) and, second, by its leaf alone
-	// (`dir.name`), as a call made inside the namespace writes it.
-	shared, sharedLeaf, inDir, inDirLeaf map[string]string
+	// shared holds the declarations of headers and included sources, keyed by the
+	// name qualified (`dir.ns::name`) and, second, by its leaf alone (`dir.name`),
+	// as a call made inside the namespace writes it.
+	shared, sharedLeaf map[string]string
+	// sources holds the other declarations by the same two keys, each with the
+	// file that declares it: a static of a source file, which only a source file
+	// it includes (`#include "impl.cxx"`, a unit test included at its end) shares.
+	sources, sourcesLeaf map[string][]internalDecl
+	// includes maps a file to the base names of the files it includes.
+	includes map[string]map[string]bool
 }
+
+type internalDecl struct{ name, file string }
 
 func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) internalIndex {
 	idx := internalIndex{shared: map[string]string{}, sharedLeaf: map[string]string{},
-		inDir: map[string]string{}, inDirLeaf: map[string]string{}}
+		sources: map[string][]internalDecl{}, sourcesLeaf: map[string][]internalDecl{},
+		includes: map[string]map[string]bool{}}
 	for i := range allFacts {
 		f := &allFacts[i]
+		if f.Kind == facts.KindDependency && f.PropString("include_style") == "quoted" {
+			inc := path.Base(strings.ReplaceAll(f.PropString("include"), "\\", "/"))
+			if idx.includes[f.File] == nil {
+				idx.includes[f.File] = map[string]bool{}
+			}
+			idx.includes[f.File][inc] = true
+			continue
+		}
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
@@ -290,15 +306,23 @@ func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) in
 		if !ok {
 			continue
 		}
-		exact, leaf := idx.inDir, idx.inDirLeaf
-		if sharesTranslationUnit(f.File, includedSources) {
-			exact, leaf = idx.shared, idx.sharedLeaf
-		}
-		indexUniqueName(exact, base, f.Name)
+		leaf := ""
 		if dot := strings.IndexByte(base, '.'); dot >= 0 {
 			if i := strings.LastIndex(base, "::"); i > dot {
-				indexUniqueName(leaf, base[:dot+1]+base[i+2:], f.Name)
+				leaf = base[:dot+1] + base[i+2:]
 			}
+		}
+		if sharesTranslationUnit(f.File, includedSources) {
+			indexUniqueName(idx.shared, base, f.Name)
+			if leaf != "" {
+				indexUniqueName(idx.sharedLeaf, leaf, f.Name)
+			}
+			continue
+		}
+		d := internalDecl{name: f.Name, file: f.File}
+		idx.sources[base] = append(idx.sources[base], d)
+		if leaf != "" {
+			idx.sourcesLeaf[leaf] = append(idx.sourcesLeaf[leaf], d)
 		}
 	}
 	return idx
@@ -307,22 +331,34 @@ func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) in
 // resolve binds target, a call written in caller's file to a name its own file
 // does not declare internally, to the one internal declaration of that name in the
 // caller's directory it can see: a header's (or an included source's), or, from a
-// file another one includes, a static of the directory's sources.
+// source file another source includes, a static of the including file.
 func (idx internalIndex) resolve(caller *facts.Fact, target string, includedSources map[string]bool) string {
-	if n := lookupInternal(idx.shared, idx.sharedLeaf, target); n != "" {
+	if n, ok := idx.shared[target]; ok {
+		return n // "" when the directory's headers declare several
+	}
+	if n := idx.sharedLeaf[target]; n != "" {
 		return n
 	}
-	if caller.Kind == facts.KindSymbol && sharesTranslationUnit(caller.File, includedSources) {
-		return lookupInternal(idx.inDir, idx.inDirLeaf, target)
+	if caller.Kind != facts.KindSymbol || isHeaderExt(caller.File) || !includedSources[path.Base(caller.File)] {
+		return ""
 	}
-	return ""
+	if n := idx.includer(idx.sources[target], caller.File); n != "" {
+		return n
+	}
+	return idx.includer(idx.sourcesLeaf[target], caller.File)
 }
 
-// lookupInternal finds target as written, else by its leaf: an exact name that
-// is ambiguous stays unresolved rather than falling back to a looser key.
-func lookupInternal(exact, leaf map[string]string, target string) string {
-	if n, ok := exact[target]; ok {
-		return n
+// includer is the one declaration among decls whose file includes file.
+func (idx internalIndex) includer(decls []internalDecl, file string) string {
+	base, hit := path.Base(file), ""
+	for _, d := range decls {
+		if !idx.includes[d.file][base] {
+			continue
+		}
+		if hit != "" && hit != d.name {
+			return ""
+		}
+		hit = d.name
 	}
-	return leaf[target]
+	return hit
 }
