@@ -283,9 +283,12 @@ type internalIndex struct {
 	// a name several headers define (alternatives a configuration picks between):
 	// the one a caller's file includes itself is the one it calls.
 	headerDecls map[string][]internalDecl
-	// includes maps a file to what its includes name: each include's base name,
-	// and a quoted include's path resolved against the including file's directory.
+	// includes maps a file to what its quoted includes name: each include's base
+	// name, and its path resolved against the including file's directory.
 	includes map[string]map[string]bool
+	// written holds each file's includes as written, quoted or angle, and the
+	// quoted ones resolved against the file's directory too.
+	written map[string][]string
 }
 
 type internalDecl struct{ name, file string }
@@ -293,21 +296,25 @@ type internalDecl struct{ name, file string }
 func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) internalIndex {
 	idx := internalIndex{headers: map[string]string{}, headersLeaf: map[string]string{},
 		sources: map[string][]internalDecl{}, headerDecls: map[string][]internalDecl{},
-		includes: map[string]map[string]bool{}}
+		includes: map[string]map[string]bool{}, written: map[string][]string{}}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency {
-			inc := strings.ReplaceAll(f.PropString("include"), "\\", "/")
-			if inc == "" {
+			inc := path.Clean(strings.ReplaceAll(f.PropString("include"), "\\", "/"))
+			if inc == "." || inc == "" {
 				continue
 			}
+			idx.written[f.File] = append(idx.written[f.File], inc)
+			if f.PropString("include_style") != "quoted" {
+				continue
+			}
+			joined := path.Join(path.Dir(f.File), inc)
+			idx.written[f.File] = append(idx.written[f.File], joined)
 			if idx.includes[f.File] == nil {
 				idx.includes[f.File] = map[string]bool{}
 			}
 			idx.includes[f.File][path.Base(inc)] = true
-			if f.PropString("include_style") == "quoted" {
-				idx.includes[f.File][path.Join(path.Dir(f.File), inc)] = true
-			}
+			idx.includes[f.File][joined] = true
 			continue
 		}
 		if f.Kind != facts.KindSymbol {
@@ -365,14 +372,15 @@ func (idx internalIndex) resolve(caller *facts.Fact, target string, includedSour
 }
 
 // includedHeader is the one static named leaf of a header that caller's file
-// includes itself, by the include's file name, or "".
+// includes itself, an include naming the header's path or a suffix of it
+// (`<asm/msr.h>` for arch/x86/include/asm/msr.h), or "".
 func (idx internalIndex) includedHeader(caller *facts.Fact, leaf string) string {
 	if caller.Kind != facts.KindSymbol {
 		return ""
 	}
-	seen, hit := idx.includes[caller.File], ""
+	written, hit := idx.written[caller.File], ""
 	for _, d := range idx.headerDecls[leaf] {
-		if !seen[path.Base(d.file)] {
+		if !namesFile(written, d.file) {
 			continue
 		}
 		if hit != "" && hit != d.name {
@@ -381,6 +389,17 @@ func (idx internalIndex) includedHeader(caller *facts.Fact, leaf string) string 
 		hit = d.name
 	}
 	return hit
+}
+
+// namesFile reports whether one of includes names file: its path, or a trailing
+// run of its path components.
+func namesFile(includes []string, file string) bool {
+	for _, inc := range includes {
+		if file == inc || strings.HasSuffix(file, "/"+inc) {
+			return true
+		}
+	}
+	return false
 }
 
 // sharer is the one declaration of decls whose file shares file's translation
