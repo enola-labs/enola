@@ -47,6 +47,11 @@ type swiftNameIndex struct {
 	// classes, structs, enums and actors the repository declares.
 	owners   map[string][]string
 	concrete map[string]bool
+	// protocols holds the simple names of the protocols the repository declares, and
+	// supers the simple names each type, extension or protocol names as a supertype:
+	// `extension Bundle: Extended {}` makes the framework's Bundle conform.
+	protocols map[string]bool
+	supers    map[string][]string
 }
 
 func newSwiftNameIndex() swiftNameIndex {
@@ -58,6 +63,8 @@ func newSwiftNameIndex() swiftNameIndex {
 		funcs:     make(map[string][]string),
 		owners:    make(map[string][]string),
 		concrete:  make(map[string]bool),
+		protocols: make(map[string]bool),
+		supers:    make(map[string][]string),
 	}
 }
 
@@ -68,6 +75,20 @@ func (ix *swiftNameIndex) add(fact *facts.Fact, dir string) {
 	sk, _ := fact.PropAny("symbol_kind").(string)
 	if sk == facts.SymbolStruct || sk == facts.SymbolClass {
 		ix.concrete[lastDotComponent(fact.Name)] = true
+	}
+	if sk == facts.SymbolInterface {
+		ix.protocols[short] = true
+	}
+	if sk == facts.SymbolInterface || sk == facts.SymbolExtension {
+		typ := short
+		if i := strings.LastIndexByte(fact.Name, '+'); sk == facts.SymbolExtension && i > 0 {
+			typ = lastDotComponent(fact.Name[:i]) // an extension's fact is <Type>+<Protocol>
+		}
+		for _, r := range fact.Relations {
+			if r.Kind == facts.RelImplements {
+				ix.supers[typ] = append(ix.supers[typ], lastDotComponent(r.Target))
+			}
+		}
 	}
 	switch sk {
 	case facts.SymbolStruct, facts.SymbolClass, facts.SymbolInterface:
@@ -208,4 +229,43 @@ func (ix *swiftNameIndex) openMethods(method string) []string {
 		}
 	}
 	return open
+}
+
+// staticCandidates is openCandidates for a call made on the type root itself
+// (`JSONSerialization.data(withJSONObject:)`), which root does not declare: a
+// static member of a protocol the repository declares is root's only when the
+// repository makes root conform to that protocol, or to one inheriting it.
+func (ix *swiftNameIndex) staticCandidates(root, method string) []string {
+	open := ix.openMethods(method)
+	if len(open) == 0 {
+		return ix.funcs[method]
+	}
+	out := open[:0:0]
+	for _, c := range open {
+		if owner := lastDotComponent(ownerOf(c)); !ix.protocols[owner] || ix.conformsTo(root, owner) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// conformsTo reports whether the repository names proto as a supertype of typ,
+// directly or through the protocols typ conforms to.
+func (ix *swiftNameIndex) conformsTo(typ, proto string) bool {
+	seen := map[string]bool{typ: true}
+	queue := []string{typ}
+	for len(queue) > 0 {
+		t := queue[0]
+		queue = queue[1:]
+		for _, s := range ix.supers[t] {
+			if s == proto {
+				return true
+			}
+			if !seen[s] {
+				seen[s] = true
+				queue = append(queue, s)
+			}
+		}
+	}
+	return false
 }

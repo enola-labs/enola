@@ -4219,7 +4219,14 @@ import (
 // as production names them. calls_in_loop and calls_in_scaling_loop name a static
 // as its call edge does. emplace, try_emplace and emplace_hint on a map
 // construct its mapped type.
-const cacheVersion = "v754"
+// v755: Swift: the loop calls and function values a member lists name a
+// constrained-extension member by the file-qualified name its edge binds to. A call
+// on a value of a framework type binds no member of its own name when the calling
+// member is the only extension declaring it. A call on a type the repository does
+// not declare (`JSONSerialization.data(...)`, not a generic parameter or associated
+// type) binds no member of a protocol the repository declares unless the repository
+// makes that type conform to it.
+const cacheVersion = "v755"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -53,14 +53,26 @@ type swiftPrescan struct {
 	// text: a type the parser lost (a file that does not parse, a type local to a
 	// function) is still the repository's (resolveTypedCalls).
 	declared map[string]bool
+	// generics holds every name a Swift source declares a generic parameter of, read
+	// from the text: `T.make()` calls a member of T's constraint, not of a framework
+	// type named T (resolveRootedCalls).
+	generics map[string]bool
 }
 
 // swiftTypeDeclName matches a type declaration's keyword and name.
 var swiftTypeDeclName = regexp.MustCompile(`\b(?:class|struct|enum|actor|protocol|typealias|associatedtype)\s+` + "`?" + `([A-Za-z_][A-Za-z0-9_]*)`)
 
+// swiftGenericClause matches a declaration's generic parameter clause, up to the
+// first `>`: a nested `Collection<Int>` constraint ends it early, which can only add
+// a name.
+var swiftGenericClause = regexp.MustCompile(`\b(?:func|struct|class|enum|actor|init|subscript|typealias)\b\s*` + "`?" + `[A-Za-z_0-9]*` + "`?" + `\s*<([^>]*)>`)
+
+// swiftGenericParam matches the parameter name opening one entry of a generic clause.
+var swiftGenericParam = regexp.MustCompile(`^\s*(?:each\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
+
 // prescanSwift reads every Swift source once.
 func prescanSwift(repoPath string, files []string) swiftPrescan {
-	out := swiftPrescan{requestBases: map[string]string{}, imported: map[string]bool{}, declared: map[string]bool{}}
+	out := swiftPrescan{requestBases: map[string]string{}, imported: map[string]bool{}, declared: map[string]bool{}, generics: map[string]bool{}}
 	for _, relFile := range files {
 		if !isSwiftFile(relFile) {
 			continue
@@ -75,6 +87,13 @@ func prescanSwift(repoPath string, files []string) swiftPrescan {
 		for _, m := range swiftTypeDeclName.FindAllSubmatch(src, -1) {
 			if name := string(m[1]); !notATypeName[name] {
 				out.declared[name] = true
+			}
+		}
+		for _, m := range swiftGenericClause.FindAllSubmatch(src, -1) {
+			for _, param := range bytes.Split(m[1], []byte(",")) {
+				if p := swiftGenericParam.FindSubmatch(param); p != nil {
+					out.generics[string(p[1])] = true
+				}
 			}
 		}
 		if isSwiftTestFile(relFile) || !bytes.Contains(src, []byte("endpoint")) {

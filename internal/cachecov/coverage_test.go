@@ -349,6 +349,7 @@ var versionCoverage = map[int][]string{
 	754: {"TestCppInternalLinkageIsNotExported", "TestCCallThroughAFunctionPointerParameterBindsNoFunction", "TestCStaticPrototypeFusesThroughATransitiveInclude", "TestCTestRefBindsAHeaderStaticProductionFolds", "TestCppEmplaceOnAMapInstantiatesTheMappedType", "TestGolden"},
 	754: {"TestCppInternalLinkageIsNotExported", "TestCCallThroughAFunctionPointerParameterBindsNoFunction", "TestCLocalUnderAConditionalHidesNoFunction", "TestCStaticPrototypeFusesThroughATransitiveInclude", "TestCTestRefBindsAHeaderStaticProductionFolds", "TestCppEmplaceOnAMapInstantiatesTheMappedType", "TestGolden"},
 	754: {"TestCppInternalLinkageIsNotExported", "TestCCallThroughAFunctionPointerParameterBindsNoFunction", "TestCLocalUnderAConditionalHidesNoFunction", "TestCStaticPrototypeFusesThroughATransitiveInclude", "TestCTestRefBindsAHeaderStaticProductionFolds", "TestCLoopCallsNameTheStaticTheEdgeBindsTo", "TestCppEmplaceOnAMapInstantiatesTheMappedType", "TestGolden"},
+	755: {"TestSwiftConstrainedExtensionLoopCallsNameTheRenamedMember", "TestSwiftCallOnAForeignTypedReceiverDoesNotBindToItself", "TestSwiftStaticCallOnAForeignTypeSkipsUnconformedProtocols", "TestGolden"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -185,3 +185,45 @@ final class Client {
 		}
 	}
 }
+
+// A static call on a framework type (`JSONSerialization.data(withJSONObject:)`)
+// reaches no member of a protocol the repository declares unless the repository
+// makes that type conform to it, directly or through a protocol inheriting it.
+func TestSwiftStaticCallOnAForeignTypeSkipsUnconformedProtocols(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/Net/Serializer.swift": `
+import Foundation
+
+public protocol ResponseSerializer {}
+public struct DataResponseSerializer: ResponseSerializer {}
+
+extension ResponseSerializer {
+    public static func data() -> DataResponseSerializer { DataResponseSerializer() }
+}
+
+public protocol Decoding {}
+public protocol StrictDecoding: Decoding {}
+extension Decoding {
+    public static func decoder() -> Int { 0 }
+}
+extension JSONDecoder: StrictDecoding {}
+`,
+		"Sources/Net/Encoding.swift": `
+import Foundation
+
+struct JSONEncoding {
+    func encode(_ parameters: [String: Any]) throws -> Data {
+        _ = JSONDecoder.decoder()
+        return try JSONSerialization.data(withJSONObject: parameters, options: [])
+    }
+}
+`,
+	})
+	calls := swCalls(t, ff, "Sources/Net.JSONEncoding.encode")
+	if slices.Contains(calls, "Sources/Net.ResponseSerializer.data") {
+		t.Errorf("JSONEncoding.encode calls %v, must not bind JSONSerialization.data to ResponseSerializer.data", calls)
+	}
+	if !slices.Contains(calls, "Sources/Net.Decoding.decoder") {
+		t.Errorf("JSONEncoding.encode calls %v, want Sources/Net.Decoding.decoder (JSONDecoder conforms through StrictDecoding)", calls)
+	}
+}
