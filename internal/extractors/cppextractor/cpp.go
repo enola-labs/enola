@@ -285,6 +285,7 @@ func (e *CppExtractor) extract(ctx context.Context, repoPath string, files, test
 	resolveFuncPtrRefs(allFacts, funcNames)
 
 	// Merge header method declarations with source definitions.
+	fuseHeaderStaticPrototypes(allFacts)
 	allFacts = dedupeSymbols(allFacts)
 
 	// Canonicalise edge targets. A bare call is initially scoped to its caller's

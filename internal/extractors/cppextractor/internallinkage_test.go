@@ -261,3 +261,25 @@ func TestCIncludedSourceCopiesSeeTheirOwnIncluder(t *testing.T) {
 		t.Errorf("hxt's copy calls hxt's static, got %+v", mustFact(t, ff, "hxt.tet_hxt").Relations)
 	}
 }
+
+// A header's prototype of a static the source including it defines is that
+// definition, as an extern prototype is its definition.
+func TestCHeaderPrototypeOfASourceStaticFusesWithIt(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"post/x3d.h":   "static void write_center(int fp);\n",
+		"post/x3d.cpp": "#include \"x3d.h\"\nstatic void write_center(int fp) {}\nvoid write_all(int fp) { write_center(fp); }\n",
+	})
+	n := 0
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && strings.HasPrefix(f.Name, "post.write_center") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("the header prototype and the source definition are one fact, got %d", n)
+	}
+	def := mustFact(t, ff, "post.write_center@x3d_cpp")
+	if def.File != "post/x3d.cpp" {
+		t.Errorf("the definition is authoritative, got %s", def.File)
+	}
+}
