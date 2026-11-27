@@ -204,3 +204,43 @@ static int draw(int x) { return x; }
 		t.Error("a header's inline code does not bind to a static of a source including it")
 	}
 }
+
+// A header's static is found by its name from another directory only when no
+// source file declares a static of that name too: a libc shim's `lseek` is not
+// what a program calling the C library's lseek means. A source included from
+// another directory shares its statics with the including file alone.
+func TestCHeaderStaticWithASourceNamesakeIsNotFoundByName(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"tools/include/nolibc/sys.h": `
+static int lseek(int fd, int off, int whence) { return off; }
+`,
+		"tools/tracing/own.c": `
+static int lseek(int fd, int off, int whence) { return 0; }
+int seek_own(int fd) { return lseek(fd, 0, 0); }
+`,
+		"arch/boot/tools/mkbb.c": `
+int main(void) { return lseek(3, 0, 0); }
+`,
+		"lib/decompress.c": `
+static int copy_bytes(int n) { return n; }
+`,
+		"arch/boot/unpack.c": `
+#include "../../lib/decompress.c"
+int unpack(int n) { return copy_bytes(n); }
+`,
+		"drivers/accel/ms.c": `
+int leftover(int n) { return copy_bytes(n); }
+`,
+	})
+	for _, r := range mustFact(t, ff, "arch/boot/tools.main").Relations {
+		if r.Target == "tools/include/nolibc.lseek@sys_h" {
+			t.Errorf("a program not including the shim does not call it, got %+v", r)
+		}
+	}
+	if !hasRelation(mustFact(t, ff, "arch/boot.unpack"), facts.RelCalls, "lib.copy_bytes@decompress_c") {
+		t.Errorf("the including file calls the included source's static, got %+v", mustFact(t, ff, "arch/boot.unpack").Relations)
+	}
+	if hasRelation(mustFact(t, ff, "drivers/accel.leftover"), facts.RelCalls, "lib.copy_bytes@decompress_c") {
+		t.Error("a file not including the source does not see its static")
+	}
+}

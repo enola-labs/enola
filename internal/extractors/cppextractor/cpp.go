@@ -462,7 +462,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 	}
 	returns := newReturnIndex(allFacts, known, functions, types, visibility)
 	bases := classBases(allFacts, types, visibility)
-	enclosing := newEnclosingLookup(allFacts, types, bases, known, visibility, functions.includedSources)
+	enclosing := newEnclosingLookup(allFacts, types, bases, known, visibility)
 	for i := range allFacts {
 		rels := allFacts[i].Relations
 		kept := rels[:0]
@@ -1044,6 +1044,16 @@ func indexFunctionNames(allFacts []facts.Fact) functionNames {
 	out := functionNames{short: map[string]string{}, qualified: map[string]string{}, scoped: map[string]string{}}
 	out.includedSources = includedSourceNames(allFacts)
 	out.internals = newInternalIndex(allFacts, out.includedSources)
+	// A source file's static is never found by name from another file, but its
+	// name still counts: a header's static of a name some source also declares
+	// static (a libc shim beside a tool's own helper) is not the one meant.
+	sourceStatics := map[string]bool{}
+	for i := range allFacts {
+		f := &allFacts[i]
+		if name, internal := splitInternal(f.Name); internal && f.Kind == facts.KindSymbol && !isHeaderExt(f.File) {
+			sourceStatics[lastScopeComponent(name)] = true
+		}
+	}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol {
@@ -1053,14 +1063,14 @@ func indexFunctionNames(allFacts []facts.Fact) functionNames {
 		if kind != facts.SymbolFunc && kind != facts.SymbolMethod {
 			continue
 		}
-		// An internal declaration is found by the name it qualifies, and only one
-		// another file can see: a header's, or an included source's.
+		// An internal declaration is found by the name it qualifies, and only a
+		// header's, which every file including it sees.
 		name, internal := splitInternal(f.Name)
-		if internal && !sharesTranslationUnit(f.File, out.includedSources) {
+		if internal && !isHeaderExt(f.File) {
 			continue
 		}
 		short := lastScopeComponent(name)
-		if short == "" {
+		if short == "" || internal && sourceStatics[short] {
 			continue
 		}
 		indexUniqueName(out.short, short, f.Name)

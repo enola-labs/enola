@@ -30,8 +30,12 @@ import (
 //
 // A `static` defined in a header (`static inline` in a .h) is internal to every
 // translation unit that includes it. Its one definition is in the header, so the
-// header is its qualifier (`include/linux.foo@bar_h`), and the files that include
-// it resolve to that one fact (resolveInternal).
+// header is its qualifier (`include/linux.foo@bar_h`), and the files that see it
+// resolve to that one fact: by name in the header's directory, and by its short
+// name from elsewhere only while no source file declares a static of that name
+// too (internalIndex, indexFunctionNames). A source file's static is seen only by
+// a source sharing its translation unit through a quoted include, either way
+// round (`#include "impl.c"`, a unit test included at the end of its file).
 //
 // Several programs in one directory (`main` defined in more than one file of it)
 // get the same qualifier for their `main`: separate programs, never one function.
@@ -244,13 +248,6 @@ func qualifyMains(perFileFacts [][]facts.Fact, files []string) {
 	}
 }
 
-// sharesTranslationUnit reports whether file's internal declarations may be seen
-// from another file: a header, or a source file some file includes by name
-// (`#include "foo.c"`, a unit test included at the end of the file it tests).
-func sharesTranslationUnit(file string, includedSources map[string]bool) bool {
-	return isHeaderExt(file) || includedSources[path.Base(file)]
-}
-
 // includedSourceNames is the base names of non-header files named by a quoted
 // include anywhere in the snapshot.
 func includedSourceNames(allFacts []facts.Fact) map[string]bool {
@@ -268,17 +265,17 @@ func includedSourceNames(allFacts []facts.Fact) map[string]bool {
 	return out
 }
 
-// internalIndex maps a name as a call in the declaring directory writes it
-// (`dir.name`) to the one internal declaration another file may mean by it.
+// internalIndex finds the internal declaration a call written outside the
+// declaring file means, where the language lets one file see another's.
 type internalIndex struct {
-	// shared holds the declarations of headers and included sources, keyed by the
-	// name qualified (`dir.ns::name`) and, second, by its leaf alone (`dir.name`),
-	// as a call made inside the namespace writes it.
-	shared, sharedLeaf map[string]string
-	// sources holds the other declarations by the same two keys, each with the
-	// file that declares it: a static of a source file, which only a source file
-	// it includes (`#include "impl.cxx"`, a unit test included at its end) shares.
-	sources, sourcesLeaf map[string][]internalDecl
+	// headers holds the statics of headers, keyed by the name qualified
+	// (`dir.ns::name`) and, second, by its leaf alone (`dir.name`), as a call made
+	// inside the namespace writes it: what a file of the header's directory sees.
+	headers, headersLeaf map[string]string
+	// sources holds the statics of source files by leaf, each with its file: one
+	// another source shares only by including it (`#include "impl.c"`), or by being
+	// included by it (a unit test included at the end of the file it tests).
+	sources map[string][]internalDecl
 	// includes maps a file to the base names of the files it includes.
 	includes map[string]map[string]bool
 }
@@ -286,9 +283,8 @@ type internalIndex struct {
 type internalDecl struct{ name, file string }
 
 func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) internalIndex {
-	idx := internalIndex{shared: map[string]string{}, sharedLeaf: map[string]string{},
-		sources: map[string][]internalDecl{}, sourcesLeaf: map[string][]internalDecl{},
-		includes: map[string]map[string]bool{}}
+	idx := internalIndex{headers: map[string]string{}, headersLeaf: map[string]string{},
+		sources: map[string][]internalDecl{}, includes: map[string]map[string]bool{}}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency && f.PropString("include_style") == "quoted" {
@@ -306,53 +302,46 @@ func newInternalIndex(allFacts []facts.Fact, includedSources map[string]bool) in
 		if !ok {
 			continue
 		}
-		leaf := ""
-		if dot := strings.IndexByte(base, '.'); dot >= 0 {
-			if i := strings.LastIndex(base, "::"); i > dot {
-				leaf = base[:dot+1] + base[i+2:]
-			}
-		}
-		if sharesTranslationUnit(f.File, includedSources) {
-			indexUniqueName(idx.shared, base, f.Name)
-			if leaf != "" {
-				indexUniqueName(idx.sharedLeaf, leaf, f.Name)
+		if !isHeaderExt(f.File) {
+			// Only a source some file includes, or one including another, can share.
+			if len(includedSources) > 0 {
+				short := lastScopeComponent(base)
+				idx.sources[short] = append(idx.sources[short], internalDecl{name: f.Name, file: f.File})
 			}
 			continue
 		}
-		d := internalDecl{name: f.Name, file: f.File}
-		idx.sources[base] = append(idx.sources[base], d)
-		if leaf != "" {
-			idx.sourcesLeaf[leaf] = append(idx.sourcesLeaf[leaf], d)
+		indexUniqueName(idx.headers, base, f.Name)
+		if dot := strings.IndexByte(base, '.'); dot >= 0 {
+			if i := strings.LastIndex(base, "::"); i > dot {
+				indexUniqueName(idx.headersLeaf, base[:dot+1]+base[i+2:], f.Name)
+			}
 		}
 	}
 	return idx
 }
 
 // resolve binds target, a call written in caller's file to a name its own file
-// does not declare internally, to the one internal declaration of that name in the
-// caller's directory it can see: a header's (or an included source's), or, from a
-// source file another source includes, a static of the including file.
+// does not declare internally, to the one internal declaration the caller sees:
+// a static of a header in the caller's directory, or of a source file that shares
+// the caller's translation unit through a quoted include, either way round.
 func (idx internalIndex) resolve(caller *facts.Fact, target string, includedSources map[string]bool) string {
-	if n, ok := idx.shared[target]; ok {
+	if n, ok := idx.headers[target]; ok {
 		return n // "" when the directory's headers declare several
 	}
-	if n := idx.sharedLeaf[target]; n != "" {
+	if n := idx.headersLeaf[target]; n != "" {
 		return n
 	}
-	if caller.Kind != facts.KindSymbol || isHeaderExt(caller.File) || !includedSources[path.Base(caller.File)] {
+	if caller.Kind != facts.KindSymbol || isHeaderExt(caller.File) || len(idx.sources) == 0 {
 		return ""
 	}
-	if n := idx.includer(idx.sources[target], caller.File); n != "" {
-		return n
-	}
-	return idx.includer(idx.sourcesLeaf[target], caller.File)
-}
-
-// includer is the one declaration among decls whose file includes file.
-func (idx internalIndex) includer(decls []internalDecl, file string) string {
-	base, hit := path.Base(file), ""
-	for _, d := range decls {
-		if !idx.includes[d.file][base] {
+	callerBase, hit := path.Base(caller.File), ""
+	for _, d := range idx.sources[lastScopeComponent(target)] {
+		if d.file == caller.File {
+			continue
+		}
+		callerIncludes := idx.includes[caller.File][path.Base(d.file)]
+		includesCaller := includedSources[callerBase] && idx.includes[d.file][callerBase]
+		if !callerIncludes && !includesCaller {
 			continue
 		}
 		if hit != "" && hit != d.name {

@@ -30,12 +30,12 @@ type enclosingLookup struct {
 	bases   baseIndex
 	known   map[string]bool
 	vis     *includeVisibility
-	// internal maps "<dir>.<qualified>" to the internal declaration of a header (or
-	// included source) it names, "" when that directory has several.
+	// internal maps "<dir>.<qualified>" to the internal declaration of a header it
+	// names, "" when that directory's headers declare several.
 	internal map[string]string
 }
 
-func newEnclosingLookup(allFacts []facts.Fact, types typeIndex, bases baseIndex, known map[string]bool, vis *includeVisibility, includedSources map[string]bool) *enclosingLookup {
+func newEnclosingLookup(allFacts []facts.Fact, types typeIndex, bases baseIndex, known map[string]bool, vis *includeVisibility) *enclosingLookup {
 	l := &enclosingLookup{declared: map[string][]string{}, callable: map[string][]string{},
 		byShort: map[string][]string{}, types: types, bases: bases, known: known, vis: vis,
 		internal: map[string]string{}}
@@ -46,10 +46,10 @@ func newEnclosingLookup(allFacts []facts.Fact, types typeIndex, bases baseIndex,
 		}
 		dir := sourceDir(f)
 		// An internal declaration is looked up by the name it qualifies, and only
-		// when another file can see it (internallinkage.go).
+		// a header's, which the files including it see (internallinkage.go).
 		name, internal := splitInternal(f.Name)
 		if internal {
-			if !sharesTranslationUnit(f.File, includedSources) {
+			if !isHeaderExt(f.File) {
 				continue
 			}
 			indexUniqueName(l.internal, name, f.Name)
