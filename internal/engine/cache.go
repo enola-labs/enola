@@ -4187,7 +4187,16 @@ import (
 // else its file, else the only one; none when the name leaves it ambiguous. Beside
 // a member of the same name the type or a plain extension declares, the constrained
 // ones are overloads and the edge stays on the plain one.
-const cacheVersion = "v750"
+// v751: Dart: `K.x` through a bare class name, read, torn off or assigned, binds to
+// a static member K itself declares, as `p.K.x` does through a prefix, and a plain
+// write of either form calls a static setter K declares; a part file walked with its
+// library's imports also has the library's `as` prefixes, so `p.Foo()` there builds
+// the class behind p; a parameter type spelled `p.Foo` injects the class behind p
+// (an unresolved one keeps the bare name); a top-level name read, called, torn off or
+// assigned through one conditional import (or a plain import of a library that
+// conditionally re-exports it), which each of its files declares once, gets an edge
+// to each of them rather than none.
+const cacheVersion = "v751"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

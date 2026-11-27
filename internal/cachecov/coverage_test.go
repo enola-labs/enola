@@ -343,6 +343,7 @@ var versionCoverage = map[int][]string{
 	748: {"TestSwiftCallOnAnExternalTypedReceiverDoesNotBindByName", "TestSwiftTryAwaitInIfConditionKeepsTheType", "TestGolden"},
 	749: {"TestCStaticFunctionsOfOneNameInOneDirectoryStayApart", "TestCppAnonymousNamespaceFunctionsStayApart", "TestCStaticInlineHeaderIsQualifiedByTheHeader", "TestCSeveralMainsInOneDirectoryAreSeparatePrograms", "TestGolden"},
 	750: {"TestSwiftConstrainedExtensionMembersAreFileQualified", "TestSwiftConstrainedExtensionMemberUsesBindByFile", "TestGolden"},
+	751: {"TestDartBareClassStaticMemberReads", "TestDartBareClassStaticMemberScope", "TestDartStaticSetterWrites", "TestDartPartFileConstructionThroughLibraryPrefix", "TestDartPrefixedParameterTypeInjects", "TestDartConditionalImportCreditsEachAlternative", "TestDartAmbiguityOutsideOneConditionalImportStaysUnbound"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -693,6 +693,125 @@ func (r *dartMemberResolver) importedFunctions(prefix, name, file string) []*fac
 	r.importedFunctionCache[key] = out
 	return out
 }
+
+// conditionalAlternatives is what a top-level name read or called through one
+// conditional import (`import 'a.dart' if (dart.library.io) 'b.dart' as p`)
+// means: each file of that import declaring it once, since the build selects
+// one of them by platform. A plain import of a library that conditionally
+// re-exports the name (`export 'a.dart' if (...) 'b.dart'`) means the same. It
+// is nil unless the candidates the imports give are exactly those, so any
+// other ambiguity stays unbound.
+func (r *dartMemberResolver) conditionalAlternatives(prefix, name, file string) []*facts.Fact {
+	candidates := r.importedFunctions(prefix, name, file)
+	if len(candidates) < 2 {
+		return nil
+	}
+	for _, dep := range r.imports[r.libraryFile(file)] {
+		if dep.PropBool("reexport") || dep.PropString("import_prefix") != prefix || !dartImportAllows(dep, name) {
+			continue
+		}
+		conditionals := []*facts.Fact{dep}
+		if !dep.PropBool("conditional_import") {
+			targets := r.importTargets(dep)
+			if len(targets) != 1 {
+				continue
+			}
+			conditionals = nil
+			for _, export := range r.imports[r.libraryFile(targets[0])] {
+				if export.PropBool("reexport") && export.PropBool("conditional_import") && dartImportAllows(export, name) {
+					conditionals = append(conditionals, export)
+				}
+			}
+		}
+		for _, conditional := range conditionals {
+			if alternatives := r.conditionalFiles(conditional, name); len(alternatives) > 0 && sameDartFacts(alternatives, candidates) {
+				return alternatives
+			}
+		}
+	}
+	return nil
+}
+
+// conditionalFiles is name as each file of a conditional import or export
+// declares it once, or nil when one of them does not.
+func (r *dartMemberResolver) conditionalFiles(dep *facts.Fact, name string) []*facts.Fact {
+	targets := r.importTargets(dep)
+	if len(targets) < 2 {
+		return nil
+	}
+	alternatives := make([]*facts.Fact, 0, len(targets))
+	for _, target := range targets {
+		f := uniqueDartFact(r.exportedFunctionFacts(target, name))
+		if f == nil || r.sdkHosts[r.libraryFile(f.File)] {
+			return nil
+		}
+		alternatives = append(alternatives, f)
+	}
+	return alternatives
+}
+
+// conditionalTargets is the alternatives a spelling that bound nothing reaches
+// through one conditional import: `p.name` with p an import prefix of the
+// reading library, or a bare name neither the library nor the reading class
+// declares. Alternatives of one name in one directory share it and are one.
+func (r *dartMemberResolver) conditionalTargets(spelled string, from *facts.Fact) []*facts.Fact {
+	spelled = strings.TrimPrefix(spelled, dartPrefixedValue)
+	if strings.ContainsAny(spelled, "@(){}[] ") {
+		return nil
+	}
+	prefix, name, dotted := strings.Cut(spelled, ".")
+	if dotted {
+		if strings.Contains(name, ".") || !r.importPrefix(prefix, from.File) {
+			return nil
+		}
+	} else {
+		prefix, name = "", spelled
+		if r.hasLibraryDeclaration(name, from) {
+			return nil
+		}
+		if owner := r.lexicalOwner(from); owner != nil {
+			if _, found := r.lookupMember(owner, name); found || r.hasValueField(owner, name, map[*facts.Fact]bool{}) {
+				return nil
+			}
+		}
+	}
+	var out []*facts.Fact
+	for _, f := range r.conditionalAlternatives(prefix, name, from.File) {
+		if !slices.ContainsFunc(out, func(o *facts.Fact) bool { return o.Name == f.Name }) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// hasLibraryDeclaration reports a top-level function or value the reading
+// library declares itself, which hides any import.
+func (r *dartMemberResolver) hasLibraryDeclaration(name string, from *facts.Fact) bool {
+	if len(r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]) > 0 {
+		return true
+	}
+	for _, f := range r.functions[name] {
+		if r.libraryFile(f.File) == r.libraryFile(from.File) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameDartFacts(a, b []*facts.Fact) bool {
+	for _, f := range a {
+		if !slices.Contains(b, f) {
+			return false
+		}
+	}
+	for _, f := range b {
+		if !slices.Contains(a, f) {
+			return false
+		}
+	}
+	return true
+}
+
 func (r *dartMemberResolver) extensionMethod(owner *facts.Fact, typ, name, file string) *facts.Fact {
 	// A constructor-result receiver can acquire its owner in the second pass.
 	// Do not cache a failed lookup before that construction has been verified.

@@ -79,6 +79,12 @@ type walker struct {
 // inheritedImports is non-nil only for a `part` file, which declares no imports of its
 // own — it shares the host library's. See reextractParts.
 func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImports []string) fileResult {
+	return extractFileWith(src, relFile, pkgs, inheritedImports, nil)
+}
+
+// extractFileWith is extractFile for a part walked again with its library's
+// import URIs and `as` prefixes.
+func extractFileWith(src []byte, relFile string, pkgs *packageIndex, inheritedImports, inheritedPrefixes []string) fileResult {
 	if len(src) == 0 {
 		return fileResult{}
 	}
@@ -111,6 +117,12 @@ func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImport
 	// Directives first: every later pass is gated on what this file imports, so the
 	// import set has to be complete before any declaration is looked at.
 	w.walkDirectives(root)
+	// A part spells its library's prefixes: `p.Foo()` in it builds the class behind
+	// the library's `import ... as p`.
+	w.importPrefix(root, "")
+	for _, prefix := range inheritedPrefixes {
+		w.importPrefixes[prefix] = true
+	}
 	hasCore := false
 	for _, uri := range w.importURIs {
 		if uri == "dart:core" {
@@ -142,12 +154,13 @@ func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImport
 	w.attributeCallers(root)
 
 	return fileResult{
-		facts:        w.out,
-		partOf:       w.partOf,
-		parts:        w.parts,
-		typeNames:    w.typeNames,
-		importURIs:   w.importURIs,
-		stringConsts: w.stringConsts,
+		facts:          w.out,
+		partOf:         w.partOf,
+		parts:          w.parts,
+		typeNames:      w.typeNames,
+		importURIs:     w.importURIs,
+		importPrefixes: sortedKeys(w.importPrefixes),
+		stringConsts:   w.stringConsts,
 	}
 }
 
@@ -1076,14 +1089,30 @@ func (w *walker) injectRelations(sig *sitter.Node) []facts.Relation {
 	var visit func(*sitter.Node)
 	visit = func(n *sitter.Node) {
 		if kindOf(n) == "formal_parameter" {
+			prefix := ""
 			for _, c := range namedChildren(n) {
 				if kindOf(c) != "type_identifier" {
+					prefix = ""
 					continue
 				}
 				t := c.Utf8Text(w.src)
+				// `p.Foo` is two type_identifiers; with p one of the file's import
+				// prefixes the type keeps it, so it binds through that import.
+				qualifier := prefix
+				prefix = ""
+				if next := c.NextSibling(); next != nil && next.Kind() == "." && w.importPrefix(c, t) {
+					prefix = t
+					continue
+				}
 				// A capitalised, non-builtin type name is a collaborator; String and
 				// int are not dependencies in any useful sense.
-				if t == "" || !isUpper(t[0]) || isBuiltinType(t) || seen[t] {
+				if t == "" || !isUpper(t[0]) || isBuiltinType(t) {
+					continue
+				}
+				if qualifier != "" {
+					t = qualifier + "." + t
+				}
+				if seen[t] {
 					continue
 				}
 				seen[t] = true

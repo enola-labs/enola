@@ -45,6 +45,7 @@ func (w *walker) valueReferences(root *sitter.Node, shadows map[string]bool, b *
 		site := b.siteOf(root)
 		w.recordUnboundValue(root, site, name, shadows, b, 0, 0)
 		w.recordPrefixedValue(root, site, name, shadows, b, 0, 0)
+		w.recordStaticValue(root, site, name, shadows, b, 0, 0)
 	}
 	kids := namedChildren(root)
 	for i, c := range kids {
@@ -124,57 +125,71 @@ const dartPrefixedValue = "@prefix:"
 // prefix, as recordUnboundValue does for a bare name: a read is a getter-read
 // candidate, a plain write a setter write, and a read in a value position also
 // a tear-off candidate. `p.K.sm`, a static member of a class behind the prefix,
-// is read the same way. A part's prefixes are its library's, which only the
-// resolution pass knows. An invocation is the call scan's, and a local or
-// member named like the prefix hides it.
+// is read or written the same way. A part's prefixes are its library's, which
+// only the resolution pass knows when the part was walked alone. An invocation
+// is the call scan's, and a local or member named like the prefix hides it.
 func (w *walker) recordPrefixedValue(n *sitter.Node, site dartSite, prefix string, shadows map[string]bool, b *bodyWalk, loop, scaling int) {
 	if shadows[prefix] || !w.unboundName(prefix) || !dartReadKind(kindOf(site.parent)) || (w.partOf == "" && !w.importPrefix(n, prefix)) {
 		return
 	}
-	if kindOf(site.parent) == "assignable_expression" {
-		// `p.name = v` runs the setter; `p.name += v` reads the getter too.
-		sel := site.next
-		if kindOf(sel) != "unconditional_assignable_selector" || sel.EndByte() != site.parent.EndByte() {
-			return
+	name, after := w.recordMemberAccess(dartPrefixedValue+prefix, n, site.parent, site.next, b, loop, scaling)
+	// `p.K.sm`: a static member of the class K behind the prefix.
+	if name != "" && namesAType(name) {
+		w.recordMemberAccess(dartPrefixedValue+prefix+"."+name, n, site.parent, after, b, loop, scaling)
+	}
+}
+
+// dartStaticValue marks `K.name` spelled through a bare class name, so the
+// resolution pass binds it to a static member the class K the file sees
+// declares itself, and never reads K as a receiver.
+const dartStaticValue = "@static:"
+
+// recordStaticValue records `K.name` read, torn off or written through a bare
+// class name, as recordPrefixedValue does through a prefix: K capitalised,
+// nothing in scope binds it, and it is no import prefix. Invoked, it is the
+// call scan's.
+func (w *walker) recordStaticValue(n *sitter.Node, site dartSite, class string, shadows map[string]bool, b *bodyWalk, loop, scaling int) {
+	if !namesAType(class) || shadows[class] || !w.unboundName(class) || !dartReadKind(kindOf(site.parent)) || w.importPrefix(n, class) {
+		return
+	}
+	w.recordMemberAccess(dartStaticValue+class, n, site.parent, site.next, b, loop, scaling)
+}
+
+// recordMemberAccess records the member sel selects from base: in an
+// assignable expression whose last selector sel is, a plain write runs the
+// setter and a compound one the getter too; otherwise an uninvoked `.name`
+// selector is a getter read, and in a value position a tear-off. It returns the
+// member name and the node after sel when sel is a plain selector, so a caller
+// can read one selector further.
+func (w *walker) recordMemberAccess(base string, n, parent, sel *sitter.Node, b *bodyWalk, loop, scaling int) (string, *sitter.Node) {
+	if kindOf(sel) == "unconditional_assignable_selector" {
+		if kindOf(parent) != "assignable_expression" || sel.EndByte() != parent.EndByte() {
+			return "", nil
 		}
 		name := identifierChild(sel, w.src)
 		if name == "" {
-			return
+			return "", nil
 		}
-		if w.assignedName(sel, site.parent) {
-			b.markSetterWrite(dartPrefixedValue + prefix + "." + name)
+		if w.assignedName(sel, parent) {
+			b.markSetterWrite(base + "." + name)
 		} else {
-			b.markGetterRead(dartPrefixedValue+prefix+"."+name, loop, scaling)
+			b.markGetterRead(base+"."+name, loop, scaling)
 		}
-		return
+		return "", nil
 	}
-	if kindOf(site.next) != "selector" {
-		return
+	if kindOf(sel) != "selector" {
+		return "", nil
 	}
-	name := identifierChild(childOfKind(site.next, "unconditional_assignable_selector"), w.src)
-	after := site.next.NextNamedSibling()
+	name := identifierChild(childOfKind(sel, "unconditional_assignable_selector"), w.src)
+	after := sel.NextNamedSibling()
 	if name == "" || (kindOf(after) == "selector" && childOfKind(after, "argument_part") != nil) {
-		return
+		return name, after
 	}
-	b.markGetterRead(dartPrefixedValue+prefix+"."+name, loop, scaling)
-	if dartValuePositionAt(n, site.parent, after) {
-		b.addValueName(facts.RelNames, dartPrefixedValue+prefix+"."+name)
+	b.markGetterRead(base+"."+name, loop, scaling)
+	if dartValuePositionAt(n, parent, after) {
+		b.addValueName(facts.RelNames, base+"."+name)
 	}
-	// `p.K.sm`: a static member of the class K behind the prefix, read or torn
-	// off the same way. Invoked, it is the call scan's.
-	if !namesAType(name) || kindOf(after) != "selector" {
-		return
-	}
-	member := identifierChild(childOfKind(after, "unconditional_assignable_selector"), w.src)
-	next := after.NextNamedSibling()
-	if member == "" || (kindOf(next) == "selector" && childOfKind(next, "argument_part") != nil) {
-		return
-	}
-	static := dartPrefixedValue + prefix + "." + name + "." + member
-	b.markGetterRead(static, loop, scaling)
-	if dartValuePositionAt(n, site.parent, next) {
-		b.addValueName(facts.RelNames, static)
-	}
+	return name, after
 }
 
 // dartSite is a node's parent and next named sibling.

@@ -145,6 +145,8 @@ type fileResult struct {
 	// importURIs is what the file imports, kept so a `part` can inherit its host
 	// library's imports (see reextractParts).
 	importURIs []string
+	// importPrefixes are the file's `import ... as p` names, which a part shares too.
+	importPrefixes []string
 	// stringConsts maps `<Type>.<CONST>` to its literal, merged repo-wide so a route
 	// declared as `path: HomeScreen.routeName` resolves across files.
 	stringConsts map[string]string
@@ -164,11 +166,13 @@ type fileResult struct {
 // output) is excluded from the file list before this point.
 func reextractParts(results []fileResult, dartFiles []string, pkgs *packageIndex, read func(string) []byte) []fileResult {
 	hostImports := make(map[string][]string, len(results))
+	hostPrefixes := make(map[string][]string, len(results))
 	partHosts := map[string]string{}
 	for i, r := range results {
 		if len(r.parts) > 0 {
 			host := filepath.ToSlash(dartFiles[i])
 			hostImports[host] = r.importURIs
+			hostPrefixes[host] = r.importPrefixes
 			for _, part := range r.parts {
 				if prior, ok := partHosts[part]; ok && prior != host {
 					partHosts[part] = ""
@@ -193,7 +197,7 @@ func reextractParts(results []fileResult, dartFiles []string, pkgs *packageIndex
 		if !ok || len(imports) == 0 {
 			continue
 		}
-		results[i] = extractFile(read(dartFiles[i]), dartFiles[i], pkgs, imports)
+		results[i] = extractFileWith(read(dartFiles[i]), dartFiles[i], pkgs, imports, hostPrefixes[filepath.ToSlash(host)])
 	}
 	return results
 }
