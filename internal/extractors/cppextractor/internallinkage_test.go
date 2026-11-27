@@ -453,3 +453,33 @@ int yyparse(void) {
 		t.Errorf("yyparse calls yymsg, got %+v", mustFact(t, ff, "parser.yyparse").Relations)
 	}
 }
+
+// The calls a loop makes name the static the call edge binds to: a header's of the
+// caller's directory, a source's sharing its unit, and a prototype's definition.
+func TestCLoopCallsNameTheStaticTheEdgeBindsTo(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"lib/bits.h":  "static inline int ffs_lu(int x) { return x; }\n",
+		"lib/proto.h": "static int put_enum(int k);\n",
+		"lib/core.c":  "#include \"bits.h\"\n#include \"proto.h\"\nstatic int put_enum(int k) { return k; }\nint scan(int n) { int s = 0; for (int i = 0; i < n; i++) { s += ffs_lu(i) + put_enum(i); } return s; }\n",
+		"usb/hcd.c":   "#include \"hub.c\"\n#include \"queue.c\"\n",
+		"usb/hub.c":   "static void unlink_async(int h);\nvoid hub_scan(int n) { for (int i = 0; i < n; i++) unlink_async(i); }\n",
+		"usb/queue.c": "static void unlink_async(int h) {}\n",
+	})
+	hub := mustFact(t, ff, "usb.hub_scan")
+	if calls, _ := hub.Props["calls_in_loop"].([]string); len(calls) != 1 || calls[0] != "usb.unlink_async@queue_c" {
+		t.Errorf("the prototype's loop call names the definition, got %v", calls)
+	}
+	scan := mustFact(t, ff, "lib.scan")
+	for _, key := range []string{"calls_in_loop", "calls_in_scaling_loop"} {
+		calls, _ := scan.Props[key].([]string)
+		for _, want := range []string{"lib.ffs_lu@bits_h", "lib.put_enum@core_c"} {
+			found := false
+			for _, c := range calls {
+				found = found || c == want
+			}
+			if !found {
+				t.Errorf("%s names %s, got %v", key, want, calls)
+			}
+		}
+	}
+}

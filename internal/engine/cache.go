@@ -4216,7 +4216,8 @@ import (
 // a parameter or local (a function pointer) is no call to a function of that
 // name. A static prototype fuses with its definition through an include of an
 // include. A test ref resolves against header statics folded and prototypes fused
-// as production names them. emplace, try_emplace and emplace_hint on a map
+// as production names them. calls_in_loop and calls_in_scaling_loop name a static
+// as its call edge does. emplace, try_emplace and emplace_hint on a map
 // construct its mapped type.
 const cacheVersion = "v754"
 
