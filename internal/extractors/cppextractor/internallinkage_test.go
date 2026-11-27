@@ -321,8 +321,8 @@ func TestCStaticPrototypeStaysWithItsOwnFile(t *testing.T) {
 
 // Two headers of one directory define a static of one name, alternatives a
 // configuration picks between: they stay one declaration of the directory, as an
-// extern's alternatives do. A header's prototype of a static another header of its
-// directory defines, and includes, is that definition.
+// extern's alternatives do, and so do a header's prototype of a static and the
+// definition another header of its directory holds.
 func TestCHeaderStaticAlternativesStayFolded(t *testing.T) {
 	ff := extractProject(t, map[string]string{
 		"asm/msr.h":             "static inline void wrmsrq(int m) {}\n",
@@ -347,7 +347,7 @@ func TestCHeaderStaticAlternativesStayFolded(t *testing.T) {
 	if _, ok := findFact(ff, "mm.kmap_local_page@highmem_h"); ok {
 		t.Error("the prototype is no fact of its own")
 	}
-	if !hasRelation(mustFact(t, ff, "fs.map"), facts.RelCalls, "mm.kmap_local_page@highmem-internal_h") {
+	if !hasRelation(mustFact(t, ff, "fs.map"), facts.RelCalls, "mm.kmap_local_page") {
 		t.Errorf("map calls the definition behind the prototype, got %+v", mustFact(t, ff, "fs.map").Relations)
 	}
 }

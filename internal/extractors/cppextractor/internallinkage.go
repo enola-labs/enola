@@ -529,13 +529,15 @@ func sameUnqualified(name, base string) bool {
 // foldHeaderAlternatives names a header's static as the directory's one
 // declaration, without a file qualifier, as an extern is, when it is one of
 // several alternatives a configuration picks between: several headers of the
-// directory define it (`asm/msr.h` and `asm/paravirt.h`), or the directory also
+// directory declare it and one defines it (`asm/msr.h` and `asm/paravirt.h`, or a
+// documentation prototype beside the definition), or the directory also
 // declares it with external linkage (a `static inline` stub beside the extern a
 // configuration builds). One declaration across files stays folded; a static one
 // header of its directory alone defines keeps its qualifier.
 func foldHeaderAlternatives(allFacts []facts.Fact) {
-	defined := map[string]map[string]bool{} // unqualified name -> headers defining it
-	external := map[string]bool{}           // functions declared with external linkage
+	declared := map[string]map[string]bool{} // unqualified name -> headers declaring it
+	defined := map[string]bool{}             // unqualified names a header defines
+	external := map[string]bool{}            // functions declared with external linkage
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol {
@@ -547,14 +549,17 @@ func foldHeaderAlternatives(allFacts []facts.Fact) {
 			}
 			continue
 		}
-		if !isHeaderExt(f.File) || !f.PropBool("has_body") {
+		if !isHeaderExt(f.File) {
 			continue
 		}
 		if base, ok := splitInternal(f.Name); ok {
-			if defined[base] == nil {
-				defined[base] = map[string]bool{}
+			if declared[base] == nil {
+				declared[base] = map[string]bool{}
 			}
-			defined[base][f.File] = true
+			declared[base][f.File] = true
+			if f.PropBool("has_body") {
+				defined[base] = true
+			}
 		}
 	}
 	rename := map[string]string{}
@@ -563,7 +568,7 @@ func foldHeaderAlternatives(allFacts []facts.Fact) {
 		if f.Kind != facts.KindSymbol || !isHeaderExt(f.File) {
 			continue
 		}
-		if base, ok := splitInternal(f.Name); ok && (len(defined[base]) > 1 || external[base]) {
+		if base, ok := splitInternal(f.Name); ok && (defined[base] && len(declared[base]) > 1 || external[base]) {
 			rename[f.Name] = base
 			f.Name = base
 		}
