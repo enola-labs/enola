@@ -160,3 +160,40 @@ extension Pager where P == Void {
 		}
 	}
 }
+
+// The renamed members' names reach the props that list call targets too: a loop
+// call to a constrained-extension member names the declaration its edge binds to,
+// not the name no fact has after the rename.
+func TestSwiftConstrainedExtensionLoopCallsNameTheRenamedMember(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/Lib/Writer.swift": `
+protocol Writer {}
+extension Writer where Self: AnyObject {
+    func write(_ s: String) {}
+    func write(all: [String]) {
+        for s in all {
+            self.write(s)
+        }
+    }
+}
+`,
+	})
+	want := "Sources/Lib.Writer.write@Writer_swift"
+	found := false
+	for _, f := range ff {
+		if f.Kind != facts.KindSymbol || f.Name != want {
+			continue
+		}
+		loop, _ := f.PropAny("calls_in_loop").([]string)
+		if len(loop) == 0 {
+			continue
+		}
+		found = true
+		if !slices.Equal(loop, []string{want}) {
+			t.Errorf("%s calls_in_loop %v, want [%s]", want, loop, want)
+		}
+	}
+	if !found {
+		t.Fatalf("no %s with calls_in_loop", want)
+	}
+}

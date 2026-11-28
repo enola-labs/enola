@@ -369,3 +369,134 @@ func TestCHeaderStaticStubOfAnExternStaysFolded(t *testing.T) {
 		}
 	}
 }
+
+// A declaration with internal linkage is not visible outside its translation
+// unit, in C++ as in C: a static free function and an anonymous-namespace one are
+// not exported.
+func TestCppInternalLinkageIsNotExported(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/a.cpp": `
+static int helper() { return 1; }
+namespace { int anon_helper() { return 2; } }
+int run() { return helper() + anon_helper(); }
+`,
+	})
+	for _, name := range []string{"src.helper@a_cpp", "src.anon_helper@a_cpp"} {
+		if f := mustFact(t, ff, name); f.PropBool("exported") {
+			t.Errorf("%s has internal linkage, got exported=true", name)
+		}
+	}
+	if f := mustFact(t, ff, "src.run"); !f.PropBool("exported") {
+		t.Error("run has external linkage and stays exported")
+	}
+}
+
+// A function called through a parameter or local of the same name calls the
+// pointer it holds, not a function that happens to share the name.
+func TestCCallThroughAFunctionPointerParameterBindsNoFunction(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"lib/a.c": `
+long flush(void *b, unsigned long n) { return 0; }
+long unxz(void *buf, long (*flush)(void *, unsigned long)) { return flush(buf, 2); }
+long viaLocal(void *buf) { long (*flush)(void *, unsigned long) = 0; return flush(buf, 1); }
+long direct(void *buf) { return flush(buf, 3); }
+`,
+	})
+	for _, name := range []string{"lib.unxz", "lib.viaLocal"} {
+		if hasRelation(mustFact(t, ff, name), facts.RelCalls, "lib.flush") {
+			t.Errorf("%s calls through its own flush, not lib.flush", name)
+		}
+	}
+	if !hasRelation(mustFact(t, ff, "lib.direct"), facts.RelCalls, "lib.flush") {
+		t.Error("direct calls lib.flush")
+	}
+}
+
+// A source including a source that includes the header shares one unit with that
+// header: the header's static prototype and the outer source's definition are one
+// function, and the table referencing the prototype references the definition.
+func TestCStaticPrototypeFusesThroughATransitiveInclude(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"ac97/ac97_patch.h": "static int put_enum(int k);\nstatic const struct ops enum_ops = { .put = put_enum };\n",
+		"ac97/ac97_patch.c": "#include \"ac97_patch.h\"\n",
+		"ac97/ac97_codec.c": "#include \"ac97_patch.c\"\nstatic int put_enum(int k) { return k; }\n",
+		// A header no unit shares with the definition keeps its own prototype.
+		"ac97/other.h": "static int put_enum(int k);\n",
+	})
+	if _, ok := findFact(ff, "ac97.put_enum@ac97_patch_h"); ok {
+		t.Error("the prototype is no fact of its own")
+	}
+	if !hasRelation(mustFact(t, ff, "ac97.enum_ops@ac97_patch_h"), facts.RelCalls, "ac97.put_enum@ac97_codec_c") {
+		t.Errorf("the header's table references the definition, got %+v", mustFact(t, ff, "ac97.enum_ops@ac97_patch_h").Relations)
+	}
+	if _, ok := findFact(ff, "ac97.put_enum@other_h"); !ok {
+		t.Error("a header outside the unit keeps its prototype")
+	}
+}
+
+// A local declared under a preprocessor conditional may not exist in the
+// configuration that builds the call, so it hides no function of its name.
+func TestCLocalUnderAConditionalHidesNoFunction(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"parser/gram.c": `
+void yymsg(int level, const char *fmt);
+int yyparse(void) {
+#if YYERROR_VERBOSE
+	char *yymsg = 0;
+#endif
+	yymsg(0, "error");
+	return 0;
+}
+void (*flush_page)(int addr);
+void clear_page(int addr) {
+	extern void (*flush_page)(int addr);
+	flush_page(addr);
+}
+int active_pipe(struct dp *d) { return 0; }
+void pipe_reset(struct dp *intel_dp)
+{
+	with_pps_lock(intel_dp)
+		intel_dp->pps.active_pipe = active_pipe(intel_dp);
+}
+`,
+	})
+	if !hasRelation(mustFact(t, ff, "parser.yyparse"), facts.RelCalls, "parser.yymsg") {
+		t.Errorf("yyparse calls yymsg, got %+v", mustFact(t, ff, "parser.yyparse").Relations)
+	}
+	if !hasRelation(mustFact(t, ff, "parser.clear_page"), facts.RelCalls, "parser.flush_page") {
+		t.Errorf("a block-scope extern is the global, got %+v", mustFact(t, ff, "parser.clear_page").Relations)
+	}
+	if !hasRelation(mustFact(t, ff, "parser.pipe_reset"), facts.RelCalls, "parser.active_pipe") {
+		t.Errorf("a statement macro misread as a declaration hides nothing, got %+v", mustFact(t, ff, "parser.pipe_reset").Relations)
+	}
+}
+
+// The calls a loop makes name the static the call edge binds to: a header's of the
+// caller's directory, a source's sharing its unit, and a prototype's definition.
+func TestCLoopCallsNameTheStaticTheEdgeBindsTo(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"lib/bits.h":  "static inline int ffs_lu(int x) { return x; }\n",
+		"lib/proto.h": "static int put_enum(int k);\n",
+		"lib/core.c":  "#include \"bits.h\"\n#include \"proto.h\"\nstatic int put_enum(int k) { return k; }\nint scan(int n) { int s = 0; for (int i = 0; i < n; i++) { s += ffs_lu(i) + put_enum(i); } return s; }\n",
+		"usb/hcd.c":   "#include \"hub.c\"\n#include \"queue.c\"\n",
+		"usb/hub.c":   "static void unlink_async(int h);\nvoid hub_scan(int n) { for (int i = 0; i < n; i++) unlink_async(i); }\n",
+		"usb/queue.c": "static void unlink_async(int h) {}\n",
+	})
+	hub := mustFact(t, ff, "usb.hub_scan")
+	if calls, _ := hub.Props["calls_in_loop"].([]string); len(calls) != 1 || calls[0] != "usb.unlink_async@queue_c" {
+		t.Errorf("the prototype's loop call names the definition, got %v", calls)
+	}
+	scan := mustFact(t, ff, "lib.scan")
+	for _, key := range []string{"calls_in_loop", "calls_in_scaling_loop"} {
+		calls, _ := scan.Props[key].([]string)
+		for _, want := range []string{"lib.ffs_lu@bits_h", "lib.put_enum@core_c"} {
+			found := false
+			for _, c := range calls {
+				found = found || c == want
+			}
+			if !found {
+				t.Errorf("%s names %s, got %v", key, want, calls)
+			}
+		}
+	}
+}

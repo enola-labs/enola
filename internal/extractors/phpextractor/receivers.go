@@ -182,14 +182,22 @@ func (w *phpWalker) recordReceiverCall(call *sitter.Node, ownerIdx int, method s
 	if ownerIdx < 0 {
 		return
 	}
-	typ := w.receiverOf(call.ChildByFieldName("object"), w.localTypes)
+	obj := call.ChildByFieldName("object")
+	typ := w.receiverOf(obj, w.localTypes)
 	if typ == "" {
-		if prop := thisProperty(call.ChildByFieldName("object"), w.src); prop != "" && len(w.typeStack) > 0 {
+		if prop := thisProperty(obj, w.src); prop != "" && len(w.typeStack) > 0 {
 			// A property a parent class may type, in another file: the
 			// inherited-calls binder reads it there (facts.PropMemberCalls).
 			w.out[ownerIdx].AddPropStrings(facts.PropMemberCalls, prop+"."+method)
 		}
-		return
+		// A relation read in place, `$story->author->notify()`, holds what a local
+		// assigned it would: bindReceiverCalls reads it as eloquentResult does.
+		if kindOf(obj) == "member_access_expression" {
+			typ = w.valueType(obj, w.localTypes)
+		}
+		if typ == "" {
+			return
+		}
 	}
 	target := typ + "::" + method
 	calls, _ := w.out[ownerIdx].Props[propReceiverCalls].([]string)

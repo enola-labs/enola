@@ -466,6 +466,9 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 	bases := classBases(allFacts, types, visibility)
 	enclosing := newEnclosingLookup(allFacts, types, bases, known, visibility)
 	for i := range allFacts {
+		if allFacts[i].Kind == facts.KindSymbol {
+			resolveLoopCalls(&allFacts[i], known, functions)
+		}
 		rels := allFacts[i].Relations
 		kept := rels[:0]
 		source := sourceDir(&allFacts[i])

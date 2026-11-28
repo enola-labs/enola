@@ -1,6 +1,7 @@
 package swiftextractor
 
 import (
+	"slices"
 	"strings"
 
 	sitter "github.com/enola-labs/enola/internal/treesitter"
@@ -291,7 +292,11 @@ func (w *astWalker) noteStatedReceiverCall(typ, method string) {
 // class. A generic parameter, an associated type, Any and AnyObject are not
 // foreign: their members are a constraint's or any class's. Nor is a name any Swift
 // source declares a type of by its text (declared), so a type the parser lost keeps
-// the bare-name binding.
+// the bare-name binding. The calling member does not count as such an extension:
+// its own type's values resolve to it above, and the call of its own name on a
+// value of another framework type is that type's method (`self.publisher.assign(to:)`
+// inside `extension Signal { func assign(toCombine:) }` is Combine's assign), not a
+// call to itself.
 func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies, index *swiftIndexes, declared map[string]bool) {
 	assoc := associatedTypeSet(allFacts)
 	for i := range allFacts {
@@ -310,7 +315,7 @@ func resolveTypedCalls(allFacts []facts.Fact, hier *swiftHierarchies, index *swi
 				// type is foreign and only classes and structs of the repository
 				// declare the name.
 				foreign := len(ix.owners[n.typ]) == 0 && !declared[n.typ] && !assoc[n.typ] && !anyType[n.typ]
-				if target == "" && foreign && len(ix.openMethods(n.method)) == 0 {
+				if target == "" && foreign && !slices.ContainsFunc(ix.openMethods(n.method), func(m string) bool { return m != f.Name }) {
 					continue
 				}
 				if !f.HasRelation(facts.RelCalls, n.method) {
@@ -441,10 +446,14 @@ func chainMembers(node *sitter.Node, src []byte) []string {
 // the calling file sees (scope.go). A chain that reaches the repository gets the
 // bare edge, for resolveTypedCalls and resolveMethodCalls to bind as any member
 // call. Any other binds among openCandidates: one is bound, several stay bare, none
-// gets no edge. A file's top-level fact left with no edge is dropped, as the walker
-// drops one whose statements call nothing.
-func resolveRootedCalls(allFacts []facts.Fact, index *swiftIndexes) []facts.Fact {
+// gets no edge. A call on the type itself binds no member of a protocol the
+// repository declares and does not make the type conform to (staticCandidates); a
+// type, generic parameter or associated type any source declares is not taken for
+// a framework type there. A file's top-level fact left with no edge is dropped, as
+// the walker drops one whose statements call nothing.
+func resolveRootedCalls(allFacts []facts.Fact, index *swiftIndexes, pre swiftPrescan) []facts.Fact {
 	var empty map[int]bool
+	assoc := associatedTypeSet(allFacts)
 	for i := range allFacts {
 		f := &allFacts[i]
 		notes, ok := f.PropAny(propRootedCalls).([]swiftRootedCall)
@@ -456,7 +465,11 @@ func resolveRootedCalls(allFacts []facts.Fact, index *swiftIndexes) []facts.Fact
 		for _, n := range notes {
 			target := n.method
 			if !ix.reachesRepo(n.root, n.via) {
-				switch open := ix.openCandidates(n.method); len(open) {
+				open := ix.openCandidates(n.method)
+				if len(n.via) == 0 && !pre.declared[n.root] && !pre.generics[n.root] && !assoc[n.root] {
+					open = ix.staticCandidates(n.root, n.method)
+				}
+				switch len(open) {
 				case 0:
 					continue
 				case 1:

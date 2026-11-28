@@ -22,19 +22,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	tsRoot, _ := findTSRoot(repoPath)
 	fw, isPrisma := detectTSFrameworks(repoPath, tsRoot, files)
 
-	// Parse tsconfig.json path aliases, one root per package for monorepos.
-	aliasRoots := collectTSAliasRoots(repoPath)
-	// SvelteKit maps $lib by convention and may declare literal aliases in its
-	// config even before `svelte-kit sync` has generated a tsconfig.
-	if fw.isSvelteKit {
-		aliasRoots = withSvelteKitAliasFallbacks(repoPath, aliasRoots)
-	} else if len(fw.svelteKitDirs) > 0 {
-		aliasRoots = withSvelteKitPackageAliasFallbacks(repoPath, aliasRoots, fw.svelteKitDirs)
-	}
-	// Workspace members are imported by package name. Added after every configured
-	// alias, so a tsconfig or bundler mapping of the same name still wins.
-	aliasRoots = withWorkspacePackages(repoPath, aliasRoots)
-
+	aliasRoots := repoAliasRoots(repoPath, fw)
 	tsFiles, htmlFiles, knownFiles := partitionTSFiles(files, fw.isAngular)
 	bindAliasFiles(aliasRoots, knownFiles)
 	sources := readTSSources(ctx, repoPath, tsFiles)
@@ -50,7 +38,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	a.compose(repoPath, rc, templates)
 	a.facts = bindTailwind(a.facts, tailwindTokens(repoPath, files, plugin.DiskReader(ctx)), repoPath, files, tsFiles, sources)
 	a.facts = append(a.facts, e.viteHTMLFacts(ctx, repoPath, files, aliasRoots, rc)...)
-	bindNamespaceLookups(a.facts)
+	bindNamespaceLookups(a.facts, rc.stars)
 	a.facts = mergeFileRefs(a.facts)
 	a.facts = append(a.facts, a.coverageFacts(repoPath)...)
 
@@ -66,6 +54,34 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	}
 	a.facts = append(a.facts, moduleFacts(repoPath, a.modules, pkgNames, publishedPkgs, fw.isAngular, packageDocs(tsFiles, sources))...)
 	return a.facts, nil
+}
+
+// repoAliasRoots builds the import aliases of a repository, one root per package
+// for monorepos. The production and the test-ref pass both resolve through it, so
+// one import resolves the same way in both.
+func repoAliasRoots(repoPath string, fw tsFrameworks) []tsAliasRoot {
+	aliasRoots := collectTSAliasRoots(repoPath)
+	// SvelteKit maps $lib by convention and may declare literal aliases in its
+	// config even before `svelte-kit sync` has generated a tsconfig.
+	if fw.isSvelteKit {
+		aliasRoots = withSvelteKitAliasFallbacks(repoPath, aliasRoots)
+	} else if len(fw.svelteKitDirs) > 0 {
+		aliasRoots = withSvelteKitPackageAliasFallbacks(repoPath, aliasRoots, fw.svelteKitDirs)
+	}
+	// Workspace members are imported by package name. Added after every configured
+	// alias, so a tsconfig or bundler mapping of the same name still wins.
+	return withWorkspacePackages(repoPath, aliasRoots)
+}
+
+// svelteKitFrameworks reads only what repoAliasRoots needs: whether the repository,
+// or else which of its packages, is a SvelteKit app.
+func svelteKitFrameworks(repoPath string) tsFrameworks {
+	tsRoot, _ := findTSRoot(repoPath)
+	fw := tsFrameworks{isSvelteKit: detectSvelteKitRoot(repoPath, tsRoot)}
+	if !fw.isSvelteKit {
+		fw.svelteKitDirs = frameworkPackageDirs(repoPath, frameworkApp{isSvelteKitMarker, detectSvelteKitAt})[0]
+	}
+	return fw
 }
 
 func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, bool) {
@@ -159,8 +175,9 @@ func newRepoCtx(fw tsFrameworks, tsFiles []string, sources map[string][]byte, kn
 		// Exported request helpers, read before the parallel pass for the same reason:
 		// a helper and the calls to it live in different files.
 		requestHelpers: buildRequestHelperIndex(tsFiles, sources),
-		barrels:        barrelExports(tsFiles, func(f string) []byte { return sources[f] }, knownFiles),
+		stars:          newStarExports(tsFiles, func(f string) []byte { return sources[f] }, knownFiles),
 	}
+	rc.barrels = rc.stars.barrels(tsFiles)
 	if fw.isNuxt {
 		rc.nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)
 	}

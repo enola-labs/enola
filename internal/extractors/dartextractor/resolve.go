@@ -41,6 +41,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			}
 		}
 		var resolved []string
+		// alsoCalls holds the further alternatives of a call that one conditional
+		// import's files each declare; the call's own edge goes to the first.
+		var alsoCalls map[string][]string
 		for j, rel := range f.Relations {
 			if rel.Kind != facts.RelCalls {
 				continue
@@ -49,6 +52,17 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				resolved = make([]string, len(f.Relations))
 			}
 			target := r.call(rel.Target, f, implicit[rel.Target], instances[rel.Target], nil)
+			if target == rel.Target && !instances[rel.Target] {
+				if alternatives := r.conditionalTargets(rel.Target, f); len(alternatives) > 0 {
+					target = alternatives[0].Name
+					for _, alt := range alternatives[1:] {
+						if alsoCalls == nil {
+							alsoCalls = map[string][]string{}
+						}
+						alsoCalls[target] = append(alsoCalls[target], alt.Name)
+					}
+				}
+			}
 			resolved[j] = target
 			if ctor := r.members[target].fact; ctor != nil && ctor.PropBool("constructor") {
 				if typ := r.lexicalOwner(ctor); typ != nil {
@@ -67,9 +81,9 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				if typ := r.typeNamed(rel.Target, f.File); typ != nil {
 					rel.Target = typ.Name
 				} else {
-					// A construction through a prefix that binds nothing keeps the
-					// bare class name, as before prefixes were kept.
-					if prefix, short, ok := strings.Cut(rel.Target, "."); ok && rel.Kind == facts.RelInstantiates && r.importPrefix(prefix, f.File) {
+					// A construction or parameter type through a prefix that binds
+					// nothing keeps the bare class name, as before prefixes were kept.
+					if prefix, short, ok := strings.Cut(rel.Target, "."); ok && rel.Kind != facts.RelImplements && r.importPrefix(prefix, f.File) {
 						rel.Target = short
 					}
 					if len(r.canonicalTypes[rel.Target]) > 0 {
@@ -117,6 +131,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			}
 		}
 		rewriteDartCallMetrics(f, replacements)
+		addAlternativeCalls(f, alsoCalls)
 		for _, built := range builds {
 			if rel := (facts.Relation{Kind: facts.RelInstantiates, Target: built}); !slices.Contains(f.Relations, rel) {
 				f.Relations = append(f.Relations, rel)
@@ -130,43 +145,66 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			sort.Strings(candidates)
 			for _, candidate := range candidates {
 				read := reads[candidate]
-				target := r.valueTarget(candidate, f, constructed)
-				entry := r.members[target]
-				if entry.fact == nil || entry.fact.PropString("accessor") != "getter" {
-					continue
+				targets := []*facts.Fact{r.members[r.valueTarget(candidate, f, constructed)].fact}
+				if targets[0] == nil || targets[0].PropString("accessor") != "getter" {
+					targets = r.conditionalTargets(candidate, f)
 				}
-				if !strings.Contains(candidate, ".") && entry.fact.File != f.File && !r.libraryValueVisible(candidate, entry.fact, f) {
-					continue
-				}
-				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
-				if read.Loop {
-					calls, _ := f.Props["calls_in_loop"].([]string)
-					f.Props["calls_in_loop"] = append(calls, target)
-				}
-				if read.Scaling {
-					calls, _ := f.Props["calls_in_scaling_loop"].([]string)
-					f.Props["calls_in_scaling_loop"] = append(calls, target)
+				for _, getter := range targets {
+					if getter.PropString("accessor") != "getter" {
+						continue
+					}
+					if !strings.Contains(candidate, ".") && getter.File != f.File && !r.libraryValueVisible(candidate, getter, f) {
+						continue
+					}
+					target := getter.Name
+					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
+					if read.Loop {
+						calls, _ := f.Props["calls_in_loop"].([]string)
+						f.Props["calls_in_loop"] = append(calls, target)
+					}
+					if read.Scaling {
+						calls, _ := f.Props["calls_in_scaling_loop"].([]string)
+						f.Props["calls_in_scaling_loop"] = append(calls, target)
+					}
 				}
 			}
 		}
 		if names, ok := f.Props["_dart_value_names"].([]string); ok {
 			for _, use := range names {
 				kind, name, _ := strings.Cut(use, ":")
-				fn := r.members[r.valueTarget(name, f, nil)].fact
-				// A static method torn off through its class (`p.K.sm`) is a method.
-				callable := fn != nil && (fn.PropString("symbol_kind") == facts.SymbolFunc || (fn.PropString("symbol_kind") == facts.SymbolMethod && fn.PropBool("static")))
-				if !callable || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
-					continue
+				targets := []*facts.Fact{r.members[r.valueTarget(name, f, nil)].fact}
+				if targets[0] == nil {
+					targets = r.conditionalTargets(name, f)
 				}
-				if rel := (facts.Relation{Kind: kind, Target: fn.Name}); !slices.Contains(f.Relations, rel) {
-					f.Relations = append(f.Relations, rel)
+				for _, fn := range targets {
+					// A static method torn off through its class (`p.K.sm`) is a method.
+					callable := fn != nil && (fn.PropString("symbol_kind") == facts.SymbolFunc || (fn.PropString("symbol_kind") == facts.SymbolMethod && fn.PropBool("static")))
+					if !callable || fn.PropString("accessor") != "" || !r.libraryValueVisible(name, fn, f) {
+						continue
+					}
+					if rel := (facts.Relation{Kind: kind, Target: fn.Name}); !slices.Contains(f.Relations, rel) {
+						f.Relations = append(f.Relations, rel)
+					}
 				}
 			}
 		}
 		delete(f.Props, "_dart_value_names")
 		if writes, ok := f.Props["_dart_setter_writes"].([]string); ok {
 			for _, name := range writes {
-				if target := r.setterWrite(name, f); target != "" {
+				targets := []string{r.setterWrite(name, f)}
+				if targets[0] == "" && !dartStaticSpelling(name) && !strings.HasPrefix(name, "this.") {
+					targets = nil
+					for _, fn := range r.conditionalTargets(name, f) {
+						// Top-level setters have no symbol; the getter stands for its pair.
+						if fn.PropString("symbol_kind") == facts.SymbolFunc && fn.PropString("accessor") != "" && r.libraryValueVisible(name, fn, f) {
+							targets = append(targets, fn.Name)
+						}
+					}
+				}
+				for _, target := range targets {
+					if target == "" {
+						continue
+					}
 					if rel := (facts.Relation{Kind: facts.RelCalls, Target: target}); !slices.Contains(f.Relations, rel) {
 						f.Relations = append(f.Relations, rel)
 					}
@@ -241,6 +279,35 @@ func recordInheritedCall(r *dartMemberResolver, f *facts.Fact, spelled, target s
 	}
 	if typ != nil && typ.Name != target[:tdot] {
 		f.AddInheritedCalls(typ.Name + spelled[dot:])
+	}
+}
+
+// addAlternativeCalls gives a call bound to the first of a conditional
+// import's alternatives an edge to each further one, and counts those in the
+// loop metrics wherever the first is counted.
+func addAlternativeCalls(f *facts.Fact, also map[string][]string) {
+	if len(also) == 0 {
+		return
+	}
+	firsts := make([]string, 0, len(also))
+	for first := range also {
+		firsts = append(firsts, first)
+	}
+	sort.Strings(firsts)
+	for _, first := range firsts {
+		for _, alt := range also[first] {
+			if rel := (facts.Relation{Kind: facts.RelCalls, Target: alt}); !slices.Contains(f.Relations, rel) {
+				f.Relations = append(f.Relations, rel)
+			}
+		}
+	}
+	for _, prop := range []string{"calls_in_loop", "calls_in_scaling_loop", "io_calls"} {
+		if calls, ok := f.Props[prop].([]string); ok {
+			for _, call := range calls {
+				calls = append(calls, also[call]...)
+			}
+			f.Props[prop] = calls
+		}
 	}
 }
 
@@ -484,19 +551,18 @@ func disambiguateDartGetters(all []facts.Fact) {
 // valueTarget resolves a name read, written or torn off outside a call.
 // `p.name` spelled through an import prefix binds through the library's imports
 // under that prefix alone, as a prefixed call does, and like a bare name never
-// to a bundled SDK signature; `p.K.sm` binds to a static member K itself
-// declares, the class found the same way. Anything else resolves as a call.
+// to a bundled SDK signature; `p.K.sm` and `K.sm` bind to a static member K
+// itself declares, the class found through the prefix or as the library sees
+// it. Anything else resolves as a call.
 func (r *dartMemberResolver) valueTarget(spelled string, from *facts.Fact, constructed map[string]*facts.Fact) string {
+	if qualified, ok := strings.CutPrefix(spelled, dartStaticValue); ok {
+		class, member, _ := strings.Cut(qualified, ".")
+		return r.staticMember(class, member, from)
+	}
 	if qualified, ok := strings.CutPrefix(spelled, dartPrefixedValue); ok {
 		prefix, name, _ := strings.Cut(qualified, ".")
 		if class, member, static := strings.Cut(name, "."); static {
-			// Static members are not inherited: K's own declaration or nothing.
-			if typ := r.typeNamed(prefix+"."+class, from.File); typ != nil && !r.sdkHosts[r.libraryFile(typ.File)] {
-				if entry := r.members[typ.Name+"."+member]; entry.fact != nil && entry.fact.PropBool("static") && r.sameDartLibrary(entry.fact, typ) {
-					return entry.fact.Name
-				}
-			}
-			return ""
+			return r.staticMember(prefix+"."+class, member, from)
 		}
 		if r.importPrefix(prefix, from.File) {
 			if fn := uniqueDartFact(r.importedFunctions(prefix, name, from.File)); fn != nil && !r.sdkHosts[r.libraryFile(fn.File)] {
@@ -506,6 +572,28 @@ func (r *dartMemberResolver) valueTarget(spelled string, from *facts.Fact, const
 		return ""
 	}
 	return r.call(spelled, from, false, true, constructed)
+}
+
+// staticMember is the static member a class of the repository the reading
+// library sees by the spelling class declares itself: static members are not
+// inherited, so K's own declaration or nothing.
+func (r *dartMemberResolver) staticMember(class, member string, from *facts.Fact) string {
+	if typ := r.typeNamed(class, from.File); typ != nil && !r.sdkHosts[r.libraryFile(typ.File)] {
+		if entry := r.members[typ.Name+"."+member]; entry.fact != nil && entry.fact.PropBool("static") && r.sameDartLibrary(entry.fact, typ) {
+			return entry.fact.Name
+		}
+	}
+	return ""
+}
+
+// dartStaticSpelling reports a value spelled as a class's static member,
+// `K.x` or `p.K.x`.
+func dartStaticSpelling(spelled string) bool {
+	if strings.HasPrefix(spelled, dartStaticValue) {
+		return true
+	}
+	qualified, ok := strings.CutPrefix(spelled, dartPrefixedValue)
+	return ok && strings.Count(qualified, ".") == 2
 }
 
 // importPrefix reports an `as` prefix of an import of file's library.
@@ -548,6 +636,13 @@ func (r *dartMemberResolver) setterWrite(spelled string, from *facts.Fact) strin
 		// Top-level setters emit no symbol of their own, so a written top-level
 		// getter name stands for its setter: a getter alone cannot be assigned.
 		target := r.valueTarget(name, from, nil)
+		if dartStaticSpelling(name) {
+			// A static setter, alone or beside its getter; a static field runs nothing.
+			if entry := r.members[target]; dartHasSetter(entry) {
+				return entry.fact.Name
+			}
+			return ""
+		}
 		if entry := r.members[target]; entry.fact != nil && entry.fact.PropString("symbol_kind") == facts.SymbolFunc && entry.fact.PropString("accessor") != "" {
 			if entry.fact.File == from.File || r.libraryValueVisible(name, entry.fact, from) {
 				return entry.fact.Name

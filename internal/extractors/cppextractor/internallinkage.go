@@ -67,8 +67,10 @@ func splitInternal(name string) (base string, ok bool) {
 // internal (the names the walker saw declared with internal linkage) to its
 // file-qualified identity, and points every reference the file makes to one of
 // them at the new name. A static is callable only from its own translation unit,
-// so binding the file's own references to it is exact.
-func qualifyInternals(out []facts.Fact, internal map[string]bool, relFile, dir string) {
+// so binding the file's own references to it is exact. With hidden, the renamed
+// declarations have internal linkage and are not exported; a `main` of one of
+// several programs keeps external linkage.
+func qualifyInternals(out []facts.Fact, internal map[string]bool, relFile, dir string, hidden bool) {
 	if len(internal) == 0 {
 		return
 	}
@@ -161,6 +163,9 @@ func qualifyInternals(out []facts.Fact, internal map[string]bool, relFile, dir s
 		if f.Kind == facts.KindSymbol {
 			if n, ok := rename[f.Name]; ok {
 				f.Name = n
+				if hidden {
+					f.SetProp("exported", false)
+				}
 			}
 		}
 		for j := range f.Relations {
@@ -247,7 +252,7 @@ func qualifyMains(perFileFacts [][]facts.Fact, files []string) {
 			continue
 		}
 		for _, i := range idx {
-			qualifyInternals(perFileFacts[i], map[string]bool{dir + ".main": true}, files[i], dir)
+			qualifyInternals(perFileFacts[i], map[string]bool{dir + ".main": true}, files[i], dir, false)
 		}
 	}
 }
@@ -434,12 +439,23 @@ func (idx internalIndex) sharer(decls []internalDecl, file string, includedSourc
 // it fuses an extern prototype with its definition.
 func fuseStaticPrototypes(allFacts []facts.Fact) {
 	includes := map[string]map[string]bool{}
-	includers := map[string][]string{} // base name -> files including it
-	defs := map[string][]int{}         // leaf -> definitions
+	includers := map[string][]string{}  // base name -> files including it
+	includedBy := map[string][]string{} // file -> files whose quoted include resolves to it
+	files := map[string]bool{}
+	defs := map[string][]int{} // leaf -> definitions
+	for i := range allFacts {
+		if f := &allFacts[i]; f.File != "" {
+			files[f.File] = true
+		}
+	}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency && f.PropString("include_style") == "quoted" {
-			inc := path.Base(strings.ReplaceAll(f.PropString("include"), "\\", "/"))
+			written := strings.ReplaceAll(f.PropString("include"), "\\", "/")
+			if joined := path.Join(path.Dir(f.File), written); files[joined] {
+				includedBy[joined] = append(includedBy[joined], f.File)
+			}
+			inc := path.Base(written)
 			if includes[f.File] == nil {
 				includes[f.File] = map[string]bool{}
 			}
@@ -466,6 +482,13 @@ func fuseStaticPrototypes(allFacts []facts.Fact) {
 		}
 		for _, c := range includers[ba] {
 			if includes[c][bb] {
+				return true
+			}
+		}
+		// Through an include of an include: a file that includes both, at any depth.
+		roots := unitRoots(a, includedBy)
+		for r := range unitRoots(b, includedBy) {
+			if roots[r] {
 				return true
 			}
 		}
@@ -514,7 +537,62 @@ func fuseStaticPrototypes(allFacts []facts.Fact) {
 				allFacts[i].Relations[j].Target = n
 			}
 		}
+		renameLoopCalls(&allFacts[i], func(c string) string { return rename[c] })
 	}
+}
+
+// loopCallProps are the props listing, by name, the calls a function makes in
+// a loop; they name a callee as its call edge does.
+var loopCallProps = [...]string{"calls_in_loop", "calls_in_scaling_loop"}
+
+// renameLoopCalls rewrites, in place, each loop call of f that to maps to a name.
+func renameLoopCalls(f *facts.Fact, to func(string) string) {
+	for _, key := range loopCallProps {
+		calls, ok := f.Props[key].([]string)
+		if !ok {
+			continue
+		}
+		for j, c := range calls {
+			if n := to(c); n != "" {
+				calls[j] = n
+			}
+		}
+	}
+}
+
+// resolveLoopCalls names each loop call of f that its own file does not declare
+// as the internal declaration its call edge binds to (internalIndex.resolve), and
+// leaves an unknown or ambiguous one as written.
+func resolveLoopCalls(f *facts.Fact, known map[string]bool, functions functionNames) {
+	renameLoopCalls(f, func(c string) string {
+		if known[c] {
+			return ""
+		}
+		return functions.internals.resolve(f, c, functions.includedSources)
+	})
+}
+
+// maxUnitRoots bounds the walk up the include graph from one file: a header many
+// units include is shared by all of them, and the first few already decide.
+const maxUnitRoots = 512
+
+// unitRoots is file and every file that includes it, directly or through other
+// includes, following quoted includes that name a file of the snapshot by their
+// path from the including file.
+func unitRoots(file string, includedBy map[string][]string) map[string]bool {
+	seen := map[string]bool{file: true}
+	queue := []string{file}
+	for len(queue) > 0 && len(seen) < maxUnitRoots {
+		f := queue[0]
+		queue = queue[1:]
+		for _, by := range includedBy[f] {
+			if !seen[by] {
+				seen[by] = true
+				queue = append(queue, by)
+			}
+		}
+	}
+	return seen
 }
 
 // sameUnqualified reports whether name, less its file qualifier and directory,
@@ -582,14 +660,6 @@ func foldHeaderAlternatives(allFacts []facts.Fact) {
 				allFacts[i].Relations[j].Target = n
 			}
 		}
-		for _, key := range [...]string{"calls_in_loop", "calls_in_scaling_loop"} {
-			if calls, ok := allFacts[i].Props[key].([]string); ok {
-				for j, c := range calls {
-					if n, ok := rename[c]; ok {
-						calls[j] = n
-					}
-				}
-			}
-		}
+		renameLoopCalls(&allFacts[i], func(c string) string { return rename[c] })
 	}
 }

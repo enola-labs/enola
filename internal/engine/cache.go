@@ -4187,7 +4187,46 @@ import (
 // else its file, else the only one; none when the name leaves it ambiguous. Beside
 // a member of the same name the type or a plain extension declares, the constrained
 // ones are overloads and the edge stays on the plain one.
-const cacheVersion = "v750"
+// v751: Dart: `K.x` through a bare class name, read, torn off or assigned, binds to
+// a static member K itself declares, as `p.K.x` does through a prefix, and a plain
+// write of either form calls a static setter K declares; a part file walked with its
+// library's imports also has the library's `as` prefixes, so `p.Foo()` there builds
+// the class behind p; a parameter type spelled `p.Foo` injects the class behind p
+// (an unresolved one keeps the bare name); a top-level name read, called, torn off or
+// assigned through one conditional import (or a plain import of a library that
+// conditionally re-exports it), which each of its files declares once, gets an edge
+// to each of them rather than none.
+// v752: TS/JS: any module that re-exports is a barrel, not only a folder index: a
+// name it passes on from another directory binds to its declaration unless a file
+// of its folder declares the name, an index's entry wins, and two such modules of a
+// folder disagreeing leave the name as written. A re-export written with a `.js`
+// specifier for a `.ts` file is followed. A names edge to a barrel name is
+// rewritten like a call. A namespace module looked up by a dynamic key marks the
+// declarations it re-exports reached_dynamically, and `keyof typeof` uses them.
+// The test-ref pass resolves imports with the SvelteKit alias fallbacks too.
+// v753: PHP: an untyped method parameter is the class every call site of its method
+// passes, when each site of the name has a receiver of known type and each one
+// naming the method passes the same class there (no default, no assignment, no
+// callable array, parent:: call, spread or named argument, not a route or hook
+// handler); a relation read and a call on it bind as on a query result. A call on a
+// relation read in place (`$story->author->foo()`) binds as through a local. A
+// declared-return chain is read 12 marks deep by both walks, not 8 by one.
+// v754: C/C++: a declaration named for its file for internal linkage is not
+// exported, in C++ as in C. A bare call to a name the calling function declares as
+// a parameter or local (a function pointer) is no call to a function of that
+// name. A static prototype fuses with its definition through an include of an
+// include. A test ref resolves against header statics folded and prototypes fused
+// as production names them. calls_in_loop and calls_in_scaling_loop name a static
+// as its call edge does. emplace, try_emplace and emplace_hint on a map
+// construct its mapped type.
+// v755: Swift: the loop calls and function values a member lists name a
+// constrained-extension member by the file-qualified name its edge binds to. A call
+// on a value of a framework type binds no member of its own name when the calling
+// member is the only extension declaring it. A call on a type the repository does
+// not declare (`JSONSerialization.data(...)`, not a generic parameter or associated
+// type) binds no member of a protocol the repository declares unless the repository
+// makes that type conform to it.
+const cacheVersion = "v755"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

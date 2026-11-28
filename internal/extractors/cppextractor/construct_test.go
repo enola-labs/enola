@@ -345,3 +345,32 @@ func TestCppEmplaceInstantiatesElementType(t *testing.T) {
 		t.Errorf("a local hides the member of its name, got %+v", shadow.Relations)
 	}
 }
+
+// emplace, try_emplace and emplace_hint on a map construct its mapped type, the
+// second type argument, for a local and a member alike.
+func TestCppEmplaceOnAMapInstantiatesTheMappedType(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/a.cpp": `#include <map>
+#include <unordered_map>
+struct Key { Key(int) {} };
+struct Foo { Foo(int) {} };
+struct Bar { Bar(int) {} };
+struct Baz { Baz(int) {} };
+struct H {
+	std::map<Key, Foo> m;
+	void f() { m.emplace(1, 2); }
+	void g() { std::unordered_map<int, Bar> u; u.try_emplace(1, 3); }
+	void h(std::multimap<int, Baz> &mm) { mm.emplace_hint(mm.end(), 1, 4); }
+};
+`,
+	})
+	for name, want := range map[string]string{"src.H::f": "src.Foo", "src.H::g": "src.Bar", "src.H::h": "src.Baz"} {
+		f := mustFact(t, ff, name)
+		if !hasRelation(f, facts.RelInstantiates, want) {
+			t.Errorf("%s should instantiate %s, got %+v", name, want, f.Relations)
+		}
+		if hasRelation(f, facts.RelInstantiates, "src.Key") {
+			t.Errorf("%s constructs the mapped type, not the key", name)
+		}
+	}
+}

@@ -1,5 +1,5 @@
 {
-  "cache_version": "v750",
+  "cache_version": "v755",
   "goldens": {
     "ansible_sample": {
       "input": "8a603c579ac747cd39c8d553c4d33b4d6a2597be9829f329341b586a21f758dc",
@@ -15,7 +15,7 @@
     },
     "cpp_sample": {
       "input": "370357241d989ca75576ea433648a0c43092313e6d5e93b5ea434dd48a76df99",
-      "facts": "76e8ff2040de658c721e7a08efbda547ea483d38f7bc55422c99348b27c15c8c"
+      "facts": "3f0da01eedfaa81254c3055bb42e5cd6be12bc25310f9c5ec99d85ebce02979e"
     },
     "csharp_aspnet_sample": {
       "input": "467221a64b08a8f6c1ebf7bdf464b162cd52e1b05083d147872b3897a30ec2d4",

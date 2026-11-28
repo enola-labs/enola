@@ -104,6 +104,12 @@ func (tp *testPass) resolve(ctx context.Context, repoPath string, prod []facts.F
 	})
 
 	joint := resolutionView(prod)
+	// The production pass names a header static's alternatives as one declaration
+	// of its directory and fuses a static prototype with its definition before it
+	// resolves; the view is named the same, or a test ref names a fact production
+	// does not have, or none where two names make the short name ambiguous.
+	foldHeaderAlternatives(joint)
+	fuseStaticPrototypes(joint)
 	moduleRefs := map[string][]facts.Relation{}
 	dirLang := map[string]string{}
 	for i, fileFacts := range perFile {

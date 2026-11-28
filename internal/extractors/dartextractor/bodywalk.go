@@ -195,6 +195,7 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		}
 		w.recordUnboundValue(n, site, name, b.shadows, b, loopDepth, scalingDepth)
 		w.recordPrefixedValue(n, site, name, b.shadows, b, loopDepth, scalingDepth)
+		w.recordStaticValue(n, site, name, b.shadows, b, loopDepth, scalingDepth)
 	}
 
 	// The call scan and recursive walk inspect the same immutable sibling list.

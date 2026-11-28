@@ -355,3 +355,38 @@ extension Keyed {
 		}
 	}
 }
+
+// A call on a value of a framework type is no call to the calling member itself,
+// when that member's extension of another framework type is the only open
+// declaration of the name: `self.combinePublisher.assign(to:)` inside
+// `extension Signal { func assign(toCombine:) }` calls Combine's assign.
+func TestSwiftCallOnAForeignTypedReceiverDoesNotBindToItself(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/App/Signal+Combine.swift": `
+import Combine
+import ReactiveSwift
+
+extension Signal {
+    var combinePublisher: AnyPublisher<Value, Never> { fatalError() }
+
+    func assign(toCombine published: inout Published<Value>.Publisher) {
+        self.combinePublisher.assign(to: &published)
+    }
+}
+
+extension Property {
+    func observe(_ other: Property<Int>) {
+        let next: Property = other
+        next.observe(other)
+    }
+}
+`,
+	})
+	if got := swCalls(t, ff, "Sources/App.Signal.assign"); slices.Contains(got, "Sources/App.Signal.assign") || slices.Contains(got, "assign") {
+		t.Errorf("Signal.assign calls %v, want no call to itself", got)
+	}
+	// A value of the extended type itself still reaches the member.
+	if got := swCalls(t, ff, "Sources/App.Property.observe"); !slices.Contains(got, "Sources/App.Property.observe") {
+		t.Errorf("Property.observe calls %v, want Sources/App.Property.observe", got)
+	}
+}

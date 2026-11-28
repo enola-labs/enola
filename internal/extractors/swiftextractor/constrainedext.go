@@ -1,6 +1,7 @@
 package swiftextractor
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -127,20 +128,53 @@ func fileQualifyConstrainedMembers(allFacts []facts.Fact) {
 	}
 	for i := range allFacts {
 		f := &allFacts[i]
-		if len(f.Relations) == 0 {
+		if len(f.Relations) > 0 {
+			rels := f.Relations[:0]
+			for _, r := range f.Relations {
+				if ds, ok := decls[r.Target]; ok {
+					r.Target = pickConstrainedDecl(ds, f)
+					if r.Target == "" {
+						continue
+					}
+				}
+				rels = append(rels, r)
+			}
+			f.Relations = rels
+		}
+		renameTargetProps(f, decls)
+	}
+}
+
+// renameTargetProps moves the call targets the walk listed in props to the
+// declaration the edge binds to. A loop call the name leaves ambiguous stays as
+// written, a call like any other the graph cannot bind; a value_refs entry mirrors
+// an edge, so it goes when the edge does.
+func renameTargetProps(f *facts.Fact, decls map[string][]constrainedDecl) {
+	for _, key := range []string{"calls_in_loop", propValueRefs} {
+		list, ok := f.PropAny(key).([]string)
+		if !ok || !slices.ContainsFunc(list, func(t string) bool { _, ok := decls[t]; return ok }) {
 			continue
 		}
-		rels := f.Relations[:0]
-		for _, r := range f.Relations {
-			if ds, ok := decls[r.Target]; ok {
-				r.Target = pickConstrainedDecl(ds, f)
-				if r.Target == "" {
+		out := make([]string, 0, len(list))
+		for _, t := range list {
+			if ds, ok := decls[t]; ok {
+				name := pickConstrainedDecl(ds, f)
+				switch {
+				case name != "":
+					t = name
+				case key == propValueRefs:
 					continue
 				}
 			}
-			rels = append(rels, r)
+			if !slices.Contains(out, t) {
+				out = append(out, t)
+			}
 		}
-		f.Relations = rels
+		if len(out) == 0 {
+			f.DelProp(key)
+			continue
+		}
+		f.SetProp(key, out)
 	}
 }
 

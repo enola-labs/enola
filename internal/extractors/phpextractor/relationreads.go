@@ -198,10 +198,12 @@ func isIdentifier(s string) bool {
 // The resolver is returned for bindReceiverCalls, which reads query results the same
 // way; its class index is nil when no relation is declared.
 func bindRelationReads(allFacts []facts.Fact) relationResolver {
-	r := relationResolver{relations: map[string]string{}, toMany: map[string]bool{}, returns: map[string]string{}, models: map[string]bool{}}
+	r := relationResolver{relations: map[string]string{}, toMany: map[string]bool{}, returns: map[string]string{}, models: map[string]bool{},
+		params: newParamSites()}
 	reads := false
 	for i := range allFacts {
 		f := &allFacts[i]
+		r.params.note(f)
 		if f.Props == nil {
 			continue
 		}
@@ -281,6 +283,8 @@ type relationResolver struct {
 	// returns maps a method to the class its return type declares.
 	returns map[string]string
 	models  map[string]bool
+	// params types an untyped parameter by its callers (paramcallers.go).
+	params *paramSites
 }
 
 // toManyRelations are the relation builders whose property is a collection.
@@ -357,7 +361,7 @@ var (
 //
 // Anything else is "".
 func (r relationResolver) eloquentResult(t string, depth int) (string, resultKind) {
-	if depth > 12 {
+	if depth > maxMarkDepth {
 		return "", ofModel
 	}
 	if inner, ok := strings.CutSuffix(t, elementMark); ok {
@@ -372,6 +376,8 @@ func (r relationResolver) eloquentResult(t string, depth int) (string, resultKin
 		mark = callMark
 	case strings.HasSuffix(t, readMark):
 		mark = readMark
+	case strings.HasPrefix(t, paramMark):
+		return r.paramType(t, depth+1), ofModel
 	default:
 		return t, ofModel
 	}
